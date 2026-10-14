@@ -26,20 +26,25 @@ export interface LoginScreenProps {
 export function LoginScreen({ tokenManager, onLoginSuccess }: LoginScreenProps) {
   const auth = tokenManager ?? getTokenManager();
   const [email, setEmail] = useState('');
+  const [tenantId, setTenantId] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleLogin() {
     if (submitting) return;
-    if (email.trim().length === 0 || password.length === 0) {
-      setError('Enter your email and password.');
+    if (email.trim().length === 0 || password.length === 0 || tenantId.trim().length === 0) {
+      setError('Enter your tenant ID, email and password.');
+      return;
+    }
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(tenantId.trim())) {
+      setError('Enter a valid tenant ID (UUID).');
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      await auth.login(email.trim(), password);
+      await auth.login(email.trim(), password, tenantId.trim());
       onLoginSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed. Try again.');
@@ -53,6 +58,17 @@ export function LoginScreen({ tokenManager, onLoginSuccess }: LoginScreenProps) 
       <Text style={styles.title}>SANAD Action Center</Text>
       <Text style={styles.subtitle}>Sign in to your workflow tasks</Text>
 
+      <TextInput
+        testID="login-tenant-id"
+        style={styles.input}
+        placeholder="Tenant ID (UUID)"
+        placeholderTextColor="#8a8f98"
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={tenantId}
+        onChangeText={setTenantId}
+        editable={!submitting}
+      />
       <TextInput
         testID="login-email"
         style={styles.input}
