@@ -32,7 +32,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
-    private boolean tenantApplied = false;
+    private UUID appliedTenantId;\n    private static final UUID FAIL_CLOSED_TENANT = new UUID(0L, 0L);
 
     TenantRlsConnectionHandler(Connection delegate) {
         this.delegate = delegate;
@@ -57,26 +57,33 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     }
 
     private void ensureTenantContext() throws SQLException {
-        if (tenantApplied) {
-            return;
-        }
-        // Only apply within an explicit transaction — SET LOCAL has no effect
-        // (and would error) in autocommit mode.
+        // SET LOCAL only has transaction lifetime. Autocommit operations are
+        // not silently claimed as protected by this transaction-scoped hook;
+        // RLS policies for those paths must independently fail closed when the
+        // GUC is absent. Production RLS activation remains gated on those tests.
         if (delegate.getAutoCommit()) {
             return;
         }
-        UUID tenantId = currentTenantId();
-        if (tenantId == null) {
+
+        UUID requestedTenantId = currentTenantId();
+        UUID effectiveTenantId = requestedTenantId == null ? FAIL_CLOSED_TENANT : requestedTenantId;
+
+        if (effectiveTenantId.equals(appliedTenantId)) {
             return;
         }
-        try (var stmt = delegate.createStatement()) {
-            // Parameterised SET LOCAL is not supported by PostgreSQL for GUC
-            // assignment, but the value is a well-formed UUID read directly
-            // from the validated JWT via the security context — never user-
-            // supplied raw input at this layer.
-            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
+        if (appliedTenantId != null
+                && !appliedTenantId.equals(FAIL_CLOSED_TENANT)) {
+            // Never switch between real tenants on one active transaction.
+            throw new SQLException("Refusing tenant context switch inside an active transaction");
         }
-        tenantApplied = true;
+
+        try (var stmt = delegate.createStatement()) {
+            // The fail-closed sentinel is deliberately a valid UUID that no
+            // tenant may own. RLS predicates comparing tenant_id to this value
+            // expose no tenant rows when the request has no trusted scope.
+            stmt.execute("SET LOCAL app.tenant_id = '" + effectiveTenantId + "'");
+        }
+        appliedTenantId = effectiveTenantId;
     }
 
     /**
@@ -88,6 +95,10 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
      * {@code JwtAuthenticationFilter} after JWT validation.</p>
      */
     private static UUID currentTenantId() {
+        UUID explicitScope = TenantRlsExecutionContext.currentTenantId();
+        if (explicitScope != null) {
+            return explicitScope;
+        }
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             return null;
