@@ -10,9 +10,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * Dynamic-proxy invocation handler that lazily applies
- * {@code SET LOCAL app.tenant_id = '<uuid>'} to the underlying physical
- * connection the first time a statement is created within a transaction.
+ * Dynamic-proxy invocation handler that lazily applies a trusted tenant GUC
+ * before SQL executes. Transactional calls use {@code SET LOCAL}; autocommit
+ * calls use a session setting that is reset before the connection is returned.
  *
  * <p>The {@code SET LOCAL} scoping ensures the GUC is scoped to the current
  * transaction and automatically resets on commit/rollback — safe for
@@ -25,8 +25,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
  *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
  * </ul>
  *
- * <p>When no trusted tenant context exists, the handler installs a sentinel
- * tenant UUID so tenant predicates fail closed. Autocommit uses a session GUC
+ * <p>When no trusted tenant context exists, the handler installs an empty tenant GUC
+ * so policies using {@code nullif(current_setting('app.tenant_id', true), '')}
+ * fail closed. Autocommit uses a session GUC
  * that is reset before the pooled connection is returned. A real tenant may
  * replace the sentinel once during bootstrap, but a real tenant cannot switch
  * to another tenant on the same borrowed connection.</p>
@@ -121,8 +122,9 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
 
         String scopeCommand = autoCommit ? "SET app.tenant_id = '" : "SET LOCAL app.tenant_id = '";
         try (var stmt = delegate.createStatement()) {
-            // The sentinel is a valid UUID that no tenant may own. It makes
-            // tenant predicates fail closed when no trusted tenant is present.
+            // An empty setting is intentionally not castable to a tenant UUID without
+            // nullif() in the policy; approved policies must use nullif() and
+            // fail closed when the GUC is absent or empty.
             stmt.execute(scopeCommand + tenantSettingValue + "'");
         }
         appliedTenantId = effectiveTenantId;
