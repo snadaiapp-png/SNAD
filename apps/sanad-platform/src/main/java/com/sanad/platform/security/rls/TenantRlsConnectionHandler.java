@@ -99,7 +99,11 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
             throw new SQLException("Reserved fail-closed tenant UUID cannot be used as an identity");
         }
         UUID effectiveTenantId = requestedTenantId == null ? FAIL_CLOSED_TENANT : requestedTenantId;
-        String tenantSettingValue = requestedTenantId == null ? "" : requestedTenantId.toString();
+        // Use the reserved zero UUID as a syntactically valid, non-tenant scope.
+        // An empty GUC is not safe here: existing migration SQL casts current_setting(...)
+        // directly to UUID and would fail during application startup. Policies must still
+        // compare tenant_id to this value; zero UUID is forbidden for real tenant scopes.
+        String tenantSettingValue = effectiveTenantId.toString();
 
         if (!autoCommit && sessionScoped) {
             // Remove any prior autocommit scope before transaction-local scope
@@ -122,9 +126,8 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
 
         String scopeCommand = autoCommit ? "SET app.tenant_id = '" : "SET LOCAL app.tenant_id = '";
         try (var stmt = delegate.createStatement()) {
-            // An empty setting is intentionally not castable to a tenant UUID without
-            // nullif() in the policy; approved policies must use nullif() and
-            // fail closed when the GUC is absent or empty.
+            // Always install a valid UUID. Missing identity maps to the reserved zero UUID,
+            // so direct UUID casts remain valid while tenant predicates match no real tenant.
             stmt.execute(scopeCommand + tenantSettingValue + "'");
         }
         appliedTenantId = effectiveTenantId;
