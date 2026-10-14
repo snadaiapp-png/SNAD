@@ -100,10 +100,18 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     }
 
     @Test
-    @Transactional
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
         Fixture fixture = fixture("crm007-import");
-        UUID accountId = account(fixture, "Import Customer");
+        // Create the account in a separate REQUIRES_NEW transaction so the
+        // import's internal error handling (which may mark the transaction
+        // as rollback-only) doesn't roll back the account creation.
+        UUID accountId = new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.execute(status -> account(fixture, "Import Customer"));
+
+        // Restore context after REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
+
         String payload = """
                 {"rows":[
                   {"ownerType":"ACCOUNT","ownerId":"%s","address":{

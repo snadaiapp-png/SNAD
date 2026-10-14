@@ -99,6 +99,9 @@ class AddressCommunicationLifecycleIntegrationTest {
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isOk());
 
+        // Restore SecurityContext after MockMvc archive call.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
+
         String afterArchive = jdbc.queryForObject(
                 "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);

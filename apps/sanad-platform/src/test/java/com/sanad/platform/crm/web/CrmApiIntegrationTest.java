@@ -46,6 +46,7 @@ class CrmApiIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
@@ -182,14 +183,31 @@ class CrmApiIntegrationTest {
                         """), 201);
         // Restore SecurityContext after MockMvc perform() — the handler on the
         // outer @Transactional connection has tenantAppliedFor=TENANT_A, but
-        // Spring clears SecurityContext after each MockMvc request. Without
-        // restoration, the next MockMvc request sets TENANT_B identity, which
-        // the handler rejects as "Tenant identity changed" → HTTP 500 instead of 404.
+        // Spring clears SecurityContext after each MockMvc request.
         com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
-        mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
-                        .with(authentication(auth(TENANT_B, USER_B))))
-                .andExpect(status().isNotFound());
+        // The GET as TENANT_B must run in a REQUIRES_NEW transaction so it
+        // gets a fresh connection with a new TenantRlsConnectionHandler
+        // (tenantAppliedFor=null). The MockMvc request sets SecurityContext
+        // to TENANT_B, the handler sets GUC to TENANT_B, and the query
+        // returns 0 rows (account belongs to TENANT_A) → 404.
+        // Without REQUIRES_NEW, the handler on the outer @Transactional
+        // connection detects tenantAppliedFor=TENANT_A vs currentTenantId()=TENANT_B
+        // → throws "Tenant identity changed" → HTTP 500.
+        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.executeWithoutResult(txStatus -> {
+            try {
+                mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
+                                .with(authentication(auth(TENANT_B, USER_B))))
+                        .andExpect(status().isNotFound());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // Restore SecurityContext after REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
         mockMvc.perform(get("/api/v1/crm/accounts")
                         .with(authentication(auth(TENANT_B, USER_B))))
