@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 const EXEC_EMAIL = process.env.EXECUTIVE_E2E_EMAIL;
 const EXEC_PASSWORD = process.env.EXECUTIVE_E2E_PASSWORD;
+const EXEC_TENANT_ID = process.env.EXECUTIVE_E2E_TENANT_ID;
 
 test.describe("SNAD Login v2", () => {
   test("loads the approved wordmark and keeps primary controls reachable on a short mobile viewport", async ({ page }) => {
@@ -34,6 +35,7 @@ test.describe("SNAD Login v2", () => {
 
   test("invalid credentials show a generic error without raw internals", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator("#login-tenant-id").fill("11111111-1111-4111-8111-111111111111");
     await page.locator("#login-email").fill("not-a-user@example.invalid");
     await page.locator("#login-password").fill("DefinitelyWrong-1!");
     await page.locator('button[type="submit"]').click();
@@ -54,10 +56,11 @@ test.describe("SNAD Login v2", () => {
   });
 
   test("authorized executive principal returns to /executive/tenants", async ({ page }) => {
-    test.skip(!EXEC_EMAIL || !EXEC_PASSWORD, "executive E2E credentials are required");
+    test.skip(!EXEC_EMAIL || !EXEC_PASSWORD || !EXEC_TENANT_ID, "executive E2E credentials and tenant ID are required");
     await page.goto("/?returnUrl=%2Fexecutive%2Ftenants", {
       waitUntil: "domcontentloaded",
     });
+    await page.locator("#login-tenant-id").fill(EXEC_TENANT_ID!);
     await page.locator("#login-email").fill(EXEC_EMAIL!);
     await page.locator("#login-password").fill(EXEC_PASSWORD!);
     await page.locator('button[type="submit"]').click();
