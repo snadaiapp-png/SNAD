@@ -52,7 +52,6 @@ class CustomerMasterSecurityIntegrationTest {
         foreignTenantId = UUID.randomUUID();
         foreignUserId = UUID.randomUUID();
         foreignAccountId = UUID.randomUUID();
-        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
         try {
             RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -70,14 +69,13 @@ class CustomerMasterSecurityIntegrationTest {
                                 .addValue("owner", foreignUserId).addValue("now", java.sql.Timestamp.from(now)));
             });
         } finally {
-            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+            RlsTestSupport.clearSecurityContext();
         }
     }
 
     @AfterTransaction
     void removeForeignMergeTarget() {
         if (foreignTenantId == null) return;
-        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
         try {
             RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -88,13 +86,12 @@ class CustomerMasterSecurityIntegrationTest {
                 jdbc.update("DELETE FROM tenants WHERE id=:t", p().addValue("t", foreignTenantId));
             });
         } finally {
-            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+            RlsTestSupport.clearSecurityContext();
             foreignTenantId = null; foreignUserId = null; foreignAccountId = null;
         }
     }
 
     private String foreignAccountStatus() {
-        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
         try {
             RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
@@ -103,7 +100,7 @@ class CustomerMasterSecurityIntegrationTest {
                     "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                     p().addValue("tenantId", foreignTenantId).addValue("id", foreignAccountId), String.class));
         } finally {
-            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+            RlsTestSupport.clearSecurityContext();
         }
     }
 
