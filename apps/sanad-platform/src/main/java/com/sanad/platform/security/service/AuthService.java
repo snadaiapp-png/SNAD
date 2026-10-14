@@ -530,21 +530,22 @@ public class AuthService {
         }
         resetRequestCache.put(rateLimitKey, (count == null ? 0 : count) + 1);
 
-        // Resolve only an unambiguous ACTIVE account. Email is tenant-scoped in
-        // SANAD, so the same normalized email may legitimately exist in more
-        // than one tenant. Recovery must never guess which tenant identity to
-        // mutate. Keep the public response generic by returning null for both
-        // missing/inactive and ambiguous matches.
-        List<User> activeUsers = userRepository.findAllByEmail(normalizedEmail).stream()
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .toList();
-        if (activeUsers.size() != 1) {
-            log.info("Password reset request not actionable for email={} activeMatches={}",
-                    normalizedEmail, activeUsers.size());
+        // Password recovery must be tenant-scoped before reading public.users.
+        // Missing tenant scope returns the same generic no-op result as an
+        // unknown/inactive account to avoid account enumeration.
+        if (request.getTenantId() == null) {
+            log.info("Password reset request not actionable without tenant scope");
             return null;
         }
-
-        User user = activeUsers.get(0);
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(request.getTenantId())) {
+            User user = userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail)
+                    .filter(candidate -> candidate.getStatus() == UserStatus.ACTIVE)
+                    .orElse(null);
+            if (user == null) {
+                log.info("Password reset request not actionable for tenant-scoped identifier");
+                return null;
+            }
 
         // Revoke any existing active reset tokens for this user
         passwordResetTokenRepository.revokeAllActive(user.getTenantId(), user.getId());
@@ -584,6 +585,7 @@ public class AuthService {
         // Return the raw token value so the controller can include it in the response
         // (In production, this would be sent via email instead)
         return rawTokenValue;
+        }
     }
 
     /**
