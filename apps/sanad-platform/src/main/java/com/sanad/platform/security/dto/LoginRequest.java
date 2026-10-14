@@ -10,11 +10,10 @@ import jakarta.validation.constraints.Size;
 /**
  * Request body for {@code POST /api/v1/auth/login}.
  *
- * <p>Additive identifier login: callers supply exactly one of email or
- * tenant-scoped username. An optional tenantId scopes the lookup directly.
- * Without tenantId, the backend resolves the identifier across tenants and
- * reuses the existing ambiguous-tenant flow when more than one tenant matches.
- * Legacy email login remains fully supported.</p>
+ * <p>Callers must supply exactly one of email or tenant-scoped username and
+ * a tenantId lookup scope. The tenantId is untrusted input used only to scope
+ * the initial lookup; password verification and tenant eligibility checks
+ * remain mandatory. Tenantless cross-tenant lookup is intentionally rejected.</p>
  */
 public class LoginRequest {
 
@@ -30,7 +29,7 @@ public class LoginRequest {
     @Size(min = 1, max = 256)
     private String password;
 
-    /** Optional tenantId — if provided, scopes the login to a specific tenant. */
+    /** Required lookup scope. This identifier is not authorization by itself. */
     private java.util.UUID tenantId;
 
     // ------------------------------------------------------------
