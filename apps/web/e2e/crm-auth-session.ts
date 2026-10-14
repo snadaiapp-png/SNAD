@@ -28,6 +28,29 @@ function configuredTenantId(email: string): string | undefined {
   if (tenantBEmail && normalized === tenantBEmail) {
     return process.env.CRM_TENANT_B_ID || undefined;
   }
+  // Authenticated Users closure fixtures may reuse an email across tenants.
+  // Pass the fixture's verified tenant explicitly; do not weaken backend
+  // ambiguity checks or accept a tenant selected by an untrusted response.
+  const crmTenantAFixtures = [
+    "CRM_READONLY_EMAIL", "CRM_LEAD_WRITER_EMAIL", "CRM_IMPORT_READER_EMAIL",
+  ] as const;
+  for (const key of crmTenantAFixtures) {
+    const fixtureEmail = (process.env[key] ?? "").trim().toLowerCase();
+    if (fixtureEmail && normalized === fixtureEmail) {
+      return process.env.CRM_TENANT_A_ID || undefined;
+    }
+  }
+  const usersFixtures = [
+    ["USERS_CONTROL_EMAIL", "USERS_CONTROL_TENANT_ID"],
+    ["USERS_PHASE8_ADMIN_EMAIL", "USERS_TENANT_ID"],
+    ["USERS_TENANT_EMAIL", "USERS_TENANT_ID"],
+  ] as const;
+  for (const [emailKey, tenantKey] of usersFixtures) {
+    const fixtureEmail = (process.env[emailKey] ?? "").trim().toLowerCase();
+    if (fixtureEmail && normalized === fixtureEmail) {
+      return process.env[tenantKey] || undefined;
+    }
+  }
   return undefined;
 }
 

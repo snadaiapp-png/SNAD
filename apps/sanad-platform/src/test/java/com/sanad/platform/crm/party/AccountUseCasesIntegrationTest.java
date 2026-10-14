@@ -35,14 +35,15 @@ class AccountUseCasesIntegrationTest {
     private UUID seedTenantAndOwner() {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
+        // Set SecurityContextHolder BEFORE any INSERT so the
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+        // on the first query (INSERT INTO tenants). This ensures
+        // INSERT INTO users succeeds under FORCE RLS.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", tenantId));
         jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "owner-" + userId.toString().substring(0, 8) + "@test.example"));
-        // Set SecurityContextHolder so TenantRlsConnectionHandler applies
-        // SET LOCAL app.tenant_id inside @Transactional boundaries for
-        // FORCE-RLS tables (crm_timeline_events, crm_accounts, etc.).
-        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
         return tenantId;
     }
 

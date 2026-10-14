@@ -37,6 +37,7 @@ class AuthServicePasswordRecoverySecurityTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private LoginRateLimiter loginRateLimiter;
     @Mock private SessionVersionCache sessionVersionCache;
+    @Mock private PreAuthTenantResolver resolver;
 
     private AuthService service;
 
@@ -51,6 +52,7 @@ class AuthServicePasswordRecoverySecurityTest {
                 new SecurityProperties(),
                 loginRateLimiter,
                 sessionVersionCache);
+        service.setPreAuthTenantResolver(resolver);
     }
 
     @Test
@@ -65,8 +67,8 @@ class AuthServicePasswordRecoverySecurityTest {
                 "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
                 "shared@example.com",
                 UserStatus.ACTIVE);
-        when(userRepository.findAllByEmail("shared@example.com"))
-                .thenReturn(List.of(first, second));
+        when(resolver.resolve("email", "shared@example.com"))
+                .thenReturn(List.of(first.getTenantId(), second.getTenantId()));
 
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("shared@example.com"),
@@ -84,8 +86,10 @@ class AuthServicePasswordRecoverySecurityTest {
                 "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 "inactive@example.com",
                 UserStatus.SUSPENDED);
-        when(userRepository.findAllByEmail("inactive@example.com"))
-                .thenReturn(List.of(suspended));
+        when(resolver.resolve("email", "inactive@example.com"))
+                .thenReturn(List.of(suspended.getTenantId()));
+        when(userRepository.findByTenantIdAndEmail(suspended.getTenantId(), "inactive@example.com"))
+                .thenReturn(java.util.Optional.of(suspended));
 
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("inactive@example.com"),
@@ -104,8 +108,10 @@ class AuthServicePasswordRecoverySecurityTest {
                 userId.toString(),
                 "unique@example.com",
                 UserStatus.ACTIVE);
-        when(userRepository.findAllByEmail("unique@example.com"))
-                .thenReturn(List.of(active));
+        when(resolver.resolve("email", "unique@example.com"))
+                .thenReturn(List.of(tenantId));
+        when(userRepository.findByTenantIdAndEmail(tenantId, "unique@example.com"))
+                .thenReturn(java.util.Optional.of(active));
 
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("unique@example.com"),

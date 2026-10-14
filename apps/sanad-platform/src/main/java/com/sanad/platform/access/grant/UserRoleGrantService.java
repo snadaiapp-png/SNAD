@@ -9,6 +9,7 @@ import com.sanad.platform.access.role.RoleStatus;
 import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class UserRoleGrantService {
     private AccessMutationAuditSupport audit;
     private AuthorizationMutationCoordinator authChanges;
     private LastAdminGuard lastAdminGuard;
+    private TenantRlsTransactionContext tenantRlsContext;
 
     public UserRoleGrantService(UserRoleGrantRepository grantRepository, UserRepository userRepository,
             OrganizationRepository organizationRepository, RoleService roleService) {
@@ -37,6 +39,7 @@ public class UserRoleGrantService {
     @Autowired(required=false) void setAudit(AccessMutationAuditSupport audit){this.audit=audit;}
     @Autowired(required=false) void setAuthChanges(AuthorizationMutationCoordinator authChanges){this.authChanges=authChanges;}
     @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
+    @Autowired(required=false) void setTenantRlsContext(TenantRlsTransactionContext context){this.tenantRlsContext=context;}
 
     @Transactional
     public UserAccessResponse grant(UUID tenantId, UUID userId, UUID roleId, UUID organizationId) {
@@ -116,7 +119,13 @@ public class UserRoleGrantService {
         if(audit!=null)audit.success(tenantId,action,"USER_ROLE_GRANT",id==null?null:id.toString(),before,after);
     }
     private void requireUser(UUID tenantId,UUID userId){
-        if(tenantId==null||userId==null||userRepository.findByTenantIdAndId(tenantId,userId).isEmpty())
+        if(tenantId==null||userId==null) throw new AccessResourceNotFoundException("User not found");
+        // Under FORCE RLS, findByTenantIdAndId requires app.tenant_id to be
+        // set on the transaction-bound connection. The tenantId parameter is
+        // always supplied by a trusted caller (JWT-derived in production,
+        // test fixture in tests). The caller is @Transactional.
+        if(tenantRlsContext!=null) tenantRlsContext.applyForCurrentTransaction(tenantId);
+        if(userRepository.findByTenantIdAndId(tenantId,userId).isEmpty())
             throw new AccessResourceNotFoundException("User not found");
     }
     private void requireOrganization(UUID tenantId,UUID organizationId){

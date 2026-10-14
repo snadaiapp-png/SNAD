@@ -122,6 +122,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,6 +149,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — wrong password returns 401")
     void login_wrongPassword_returns401() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -161,6 +163,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — non-existent user returns 401")
     void login_nonExistentUser_returns401() throws Exception {
         LoginRequest request = new LoginRequest("nobody@example.com", testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -190,6 +193,7 @@ class AuthApiIntegrationTest {
         userRepository.save(user);
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -210,6 +214,7 @@ class AuthApiIntegrationTest {
         userRepository.save(nopassUser);
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -232,6 +237,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -520,6 +526,7 @@ class AuthApiIntegrationTest {
 
     private LoginResult loginAndExtractCookie() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

@@ -58,17 +58,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             @Param("tenantId") UUID tenantId,
             @Param("username") String username);
 
-    /** Cross-tenant username lookup used only by the login resolver. */
-    @Query("SELECT u FROM User u WHERE u.username = :username")
-    List<User> findAllByUsername(@Param("username") String username);
-
-    /**
-     * Find users by email across ALL tenants (for email-only login).
-     * Returns a list because the same email can exist in different tenants.
-     */
-    @Query("SELECT u FROM User u WHERE u.email = :email")
-    List<User> findAllByEmail(@Param("email") String email);
-
     /**
      * Returns only the session_version for a tenant-scoped user.
      * Used by JwtAuthenticationFilter to validate token session version

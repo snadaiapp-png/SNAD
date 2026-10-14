@@ -79,6 +79,25 @@ jobs:
             END IF;
           END $sanad_perf$;
           ALTER ROLE sanad_perf NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- G1: provision the restricted policy role BEFORE Flyway on this
+          -- disposable PostgreSQL Direct runner. The application login role
+          -- inherits its tenant-scoped policy; no RLS bypass is granted.
+          SELECT 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')
+          \gexec
+          ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT sanad TO sanad_perf;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
+                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin
+            ) OR NOT pg_has_role('sanad_perf', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_perf';
+            END IF;
+          END $$;
+
           SELECT 'CREATE DATABASE sanad_perf OWNER sanad_perf'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_perf')\gexec
           ALTER DATABASE sanad_perf OWNER TO sanad_perf;
@@ -230,6 +249,21 @@ jobs:
             END IF;
           END $sanad_health$;
           ALTER ROLE sanad_health NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- G1: sanad NOLOGIN policy role was already provisioned by the
+          -- sanad_perf provisioning step above (same PostgreSQL Direct runner).
+          -- Re-assert the inheritance contract for the sanad_health login.
+          GRANT sanad TO sanad_health;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
+                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin
+            ) OR NOT pg_has_role('sanad_health', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_health';
+            END IF;
+          END $$;
+
           SELECT 'CREATE DATABASE sanad_health OWNER sanad_health'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_health')\gexec
           ALTER DATABASE sanad_health OWNER TO sanad_health;
