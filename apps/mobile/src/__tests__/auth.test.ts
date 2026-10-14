@@ -85,7 +85,7 @@ describe('R2-I auth (TokenManager)', () => {
         })
       );
 
-      await tm.login('user@sanad.example', 'secret');
+      await tm.login('user@sanad.example', 'secret', '11111111-1111-4111-8111-111111111111');
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
