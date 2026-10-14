@@ -94,7 +94,11 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     private void ensureTenantContext() throws SQLException {
         boolean autoCommit = delegate.getAutoCommit();
         UUID requestedTenantId = currentTenantId();
+        if (FAIL_CLOSED_TENANT.equals(requestedTenantId)) {
+            throw new SQLException("Reserved fail-closed tenant UUID cannot be used as an identity");
+        }
         UUID effectiveTenantId = requestedTenantId == null ? FAIL_CLOSED_TENANT : requestedTenantId;
+        String tenantSettingValue = requestedTenantId == null ? "" : requestedTenantId.toString();
 
         if (!autoCommit && sessionScoped) {
             // Remove any prior autocommit scope before transaction-local scope
@@ -119,7 +123,7 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
         try (var stmt = delegate.createStatement()) {
             // The sentinel is a valid UUID that no tenant may own. It makes
             // tenant predicates fail closed when no trusted tenant is present.
-            stmt.execute(scopeCommand + effectiveTenantId + "'");
+            stmt.execute(scopeCommand + tenantSettingValue + "'");
         }
         appliedTenantId = effectiveTenantId;
         sessionScoped = autoCommit;
