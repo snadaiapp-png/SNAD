@@ -246,7 +246,9 @@ export function LoginForm({
 
         <div className={styles.authForgotLinkRow}>
           <Link
-            href="/auth/forgot-password"
+            href={tenantId.trim()
+              ? `/auth/forgot-password?tenantId=${encodeURIComponent(tenantId.trim())}`
+              : "/auth/forgot-password"}
             className={styles.authForgotLink}
             aria-label={t("auth.login.forgotPassword")}
           >
