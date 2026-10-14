@@ -93,9 +93,17 @@ class WorkflowIdempotencyTest {
         // match the row's tenant_id. Without set_config, the WITH CHECK
         // clause of users_tenant_isolation rejects the INSERT with
         // "new row violates row-level security policy for table users".
-        // set_config(name, value, is_local=true) scopes the GUC to the
-        // current transaction so all subsequent fixture INSERTs see it.
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        //
+        // This test class is NOT @Transactional at the class level, so
+        // set_config(..., true) (transaction-local) has no effect in
+        // autoCommit=true mode — the GUC is set then immediately reset
+        // when the implicit transaction commits. Using is_local=false
+        // (session-level) persists the GUC for the JDBC connection's
+        // lifetime, allowing the INSERT and all subsequent service-layer
+        // calls to see the tenant context. setUp runs before each test
+        // method and overwrites the GUC with a new tenantId, so there is
+        // no cross-test leakage.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         for (var uid : List.of(userId, approverId)) {
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                     + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
