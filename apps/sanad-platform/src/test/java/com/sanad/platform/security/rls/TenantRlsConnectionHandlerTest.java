@@ -6,8 +6,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
 import java.util.UUID;
@@ -98,18 +100,41 @@ class TenantRlsConnectionHandlerTest {
     }
 
     @Test
-    void appliesSetLocalOnlyOncePerConnection() throws Exception {
+    void appliesSetLocalOnlyOncePerTransactionAndReappliesAfterCommit() throws Exception {
         UUID tenantId = UUID.randomUUID();
         setSecurityContext(tenantId);
         when(delegate.getAutoCommit()).thenReturn(false);
 
         proxy = wrap();
         proxy.createStatement(); // first call — applies SET LOCAL
-        proxy.createStatement(); // second call — should NOT re-apply
-        proxy.prepareStatement("SELECT 1"); // third call — should NOT re-apply
-
+        proxy.createStatement(); // same transaction — does not re-apply
         verify(statement, times(1)).execute(
                 "SET LOCAL app.tenant_id = '" + tenantId + "'");
+
+        proxy.commit(); // SET LOCAL ended; pooled connection may be reused
+        proxy.prepareStatement("SELECT 1");
+
+        verify(statement, times(2)).execute(
+                "SET LOCAL app.tenant_id = '" + tenantId + "'");
+    }
+
+    @Test
+    void rejectsTenantSwitchInsideAnActiveTransaction() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        setSecurityContext(tenantA);
+        when(delegate.getAutoCommit()).thenReturn(false);
+
+        proxy = wrap();
+        proxy.createStatement();
+
+        setSecurityContext(tenantB);
+        assertThatExceptionOfType(SQLException.class)
+                .isThrownBy(proxy::createStatement)
+                .withMessageContaining("Tenant identity changed");
+
+        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+        verify(statement, never()).execute("SET LOCAL app.tenant_id = '" + tenantB + "'");
     }
 
     @Test

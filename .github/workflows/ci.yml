@@ -387,6 +387,25 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Run previously failing CRM tests individually (PostgreSQL Direct)
+        # These focused invocations use this job's real host-native PostgreSQL
+        # and the same least-privilege application role as the full CRM suite.
+        # Each class is a separate Maven invocation so fixture and RLS failures
+        # are isolated before the broader regression suite runs.
+        run: |
+          set -euo pipefail
+          for test_class in \
+            com.sanad.platform.crm.party.AccountUseCasesIntegrationTest \
+            com.sanad.platform.crm.party.AddressCommunicationLifecycleIntegrationTest \
+            com.sanad.platform.crm.web.CrmApiIntegrationTest; do
+            echo "::group::Focused PostgreSQL Direct test: ${test_class}"
+            mvn test -B -ntp \
+              -Dsurefire.useFile=true \
+              -DfailIfNoTests=true \
+              -Dtest="${test_class}"
+            echo "::endgroup::"
+          done
+
       - name: Run CRM integration tests
         # -Dsurefire.useFile=true emits per-class JUnit XML (TEST-*.xml)
         # under target/surefire-reports/ for the artifact upload below.

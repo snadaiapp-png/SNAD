@@ -14,8 +14,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,38 +35,44 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
-@Transactional
 class CrmApiIntegrationTest {
-    private static final UUID TENANT_A = UUID.fromString("10000000-0000-0000-0000-000000000001");
-    private static final UUID TENANT_B = UUID.fromString("10000000-0000-0000-0000-000000000002");
-    private static final UUID USER_A = UUID.fromString("20000000-0000-0000-0000-000000000001");
-    private static final UUID USER_B = UUID.fromString("20000000-0000-0000-0000-000000000002");
-    private static final UUID ROLE_A = UUID.fromString("30000000-0000-0000-0000-000000000001");
-    private static final UUID ROLE_B = UUID.fromString("30000000-0000-0000-0000-000000000002");
+    private UUID tenantA;
+    private UUID tenantB;
+    private UUID userA;
+    private UUID userB;
+    private UUID roleA;
+    private UUID roleB;
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
+        tenantA = UUID.randomUUID();
+        tenantB = UUID.randomUUID();
+        userA = UUID.randomUUID();
+        userB = UUID.randomUUID();
+        roleA = UUID.randomUUID();
+        roleB = UUID.randomUUID();
         Instant now = Instant.now();
-        seedTenant(TENANT_A, "crm-a", "CRM Tenant A", now);
-        seedTenant(TENANT_B, "crm-b", "CRM Tenant B", now);
-        seedUser(USER_A, TENANT_A, "crm-a@example.test", now);
-        seedUser(USER_B, TENANT_B, "crm-b@example.test", now);
-        seedRole(ROLE_A, TENANT_A, now);
-        seedRole(ROLE_B, TENANT_B, now);
-        seedRoleAssignment(TENANT_A, ROLE_A, USER_A, now);
-        seedRoleAssignment(TENANT_B, ROLE_B, USER_B, now);
-        grantCrmCapabilities(TENANT_A, ROLE_A, now);
-        grantCrmCapabilities(TENANT_B, ROLE_B, now);
+        seedTenant(tenantA, "crm-a-" + tenantA.toString().substring(0, 8), "CRM Tenant A", now);
+        seedTenant(tenantB, "crm-b-" + tenantB.toString().substring(0, 8), "CRM Tenant B", now);
+        seedUser(userA, tenantA, "crm-a-" + userA.toString().substring(0, 8) + "@example.test", now);
+        seedUser(userB, tenantB, "crm-b-" + userB.toString().substring(0, 8) + "@example.test", now);
+        seedRole(roleA, tenantA, now);
+        seedRole(roleB, tenantB, now);
+        seedRoleAssignment(tenantA, roleA, userA, now);
+        seedRoleAssignment(tenantB, roleB, userB, now);
+        grantCrmCapabilities(tenantA, roleA, now);
+        grantCrmCapabilities(tenantB, roleB, now);
     }
 
     @Test
     void executesCompleteCrmLifecycleAgainstApplicationTables() throws Exception {
         JsonNode account = perform(post("/api/v1/crm/accounts")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"displayName":"Acme Arabia","accountType":"BUSINESS",
@@ -75,7 +82,7 @@ class CrmApiIntegrationTest {
         String accountId = account.path("id").asText();
 
         JsonNode contact = perform(post("/api/v1/crm/contacts")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"accountId":"%s","givenName":"Maha","familyName":"Saleh",
@@ -85,7 +92,7 @@ class CrmApiIntegrationTest {
         String contactId = contact.path("id").asText();
 
         JsonNode pipeline = perform(post("/api/v1/crm/pipelines")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name":"Enterprise Sales","currencyCode":"SAR",
@@ -93,12 +100,12 @@ class CrmApiIntegrationTest {
                         """), 201);
         String pipelineId = pipeline.path("id").asText();
         JsonNode stages = perform(get("/api/v1/crm/pipelines/{pipelineId}/stages", pipelineId)
-                .with(authentication(auth(TENANT_A, USER_A))), 200);
+                .with(authentication(auth(tenantA, userA))), 200);
         String firstStage = stages.get(0).path("id").asText();
         String wonStage = stages.get(3).path("id").asText();
 
         JsonNode opportunity = perform(post("/api/v1/crm/opportunities")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"accountId":"%s","contactId":"%s","pipelineId":"%s",
@@ -109,7 +116,7 @@ class CrmApiIntegrationTest {
         assertThat(opportunity.path("probability").decimalValue()).isEqualByComparingTo("0");
 
         JsonNode wonOpportunity = perform(patch("/api/v1/crm/opportunities/{id}/stage", opportunityId)
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"stageId":"%s","reason":"Contract signed"}
@@ -117,33 +124,33 @@ class CrmApiIntegrationTest {
         assertThat(wonOpportunity.path("status").asText()).isEqualTo("WON");
 
         JsonNode activity = perform(post("/api/v1/crm/activities")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"activityType":"TASK","subject":"Prepare kickoff",
                          "relatedType":"ACCOUNT","relatedId":"%s","priority":80}
                         """.formatted(accountId)), 201);
         perform(patch("/api/v1/crm/activities/{id}/complete", activity.path("id").asText())
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"result":"Done"}
                         """), 200);
 
         JsonNode lead = perform(post("/api/v1/crm/leads")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"displayName":"Noura Alharbi","companyName":"Noura Labs","source":"WEB"}
                         """), 201);
         perform(patch("/api/v1/crm/leads/{id}/status", lead.path("id").asText())
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"status":"QUALIFIED"}
                         """), 200);
         JsonNode conversion = perform(post("/api/v1/crm/leads/{id}/convert", lead.path("id").asText())
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"createOpportunity":false,"currencyCode":"SAR"}
@@ -152,38 +159,38 @@ class CrmApiIntegrationTest {
         assertThat(conversion.path("idempotent").asBoolean()).isFalse();
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}/customer-360", accountId)
-                        .with(authentication(auth(TENANT_A, USER_A))))
+                        .with(authentication(auth(tenantA, userA))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contacts.length()").value(1))
                 .andExpect(jsonPath("$.opportunities.length()").value(1))
                 .andExpect(jsonPath("$.activities.length()").value(1));
 
         mockMvc.perform(get("/api/v1/crm/dashboard")
-                        .with(authentication(auth(TENANT_A, USER_A))))
+                        .with(authentication(auth(tenantA, userA))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accounts").value(2))
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
+        assertThat(countAccounts(tenantA)).isEqualTo(2);
+        assertThat(countTimelineEvents(tenantA)).isGreaterThanOrEqualTo(8);
     }
 
     @Test
     void tenantCannotReadAnotherTenantCrmRecord() throws Exception {
         JsonNode account = perform(post("/api/v1/crm/accounts")
-                .with(authentication(auth(TENANT_A, USER_A)))
+                .with(authentication(auth(tenantA, userA)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}
                         """), 201);
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
-                        .with(authentication(auth(TENANT_B, USER_B))))
+                        .with(authentication(auth(tenantB, userB))))
                 .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/v1/crm/accounts")
-                        .with(authentication(auth(TENANT_B, USER_B))))
+                        .with(authentication(auth(tenantB, userB))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -227,5 +234,22 @@ class CrmApiIntegrationTest {
         for (UUID capabilityId : capabilityIds) {
             jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
         }
+    }
+    private long countAccounts(UUID tenantId) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            Long count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, tenantId);
+            return count == null ? 0L : count;
+        });
+    }
+
+    private long countTimelineEvents(UUID tenantId) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            Long count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, tenantId);
+            return count == null ? 0L : count;
+        });
     }
 }
