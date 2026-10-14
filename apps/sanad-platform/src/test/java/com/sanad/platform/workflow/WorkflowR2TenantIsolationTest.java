@@ -105,6 +105,36 @@ class WorkflowR2TenantIsolationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "R2Iso-" + tag,
                 "r2-iso-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
+        // === DIAGNOSTIC ===
+        try {
+          jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            var rs1 = st.executeQuery("SELECT pg_backend_pid()"); rs1.next();
+            String pid1 = rs1.getString(1);
+            var rs2 = st.executeQuery("SELECT current_setting('app.tenant_id', true)"); rs2.next();
+            String ctx1 = rs2.getString(1);
+            System.out.println("DIAG_A_BEFORE: pid=" + pid1 + " ctx=" + ctx1 + " autoCommit=" + conn.getAutoCommit());
+            st.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
+            var rs3 = st.executeQuery("SELECT pg_backend_pid()"); rs3.next();
+            String pid2 = rs3.getString(1);
+            var rs4 = st.executeQuery("SELECT current_setting('app.tenant_id', true)"); rs4.next();
+            String ctx2 = rs4.getString(1);
+            System.out.println("DIAG_A_AFTER_SET: pid=" + pid2 + " ctx=" + ctx2);
+            try {
+              var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'R2 Iso', 'ACTIVE', 'dummy', NOW(), NOW())");
+              ps.setObject(1, user); ps.setObject(2, tenant);
+              ps.setString(3, "r2-iso-" + user.toString().substring(0, 8) + "@test");
+              ps.executeUpdate();
+              System.out.println("DIAG_A_INSERT_SAME: SUCCESS pid=" + pid2);
+            } catch (java.sql.SQLException e) {
+              System.out.println("DIAG_A_INSERT_SAME: FAILED pid=" + pid2 + " sqlstate=" + e.getSQLState() + " msg=" + e.getMessage());
+            }
+            return null;
+          });
+        } catch (Exception e) {
+          System.out.println("DIAG_A_EX: " + e.getMessage());
+        }
+        // === END DIAG ===
         jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
                         + "created_at,updated_at) VALUES (?, ?, ?, 'R2 Iso', 'ACTIVE', 'dummy', ?, ?)",
