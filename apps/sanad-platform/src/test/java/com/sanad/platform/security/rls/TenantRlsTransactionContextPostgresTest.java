@@ -73,8 +73,9 @@ class TenantRlsTransactionContextPostgresTest {
         // SingleConnectionDataSource so SET LOCAL app.tenant_id inside a
         // Spring transaction survives across the multiple jdbc ops the
         // TransactionTemplate issues within the same transaction.
-        SingleConnectionDataSource ds = new SingleConnectionDataSource(JDBC_URL, USERNAME, PASSWORD, true);
-        ds.setDriverClassName("org.postgresql.Driver");
+        SingleConnectionDataSource physical = new SingleConnectionDataSource(JDBC_URL, USERNAME, PASSWORD, true);
+        physical.setDriverClassName("org.postgresql.Driver");
+        TenantRlsDataSource ds = new TenantRlsDataSource(physical);
         jdbc = new JdbcTemplate(ds);
         tx = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -135,6 +136,58 @@ class TenantRlsTransactionContextPostgresTest {
             // The GUC should be empty (NULL) in the fresh transaction.
             assertThat(current).isNullOrEmpty();
         });
+    }
+
+    @Test
+    @DisplayName("RLS probe isolates tenant rows and denies access when tenant scope is missing")
+    void rlsProbeEnforcesTenantIsolationAndMissingScopeFailsClosed() {
+        jdbc.execute("CREATE TABLE g1_auth_rls_probe (id UUID PRIMARY KEY, tenant_id UUID NOT NULL, payload TEXT NOT NULL)");
+        jdbc.execute("ALTER TABLE g1_auth_rls_probe ENABLE ROW LEVEL SECURITY");
+        jdbc.execute("ALTER TABLE g1_auth_rls_probe FORCE ROW LEVEL SECURITY");
+        jdbc.execute("CREATE POLICY g1_auth_rls_probe_tenant_policy ON g1_auth_rls_probe "
+                + "USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) "
+                + "WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)");
+
+        UUID tenantA = seedTenant();
+        UUID tenantB = seedTenant();
+        UUID rowA = UUID.randomUUID();
+        UUID rowB = UUID.randomUUID();
+
+        tx.executeWithoutResult(status -> {
+            try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantA)) {
+                jdbc.update("INSERT INTO g1_auth_rls_probe(id, tenant_id, payload) VALUES (?, ?, ?)",
+                        rowA, tenantA, "tenant-a");
+            }
+        });
+        tx.executeWithoutResult(status -> {
+            try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantB)) {
+                jdbc.update("INSERT INTO g1_auth_rls_probe(id, tenant_id, payload) VALUES (?, ?, ?)",
+                        rowB, tenantB, "tenant-b");
+            }
+        });
+
+        tx.executeWithoutResult(status -> {
+            try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantA)) {
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM g1_auth_rls_probe", Long.class))
+                        .isEqualTo(1L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM g1_auth_rls_probe WHERE tenant_id = ?",
+                        Long.class, tenantB)).isZero();
+            }
+        });
+
+        // No scope installs an empty GUC; nullif() makes the policy evaluate
+        // to NULL (deny), rather than interpreting an unset GUC permissively.
+        tx.executeWithoutResult(status ->
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM g1_auth_rls_probe", Long.class))
+                        .isZero());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantA)) {
+                jdbc.update("INSERT INTO g1_auth_rls_probe(id, tenant_id, payload) VALUES (?, ?, ?)",
+                        UUID.randomUUID(), tenantB, "cross-tenant-write");
+            }
+        })).isNotNull();
     }
 
     private UUID seedTenant() {
