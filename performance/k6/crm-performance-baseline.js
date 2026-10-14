@@ -15,6 +15,7 @@ import { Rate, Trend } from 'k6/metrics';
 //   BASE_URL                  — default http://localhost:8080
 //   PERF_TEST_ADMIN_EMAIL     — perf-test admin login (default perf-admin@sanad.local)
 //   PERF_TEST_ADMIN_PASSWORD  — perf-test admin password (required)
+//   PERF_TEST_TENANT_ID       — tenant UUID for the perf-test admin (required for login)
 //   JWT_TOKEN                 — optional override; skips the login step
 //   TEST_ACCOUNT_ID           — seeded customer-360 account id
 //   TEST_LEAD_ID              — seeded lead id (CONVERTED → idempotent replay)
@@ -48,6 +49,7 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const JWT_TOKEN = __ENV.JWT_TOKEN || '';
 const ADMIN_EMAIL = __ENV.PERF_TEST_ADMIN_EMAIL || 'perf-admin@sanad.local';
 const ADMIN_PASSWORD = __ENV.PERF_TEST_ADMIN_PASSWORD || '';
+const ADMIN_TENANT_ID = __ENV.PERF_TEST_TENANT_ID || '';
 
 // Predefined test data — mirrored by PerfTestBootstrapConfig (perf-test profile)
 const TEST_ACCOUNT_ID = __ENV.TEST_ACCOUNT_ID || '40000000-0000-4000-8000-000000000010';
@@ -58,10 +60,13 @@ export function setup() {
   if (JWT_TOKEN) {
     return { token: JWT_TOKEN };
   }
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(ADMIN_TENANT_ID)) {
+    throw new Error('PERF_TEST_TENANT_ID must be set to the perf-test tenant UUID');
+  }
 
   const loginRes = http.post(
     `${BASE_URL}/api/v1/auth/login`,
-    JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, tenantId: ADMIN_TENANT_ID }),
     { headers: { 'Content-Type': 'application/json' } }
   );
 
