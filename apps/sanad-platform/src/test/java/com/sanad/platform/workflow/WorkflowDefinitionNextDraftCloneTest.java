@@ -74,10 +74,14 @@ class WorkflowDefinitionNextDraftCloneTest {
         // FIXED: ConnectionCallback — set_config + INSERT on same connection
         jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
             var st = conn.createStatement();
-            st.execute("SELECT set_config('app.tenant_id', '" + otherTenantId + "', false)");
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-            + "created_at,updated_at) VALUES (?, ?, ?, 'Clone User', 'ACTIVE', 'x', ?, ?)",
-            userId, tenantId, "r0-clone-" + userId + "@test", now, now);
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'Clone User', 'ACTIVE', 'x', ?, ?)");
+            ps.setObject(1, userId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, "r0-clone-" + userId + "@test");
+            ps.setObject(4, now);
+            ps.setObject(5, now);
+            ps.executeUpdate();
             return null;
         });
         // Published source definition, version 1.
