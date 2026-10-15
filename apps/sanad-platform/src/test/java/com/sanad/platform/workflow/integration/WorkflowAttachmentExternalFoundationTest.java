@@ -3,12 +3,15 @@ package com.sanad.platform.workflow.application;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.storage.PlatformFileReferenceService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.Map;
@@ -31,14 +34,40 @@ class WorkflowAttachmentExternalFoundationTest {
     @Autowired private PlatformFileReferenceService fileReferences;
     @Autowired private WorkflowAttachmentService attachments;
     @Autowired private WorkflowExternalActionService externalActions;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private final java.util.List<UUID> tenantIds = new java.util.ArrayList<>();
     private final java.util.List<UUID> instanceIds = new java.util.ArrayList<>();
     private final java.util.List<UUID> definitionIds = new java.util.ArrayList<>();
     private final java.util.List<UUID> userIds = new java.util.ArrayList<>();
 
+    @BeforeEach
+    void ensureTx() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+    }
+
     @AfterEach
     void cleanup() {
+        // set_config + DELETE FROM users in tx — same RLS pattern as newWorkflowInstance;
+        // without it, DELETE FROM users WHERE tenant_id IN (...) is filtered by RLS
+        // USING clause to 0 rows, and the subsequent DELETEs from FK-linked tables
+        // (workflow_external_actions/participants reference tenant_id indirectly
+        // via instance/definition chains; tenants is referenced by users via
+        // fk_users_tenant) fail with FK violation.
+        var tenantsToDelete = jdbc.queryForList(
+                "SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%'",
+                UUID.class);
+        for (UUID tenantId : tenantsToDelete) {
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+            });
+        }
         jdbc.update("DELETE FROM workflow_external_actions WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
         jdbc.update("DELETE FROM workflow_external_participants WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
         jdbc.update("DELETE FROM workflow_attachments WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
@@ -59,9 +88,25 @@ class WorkflowAttachmentExternalFoundationTest {
 
     private UUID newWorkflowInstance(UUID tenantId) {
         UUID userId = UUID.randomUUID();
-        jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'AEF User', 'ACTIVE', 'x', NOW(), NOW())", userId, tenantId,
-                "r1aef-" + userId + "@test");
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT
+        // @Transactional, so HikariCP returns a different physical connection
+        // per jdbc.update() call. Without an explicit transaction wrapping
+        // set_config + INSERT, the GUC either dies with conn A (if is_local=true
+        // without explicit tx) or leaks on conn A's session (if is_local=false).
+        // Fix: wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult
+        // block so they share the tx-bound connection. The tenant context source
+        // is the tenantId parameter passed by the caller (the tenant created via
+        // newTenant(label) earlier in the same test). is_local=true (not false)
+        // scopes the GUC to this transaction only — no session-level leak.
+        // set_config uses JDBC prepared parameter ? for the tenant value.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
+                    + "VALUES (?, ?, ?, 'AEF User', 'ACTIVE', 'x', NOW(), NOW())", userId, tenantId,
+                    "r1aef-" + userId + "@test");
+        });
         userIds.add(userId);
         UUID defId = UUID.randomUUID();
         jdbc.update("""
