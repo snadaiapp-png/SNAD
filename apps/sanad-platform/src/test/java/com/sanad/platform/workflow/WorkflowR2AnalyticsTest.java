@@ -135,13 +135,20 @@ class WorkflowR2AnalyticsTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "R2An-" + tag,
                 "r2-an-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-                        + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
-                user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);
-        // hr_employees is FORCE RLS (fail-closed): seed under the tenant GUC,
-        // identical to the platform seeding path (tenantTx + set_config).
+        // public.users and hr_employees are both FORCE RLS (V20261011_3 + V20260905_5).
+        // DriverManagerDataSource is NOT a pool — every jdbc.execute()/jdbc.update()
+        // OUTSIDE a tx-bound context gets a fresh physical connection that is closed
+        // after the call. A session-scoped GUC set on conn N dies with conn N, so
+        // the next INSERT on conn N+1 has no tenant context and RLS rejects it.
+        // Fix: wrap set_config + INSERT users + INSERT hr_employees in ONE
+        // tx.executeWithoutResult block so they share the tx-bound connection.
+        // is_local=true (not false) scopes the GUC to this transaction only — no
+        // session-level leak when the connection is returned to the (non-)pool.
         tx.executeWithoutResult(status -> {
             jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
+                            + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
+                    user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);
             jdbc.update("""
                     INSERT INTO hr_employees (
                         id, tenant_id, user_id, employee_number, first_name, last_name,
