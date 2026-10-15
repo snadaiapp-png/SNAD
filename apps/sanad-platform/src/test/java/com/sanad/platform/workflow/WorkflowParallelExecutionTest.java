@@ -10,8 +10,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -46,6 +48,10 @@ class WorkflowParallelExecutionTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
+
     private UUID tenantId;
     private UUID userId;
     private UUID definitionId;
@@ -57,6 +63,9 @@ class WorkflowParallelExecutionTest {
     // START -> FORK (branch_a + branch_b) ; FORK -> JOIN -> END
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
@@ -64,10 +73,25 @@ class WorkflowParallelExecutionTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Parallel Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-par-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                        + "VALUES (?, ?, ?, 'Parallel User', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "wf-par-" + userId.toString().substring(0, 8) + "@test", now, now);
+        // public.users is FORCE RLS (V20261011_3). One test method in this class
+        // (concurrentJoinGrantsAdvanceExactlyOnce) is annotated
+        // @Transactional(propagation = NOT_SUPPORTED) — when it runs, setUp() also
+        // runs without a transaction, so HikariCP returns a different physical
+        // connection per jdbc call. set_config(is_local=true) on conn A is reset
+        // immediately (no explicit transaction to scope to); INSERT users on conn B
+        // has no GUC → RLS rejects.
+        // Fix: wrap set_config + INSERT users in ONE tx.executeWithoutResult block
+        // so they share the tx-bound connection regardless of the test method's
+        // propagation. is_local=true (not false) scopes the GUC to this transaction
+        // only — no session-level leak. set_config uses JDBC prepared parameter ?.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                            + "VALUES (?, ?, ?, 'Parallel User', 'ACTIVE', 'dummy', ?, ?)",
+                    userId, tenantId, "wf-par-" + userId.toString().substring(0, 8) + "@test", now, now);
+        });
 
         definitionId = UUID.randomUUID();
         jdbc.update("""
