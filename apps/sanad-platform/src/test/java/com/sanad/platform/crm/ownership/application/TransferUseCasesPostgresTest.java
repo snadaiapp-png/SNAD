@@ -315,6 +315,13 @@ class TransferUseCasesPostgresTest {
 
     private <T> T tx(java.util.concurrent.Callable<T> callable) {
         return transactions.execute(status -> {
+            // FORCE RLS on public.users (V20261011_3) — service-layer queries
+            // that validate user existence are filtered by RLS unless
+            // app.tenant_id is set on the tx-bound connection. Set the GUC
+            // at the start of every tx block so all queries within this
+            // transaction see the tenant context.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenantId.toString()), String.class);
             try { return callable.call(); }
             catch (RuntimeException runtime) { throw runtime; }
             catch (Exception checked) { throw new IllegalStateException(checked); }
