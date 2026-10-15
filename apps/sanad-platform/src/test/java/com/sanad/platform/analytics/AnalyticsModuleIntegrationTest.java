@@ -10,6 +10,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
@@ -21,15 +23,32 @@ class AnalyticsModuleIntegrationTest {
     @Autowired private AnalyticsReportService reportService;
     @Autowired private AnalyticsDataSourceService dataSourceService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId, userId;
 
     @BeforeEach void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         jdbc.execute("TRUNCATE TABLE analytics_reports, analytics_dashboards, analytics_data_sources RESTART IDENTITY CASCADE");
         tenantId = UUID.randomUUID(); userId = UUID.randomUUID();
         var now = java.sql.Timestamp.from(java.time.Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)", tenantId, "an-"+tenantId.toString().substring(0,8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)", userId, tenantId, "an-"+userId.toString().substring(0,8)+"@test", now, now);
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. This class is NOT
+        // @Transactional, so each jdbc.update() borrows a different
+        // HikariCP connection — wrapping set_config + INSERT in an explicit
+        // tx.executeWithoutResult(...) scopes both writes to one Connection.
+        UUID tid = tenantId;
+        UUID uid = userId;
+        java.sql.Timestamp ts = now;
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tid.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)", uid, tid, "an-"+uid.toString().substring(0,8)+"@test", ts, ts);
+        });
         var roleId = UUID.randomUUID();
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)", roleId, tenantId, now, now);
         var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'ANALYTICS.%'");

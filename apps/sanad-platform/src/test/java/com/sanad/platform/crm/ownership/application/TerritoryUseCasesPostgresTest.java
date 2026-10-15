@@ -221,14 +221,23 @@ class TerritoryUseCasesPostgresTest {
 
     private UUID createUser(UUID tenant, String prefix) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO users
-                  (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (:id, :tenantId, :email, :name, 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, new MapSqlParameterSource()
-                .addValue("id", id).addValue("tenantId", tenant)
-                .addValue("email", prefix + "-" + shortId() + "@test.example")
-                .addValue("name", prefix));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. Wrap setGuc +
+        // INSERT in transactions.executeWithoutResult(...) — same
+        // Connection, same GUC scope (transaction-local).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenant.toString()), String.class);
+            jdbc.update("""
+                    INSERT INTO users
+                      (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (:id, :tenantId, :email, :name, 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", id).addValue("tenantId", tenant)
+                    .addValue("email", prefix + "-" + shortId() + "@test.example")
+                    .addValue("name", prefix));
+        });
         return id;
     }
 

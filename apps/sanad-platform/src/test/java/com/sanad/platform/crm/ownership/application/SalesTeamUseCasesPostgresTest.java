@@ -367,18 +367,27 @@ class SalesTeamUseCasesPostgresTest {
 
     private UUID createUser(UUID tenant, String prefix, String status) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO users
-                    (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES
-                    (:id, :tenantId, :email, :displayName, :status, 'dummy',
-                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("tenantId", tenant)
-                .addValue("email", prefix + "-" + id.toString().substring(0, 8) + "@test.example")
-                .addValue("displayName", "User " + prefix)
-                .addValue("status", status));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. Wrap setGuc +
+        // INSERT in transactions.executeWithoutResult(...) — same
+        // Connection, same GUC scope (transaction-local).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenant.toString()), String.class);
+            jdbc.update("""
+                    INSERT INTO users
+                        (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES
+                        (:id, :tenantId, :email, :displayName, :status, 'dummy',
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", id)
+                    .addValue("tenantId", tenant)
+                    .addValue("email", prefix + "-" + id.toString().substring(0, 8) + "@test.example")
+                    .addValue("displayName", "User " + prefix)
+                    .addValue("status", status));
+        });
         return id;
     }
 
