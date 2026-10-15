@@ -124,7 +124,18 @@ class WorkflowParallelExecutionTest {
         jdbc.update("DELETE FROM workflow_step_transitions WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM workflow_steps WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM workflow_definitions WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+        // public.users is FORCE RLS (V20261011_3) — DELETE is also filtered by
+        // the USING clause. Without set_config, RLS hides all rows and the DELETE
+        // affects 0 rows; the subsequent DELETE FROM tenants then fails with FK
+        // violation (fk_users_tenant). Wrap in tx so DELETE FROM users sees the
+        // tenant context on the same connection. Same root cause as setUp(); the
+        // NOT_SUPPORTED test method leaves no tx context for cleanup either.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+        });
         jdbc.update("DELETE FROM hr_employees WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
