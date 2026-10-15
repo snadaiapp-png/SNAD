@@ -51,12 +51,23 @@ class WorkflowAttachmentExternalFoundationTest {
 
     @AfterEach
     void cleanup() {
-        // set_config + DELETE FROM users in tx — same RLS pattern as newWorkflowInstance;
-        // without it, DELETE FROM users WHERE tenant_id IN (...) is filtered by RLS
-        // USING clause to 0 rows, and the subsequent DELETEs from FK-linked tables
-        // (workflow_external_actions/participants reference tenant_id indirectly
-        // via instance/definition chains; tenants is referenced by users via
-        // fk_users_tenant) fail with FK violation.
+        // Order matters because of FK constraints:
+        //   workflow_external_actions/participants/attachments → workflow_instances → workflow_definitions → users → tenants
+        //   workflow_definitions.created_by → users.id (fk_wf_def_created_by)
+        //   users.tenant_id → tenants.id (fk_users_tenant)
+        // public.users is FORCE RLS (V20261011_3) — DELETE is filtered by the
+        // USING clause; without set_config, RLS hides all rows and 0 rows are
+        // deleted, then DELETE FROM tenants fails with fk_users_tenant
+        // violation. Delete workflow_definitions BEFORE users so the
+        // fk_wf_def_created_by reference is removed first.
+        jdbc.update("DELETE FROM workflow_external_actions WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
+        jdbc.update("DELETE FROM workflow_external_participants WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
+        jdbc.update("DELETE FROM workflow_attachments WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
+        jdbc.update("DELETE FROM platform_files WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
+        for (UUID id : instanceIds) jdbc.update("DELETE FROM workflow_instances WHERE id = ?", id);
+        for (UUID id : definitionIds) jdbc.update("DELETE FROM workflow_definitions WHERE id = ?", id);
+        // Now safe to delete users — workflow_definitions rows are gone.
+        // Wrap in tx so set_config + DELETE share the tx-bound connection.
         var tenantsToDelete = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%'",
                 UUID.class);
@@ -68,13 +79,6 @@ class WorkflowAttachmentExternalFoundationTest {
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
         }
-        jdbc.update("DELETE FROM workflow_external_actions WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
-        jdbc.update("DELETE FROM workflow_external_participants WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
-        jdbc.update("DELETE FROM workflow_attachments WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
-        jdbc.update("DELETE FROM platform_files WHERE tenant_id IN (SELECT id FROM tenants WHERE name LIKE 'R1-AEF-%')");
-        for (UUID id : instanceIds) jdbc.update("DELETE FROM workflow_instances WHERE id = ?", id);
-        for (UUID id : definitionIds) jdbc.update("DELETE FROM workflow_definitions WHERE id = ?", id);
-        for (UUID id : userIds) jdbc.update("DELETE FROM users WHERE id = ?", id);
         for (UUID id : tenantIds) jdbc.update("DELETE FROM tenants WHERE id = ?", id);
     }
 
