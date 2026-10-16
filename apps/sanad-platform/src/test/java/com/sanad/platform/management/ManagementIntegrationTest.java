@@ -22,6 +22,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -50,12 +52,17 @@ class ManagementIntegrationTest {
     @Autowired private KpiService kpiService;
     @Autowired private StrategicInitiativeService initiativeService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId;
     private UUID userId;
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         jdbc.execute("TRUNCATE TABLE strategic_initiatives, kpi_measurements, kpi_targets, "
                 + "kpi_definitions, key_results, strategic_objectives RESTART IDENTITY CASCADE");
 
@@ -66,9 +73,20 @@ class ManagementIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test Tenant', ?, 'ACTIVE', ?, ?)",
                 tenantId, "mgmt-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'Test User', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "test-" + userId.toString().substring(0, 8) + "@example.test", now, now);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                    + "VALUES (?, ?, ?, 'Test User', 'ACTIVE', 'dummy', ?, ?)",
+                    userId, tenantId, "test-" + userId.toString().substring(0, 8) + "@example.test", now, now);
+        });
 
         var roleId = UUID.randomUUID();
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "

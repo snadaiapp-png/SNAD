@@ -63,6 +63,13 @@ class IntegratedBusinessProcessesPostgresE2ETest {
         Timestamp now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
                 tenantId, "postgres-process-e2e", "PostgreSQL Process E2E", now, now);
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all jdbc.update() calls share the tx-bound physical Connection. Calling
+        // set_config('app.tenant_id', ..., true) once before the INSERT INTO users
+        // makes the GUC active for the rest of this transaction.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
                 actorId, tenantId, "postgres-process-e2e@example.test", "PostgreSQL Process Actor", now, now);
 

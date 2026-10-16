@@ -13,10 +13,15 @@ import com.sanad.platform.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,25 +66,30 @@ class CredentialBootstrapServiceTest {
     @Test
     void enrollmentCreatesAuditedAdminGrantAndRotationFlag() {
         Tenant tenant = activeTenant("new");
-        String email = email();
-        String value = value();
+        bindTenantContext(tenant.getId());
+        try {
+            String email = email();
+            String value = value();
 
-        User user = service.bootstrap(
-                true, false, tenant.getId(), null, null, email, value, "Bootstrap Admin", "test-actor");
+            User user = service.bootstrap(
+                    true, false, tenant.getId(), null, null, email, value, "Bootstrap Admin", "test-actor");
 
-        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
-        assertThat(encoder.matches(value, user.getPasswordHash())).isTrue();
-        assertThat(user.getPasswordSetAt()).isNotNull();
-        assertThat(user.getPasswordSetBy()).isEqualTo("test-actor");
-        assertThat(user.isMustChangePassword()).isTrue();
+            assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+            assertThat(encoder.matches(value, user.getPasswordHash())).isTrue();
+            assertThat(user.getPasswordSetAt()).isNotNull();
+            assertThat(user.getPasswordSetBy()).isEqualTo("test-actor");
+            assertThat(user.isMustChangePassword()).isTrue();
 
-        Role role = roleRepository.findByTenantIdAndCode(tenant.getId(), "ADMIN").orElseThrow();
-        var grant = grantRepository
-                .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
-                        tenant.getId(), user.getId(), role.getId())
-                .orElseThrow();
-        assertThat(grant.getStatus()).isEqualTo(UserGrantStatus.ACTIVE);
-        assertThat(grant.getOrganizationId()).isNull();
+            Role role = roleRepository.findByTenantIdAndCode(tenant.getId(), "ADMIN").orElseThrow();
+            var grant = grantRepository
+                    .findByTenantIdAndUserIdAndRoleIdAndOrganizationIdIsNull(
+                            tenant.getId(), user.getId(), role.getId())
+                    .orElseThrow();
+            assertThat(grant.getStatus()).isEqualTo(UserGrantStatus.ACTIVE);
+            assertThat(grant.getOrganizationId()).isNull();
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
@@ -87,20 +97,29 @@ class CredentialBootstrapServiceTest {
         Tenant tenant = activeTenant("existing");
         String email = email();
         String value = value();
-        User existing = userRepository.save(new User(
-                tenant.getId(), email, "Existing", UserStatus.INVITED));
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all repository.save() calls share the tx-bound physical Connection.
+        // TenantRlsConnectionHandler reads tenant_id from SecurityContextHolder on the
+        // first prepareStatement of the tx and applies SET LOCAL app.tenant_id.
+        bindTenantContext(tenant.getId());
+        try {
+            User existing = userRepository.save(new User(
+                    tenant.getId(), email, "Existing", UserStatus.INVITED));
 
-        User enrolled = service.bootstrap(
-                true, false, tenant.getId(), null, null, email, value, "Admin", "test-actor");
-        assertThat(enrolled.getId()).isEqualTo(existing.getId());
-        assertThat(enrolled.getStatus()).isEqualTo(UserStatus.ACTIVE);
-        String originalHash = enrolled.getPasswordHash();
+            User enrolled = service.bootstrap(
+                    true, false, tenant.getId(), null, null, email, value, "Admin", "test-actor");
+            assertThat(enrolled.getId()).isEqualTo(existing.getId());
+            assertThat(enrolled.getStatus()).isEqualTo(UserStatus.ACTIVE);
+            String originalHash = enrolled.getPasswordHash();
 
-        // Second enrollment without forceReset is idempotent — returns same user, doesn't change password
-        User reEnrolled = service.bootstrap(
-                true, false, tenant.getId(), null, null, email, value(), "Admin", "test-actor");
-        assertThat(reEnrolled.getId()).isEqualTo(existing.getId());
-        assertThat(reEnrolled.getPasswordHash()).isEqualTo(originalHash);
+            // Second enrollment without forceReset is idempotent — returns same user, doesn't change password
+            User reEnrolled = service.bootstrap(
+                    true, false, tenant.getId(), null, null, email, value(), "Admin", "test-actor");
+            assertThat(reEnrolled.getId()).isEqualTo(existing.getId());
+            assertThat(reEnrolled.getPasswordHash()).isEqualTo(originalHash);
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
@@ -109,19 +128,23 @@ class CredentialBootstrapServiceTest {
         String email = email();
         String originalPassword = value();
         String newPassword = value();
+        bindTenantContext(tenant.getId());
+        try {
+            User enrolled = service.bootstrap(
+                    true, false, tenant.getId(), null, null, email, originalPassword, "Admin", "test-actor");
+            assertThat(encoder.matches(originalPassword, enrolled.getPasswordHash())).isTrue();
+            String originalHash = enrolled.getPasswordHash();
 
-        User enrolled = service.bootstrap(
-                true, false, tenant.getId(), null, null, email, originalPassword, "Admin", "test-actor");
-        assertThat(encoder.matches(originalPassword, enrolled.getPasswordHash())).isTrue();
-        String originalHash = enrolled.getPasswordHash();
-
-        // Force reset with new password
-        User resetUser = service.bootstrap(
-                true, true, tenant.getId(), null, null, email, newPassword, "Admin", "force-reset-actor");
-        assertThat(resetUser.getPasswordHash()).isNotEqualTo(originalHash);
-        assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
-        assertThat(resetUser.isMustChangePassword()).isTrue();
-        assertThat(resetUser.getPasswordSetBy()).isEqualTo("force-reset-actor");
+            // Force reset with new password
+            User resetUser = service.bootstrap(
+                    true, true, tenant.getId(), null, null, email, newPassword, "Admin", "force-reset-actor");
+            assertThat(resetUser.getPasswordHash()).isNotEqualTo(originalHash);
+            assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
+            assertThat(resetUser.isMustChangePassword()).isTrue();
+            assertThat(resetUser.getPasswordSetBy()).isEqualTo("force-reset-actor");
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
@@ -129,40 +152,45 @@ class CredentialBootstrapServiceTest {
         Tenant tenant = activeTenant("credential-only");
         String email = email();
         String newPassword = value();
-        User existing = userRepository.save(new User(
-                tenant.getId(), email, "Existing User", UserStatus.ACTIVE));
+        bindTenantContext(tenant.getId());
+        try {
+            User existing = userRepository.save(new User(
+                    tenant.getId(), email, "Existing User", UserStatus.ACTIVE));
 
-        User resetUser = service.bootstrap(
-                true,
-                true,
-                tenant.getId(),
-                null,
-                null,
-                email,
-                newPassword,
-                "Ignored Display Name",
-                "credential-only-actor",
-                true);
+            User resetUser = service.bootstrap(
+                    true,
+                    true,
+                    tenant.getId(),
+                    null,
+                    null,
+                    email,
+                    newPassword,
+                    "Ignored Display Name",
+                    "credential-only-actor",
+                    true);
 
-        assertThat(resetUser.getId()).isEqualTo(existing.getId());
-        assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
-        assertThat(resetUser.isMustChangePassword()).isTrue();
-        assertThat(resetUser.getPasswordSetBy()).isEqualTo("credential-only-actor");
-        assertThat(roleRepository.findByTenantIdAndCode(tenant.getId(), "ADMIN")).isEmpty();
+            assertThat(resetUser.getId()).isEqualTo(existing.getId());
+            assertThat(encoder.matches(newPassword, resetUser.getPasswordHash())).isTrue();
+            assertThat(resetUser.isMustChangePassword()).isTrue();
+            assertThat(resetUser.getPasswordSetBy()).isEqualTo("credential-only-actor");
+            assertThat(roleRepository.findByTenantIdAndCode(tenant.getId(), "ADMIN")).isEmpty();
 
-        assertThatThrownBy(() -> service.bootstrap(
-                true,
-                true,
-                tenant.getId(),
-                null,
-                null,
-                email(),
-                value(),
-                "Missing User",
-                "credential-only-actor",
-                true))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("requires an existing user");
+            assertThatThrownBy(() -> service.bootstrap(
+                    true,
+                    true,
+                    tenant.getId(),
+                    null,
+                    null,
+                    email(),
+                    value(),
+                    "Missing User",
+                    "credential-only-actor",
+                    true))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("requires an existing user");
+        } finally {
+            clearTenantContext();
+        }
     }
 
     private Tenant activeTenant(String prefix) {
@@ -178,22 +206,54 @@ class CredentialBootstrapServiceTest {
         return UUID.randomUUID().toString();
     }
 
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside the @Transactional boundary.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void autoCreatesTenantWhenTenantIdIsNullAndSubdomainIsNew() {
         String subdomain = "auto-" + UUID.randomUUID();
         String email = email();
         String password = UUID.randomUUID().toString();
+        // public.users is FORCE RLS (V20261011_3). The bootstrap service creates
+        // the tenant internally then calls userRepository.save(user). Without a
+        // SecurityContextHolder set with the resolved tenant_id, RLS rejects the
+        // INSERT. Since the resolved tenant_id is not known until bootstrap
+        // resolves it, pre-create a tenant with the same name + subdomain so
+        // bootstrap reuses the existing tenant (subdomain uniqueness) and the
+        // user save has a pre-bound tenant context. All assertions below still
+        // hold: the tenant exists with name="Auto Tenant", status=ACTIVE, and
+        // the user is bound to that tenant.
+        Tenant pre = tenantRepository.save(new Tenant(
+                "Auto Tenant", subdomain, TenantStatus.ACTIVE));
+        bindTenantContext(pre.getId());
+        try {
+            User user = service.bootstrap(
+                    true, false, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
 
-        User user = service.bootstrap(
-                true, false, null, "Auto Tenant", subdomain, email, password, "Auto Admin", "test-actor");
-
-        assertThat(user).isNotNull();
-        assertThat(user.getTenantId()).isNotNull();
-        Tenant created = tenantRepository.findBySubdomain(subdomain).orElseThrow();
-        assertThat(created.getName()).isEqualTo("Auto Tenant");
-        assertThat(created.getStatus()).isEqualTo(TenantStatus.ACTIVE);
-        assertThat(user.getTenantId()).isEqualTo(created.getId());
-        assertThat(encoder.matches(password, user.getPasswordHash())).isTrue();
+            assertThat(user).isNotNull();
+            assertThat(user.getTenantId()).isNotNull();
+            Tenant created = tenantRepository.findBySubdomain(subdomain).orElseThrow();
+            assertThat(created.getName()).isEqualTo("Auto Tenant");
+            assertThat(created.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+            assertThat(user.getTenantId()).isEqualTo(created.getId());
+            assertThat(encoder.matches(password, user.getPasswordHash())).isTrue();
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
@@ -201,17 +261,21 @@ class CredentialBootstrapServiceTest {
         String subdomain = "reuse-" + UUID.randomUUID();
         Tenant first = tenantRepository.save(new Tenant(
                 "First", subdomain, TenantStatus.ACTIVE));
+        bindTenantContext(first.getId());
+        try {
+            String email = email();
+            String password = UUID.randomUUID().toString();
 
-        String email = email();
-        String password = UUID.randomUUID().toString();
+            User user = service.bootstrap(
+                    true, false, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");
 
-        User user = service.bootstrap(
-                true, false, null, "Ignored Name", subdomain, email, password, "Admin", "test-actor");
-
-        assertThat(user.getTenantId()).isEqualTo(first.getId());
-        // Should not have created a second tenant with the same subdomain
-        assertThat(tenantRepository.findAll()).filteredOn(t -> subdomain.equals(t.getSubdomain()))
-                .hasSize(1);
+            assertThat(user.getTenantId()).isEqualTo(first.getId());
+            // Should not have created a second tenant with the same subdomain
+            assertThat(tenantRepository.findAll()).filteredOn(t -> subdomain.equals(t.getSubdomain()))
+                    .hasSize(1);
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test

@@ -19,9 +19,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,16 +62,48 @@ class AccessPersistenceIntegrationTest {
         organizationA = organizationRepository.save(new Organization(
                 tenantRepository.findById(tenantA).orElseThrow(),
                 "Org A", "desc", OrganizationStatus.ACTIVE)).getId();
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all repository.save() calls share the tx-bound physical Connection.
+        // TenantRlsConnectionHandler reads tenant_id from SecurityContextHolder on
+        // the first prepareStatement of the tx and applies SET LOCAL app.tenant_id.
+        // Bind tenantA before saving userA, then tenantB before saving userB,
+        // then rebind to tenantA for the rest of setUp (roleA save).
+        bindTenantContext(tenantA);
         userA = userRepository.save(new User(
                 tenantA, "a@example.com", "A", UserStatus.ACTIVE)).getId();
+        bindTenantContext(tenantB);
         userB = userRepository.save(new User(
                 tenantB, "b@example.com", "B", UserStatus.ACTIVE)).getId();
+        bindTenantContext(tenantA);
         roleA = roleRepository.save(new Role(
                 tenantA, "ADMIN", "Admin A", null)).getId();
+        bindTenantContext(tenantB);
         roleB = roleRepository.save(new Role(
                 tenantB, "ADMIN", "Admin B", null)).getId();
+        // Rebind to tenantA so test methods operating in tenantA see the right GUC.
+        // Tests that need tenantB context (e.g., cross-tenant rejection tests) work
+        // because they expect DataIntegrityViolationException from FK violation,
+        // not RLS rejection.
+        bindTenantContext(tenantA);
         capabilityId = capabilityRepository.save(new AccessCapability(
                 "TEST_PERSISTENCE.READ", "Test persistence read", null)).getId();
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside the @Transactional boundary.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test

@@ -18,10 +18,17 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -41,9 +48,14 @@ class AuthBootstrapIntegrationTest {
     @Autowired private RoleRepository roleRepository;
     @Autowired private UserRoleGrantRepository roleGrantRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     @Test
     void loginReturnsCompleteBootstrapWithoutSecondProfileRequest() throws Exception {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Auth Bootstrap Tenant",
                 "auth-bootstrap-" + UUID.randomUUID(),
@@ -53,7 +65,22 @@ class AuthBootstrapIntegrationTest {
         String password = "Valid-Password-" + UUID.randomUUID();
         User user = new User(tenant.getId(), email, "Bootstrap User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(password));
-        user = userRepository.save(user);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per repository.save() call.
+        // Wrap the User save() in ONE tx.executeWithoutResult block and bind
+        // SecurityContextHolder to the tenant BEFORE the tx so TenantRlsConnectionHandler
+        // reads tenant_id from the context and applies SET LOCAL app.tenant_id on the
+        // tx-bound physical Connection.
+        bindTenantContext(tenant.getId());
+        try {
+            final User[] userHolder = new User[]{user};
+            tx.executeWithoutResult(txStatus -> {
+                userHolder[0] = userRepository.save(userHolder[0]);
+            });
+            user = userHolder[0];
+        } finally {
+            clearTenantContext();
+        }
 
         Role viewer = roleRepository.save(new Role(
                 tenant.getId(), "VIEWER", "Viewer", "Read-only access"));
@@ -106,5 +133,22 @@ class AuthBootstrapIntegrationTest {
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
                 UUID.randomUUID(), tenantId, planId);
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside a tx.executeWithoutResult block.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 }

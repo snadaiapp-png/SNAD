@@ -15,6 +15,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -45,9 +47,14 @@ class IntegratedBusinessProcessesE2ETest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         cleanupTenant(TENANT_A);
         cleanupTenant(TENANT_B);
         Instant now = Instant.now();
@@ -197,7 +204,18 @@ class IntegratedBusinessProcessesE2ETest {
         jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
         jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
         jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM users WHERE tenant_id=?", tenantId);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + DELETE FROM users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM users WHERE tenant_id=?", tenantId);
+        });
         jdbc.update("DELETE FROM tenants WHERE id=?", tenantId);
     }
 
@@ -209,8 +227,19 @@ class IntegratedBusinessProcessesE2ETest {
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
-                id, tenantId, email, "Business Process E2E User", ts, ts);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
+                    id, tenantId, email, "Business Process E2E User", ts, ts);
+        });
     }
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {

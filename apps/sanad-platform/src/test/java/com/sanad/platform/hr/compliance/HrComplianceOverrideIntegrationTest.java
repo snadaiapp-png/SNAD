@@ -134,6 +134,10 @@ class HrComplianceOverrideIntegrationTest {
             ps.setString(3, "ws3-" + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
+        // public.users is FORCE RLS (V20261011_3). resetTenant() above cleared the
+        // session GUC. setTenant(tenantId) restores it on the SAME physical Connection
+        // before INSERT INTO users so the RLS WITH CHECK clause accepts the row.
+        setTenant(tenantId);
         try (PreparedStatement ps = connection.prepareStatement(
                 "INSERT INTO users (id, tenant_id, email, status, created_at, updated_at) " +
                         "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
