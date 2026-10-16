@@ -381,7 +381,7 @@ class CallerIdentificationApiTest {
         try {
             // TenantRlsConnectionHandler reads SecurityContext on the first
             // JDBC statement inside the tx and issues SET LOCAL app.tenant_id.
-            // No direct set_config() is needed; the handler manages the GUC.
+            // The handler manages the GUC — no direct GUC manipulation here.
             tx.executeWithoutResult(txStatus -> {
                 jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                                 "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",

@@ -108,7 +108,7 @@ class CallerDatasetApiTest {
         // own service-layer transaction. The TenantRlsConnectionHandler reads
         // the SecurityContext set by `with(authentication(auth(tenantX)))`
         // and issues SET LOCAL app.tenant_id on the new transaction's
-        // Connection. No manual set_config() is needed.
+        // Connection. The handler manages the GUC — no manual GUC reset here.
         MvcResult resultA = mockMvc.perform(get(DELTA).with(authentication(auth(tenantA))))
                 .andExpect(status().isOk()).andReturn();
         String jsonA = resultA.getResponse().getContentAsString();
@@ -154,7 +154,7 @@ class CallerDatasetApiTest {
         try {
             // TenantRlsConnectionHandler reads SecurityContext on the first
             // JDBC statement inside the tx and issues SET LOCAL app.tenant_id.
-            // No direct set_config() is needed; the handler manages the GUC.
+            // The handler manages the GUC — no direct GUC manipulation here.
             tx.executeWithoutResult(txStatus -> {
                 jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                                 "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
