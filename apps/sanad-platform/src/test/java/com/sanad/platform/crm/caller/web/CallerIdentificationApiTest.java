@@ -194,9 +194,10 @@ class CallerIdentificationApiTest {
                     true, "VERIFIED", false));
 
         // DIAGNOSTIC: verify contact is committed and visible with correct GUC
-        SecurityContextHolder.getContext().setAuthentication(auth(fixture.tenantId(), fixture.userId()));
-        Integer contactCount = tx.execute(status -> {
-            String guc = jdbc.queryForObject("SELECT current_setting('app.tenant_id', true)", String.class);
+        SecurityContextHolder.getContext().setAuthentication(auth(fixture));
+        tx.execute(status -> {
+            String guc = jdbc.queryForObject("SELECT current_setting('app.tenant_id', true)",
+                    new MapSqlParameterSource(), String.class);
             Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM crm_contacts WHERE id = :id",
                     new MapSqlParameterSource().addValue("id", contactId), Integer.class);
             System.err.println("[DIAG] GUC=" + guc + " tenantId=" + fixture.tenantId()
