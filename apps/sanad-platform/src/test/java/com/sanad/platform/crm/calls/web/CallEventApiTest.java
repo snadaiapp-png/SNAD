@@ -2,6 +2,7 @@ package com.sanad.platform.crm.calls.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -12,10 +13,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,7 +41,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class CallEventApiTest {
 
     private static final String EVENTS = "/api/v2/crm/calls/events";
@@ -49,6 +51,15 @@ class CallEventApiTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
+
+    @BeforeEach
+    void initTx() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+    }
 
     private String body(String callId, String status) {
         return "{\"provider\":\"NATIVE\",\"providerCallId\":\"" + callId
@@ -210,84 +221,101 @@ class CallEventApiTest {
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
-                        "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
-                p().addValue("id", tenantId).addValue("name", key)
-                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
-                        .addValue("now", java.sql.Timestamp.from(now)));
-        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
-        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
-        // is set on the same transaction-bound Connection. The class is
-        // @Transactional, so the Spring-managed tx provides a single physical
-        // connection for all jdbc calls in this fixture.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                p().addValue("t", tenantId.toString()), String.class);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:email,'G8 Call User','ACTIVE','dummy',:now,:now)",
-                p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", java.sql.Timestamp.from(now)));
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:code,'G8 Call Role','G8 call tests','ACTIVE',:now,:now)",
-                p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "G8C_" + key.toUpperCase().replace('-', '_'))
-                        .addValue("now", java.sql.Timestamp.from(now)));
-        List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
-                p().addValue("codes", capabilities), (rs, row) -> rs.getObject("id", UUID.class));
-        assertThat(capabilityIds).hasSize(capabilities.size());
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
-                            "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
-                    p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                            .addValue("roleId", roleId).addValue("capabilityId", capabilityId)
-                            .addValue("now", java.sql.Timestamp.from(now)));
+        SecurityContextHolder.getContext().setAuthentication(auth(tenantId, userId));
+        try {
+            // TenantRlsConnectionHandler reads SecurityContext on the first
+            // JDBC statement inside the tx and issues SET LOCAL app.tenant_id.
+            // No direct set_config() is needed; the handler manages the GUC.
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
+                                "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
+                        p().addValue("id", tenantId).addValue("name", key)
+                                .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                // FORCE ROW LEVEL SECURITY on public.users (V20261011_3)
+                // rejects INSERT INTO users unless the GUC is set on the same
+                // transaction-bound Connection. The handler sets the GUC from
+                // the SecurityContext, so all INSERTs run with the tenant.
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,:email,'G8 Call User','ACTIVE','dummy',:now,:now)",
+                        p().addValue("id", userId).addValue("tenantId", tenantId)
+                                .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,:code,'G8 Call Role','G8 call tests','ACTIVE',:now,:now)",
+                        p().addValue("id", roleId).addValue("tenantId", tenantId)
+                                .addValue("code", "G8C_" + key.toUpperCase().replace('-', '_'))
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
+                        p().addValue("codes", capabilities), (rs, row) -> rs.getObject("id", UUID.class));
+                assertThat(capabilityIds).hasSize(capabilities.size());
+                for (UUID capabilityId : capabilityIds) {
+                    jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
+                                    "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
+                            p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                                    .addValue("roleId", roleId).addValue("capabilityId", capabilityId)
+                                    .addValue("now", java.sql.Timestamp.from(now)));
+                }
+                jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
+                        p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                                .addValue("userId", userId).addValue("roleId", roleId)
+                                .addValue("now", java.sql.Timestamp.from(now)));
+            });
+        } finally {
+            SecurityContextHolder.clearContext();
         }
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
-                p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId)
-                        .addValue("now", java.sql.Timestamp.from(now)));
         return new Fixture(tenantId, userId);
     }
 
     private UUID contact(Fixture fixture, String displayName, String phone) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", p().addValue("t", fixture.tenantId().toString()), String.class);
-        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
-                        "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
-                        "created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,0,NULL,:given,:family,:displayName,:normalized,'ar-SA','Asia/Riyadh'," +
-                        "'ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
-                p().addValue("id", id).addValue("tenantId", fixture.tenantId)
-                        .addValue("given", displayName.substring(0, 1))
-                        .addValue("family", displayName.substring(Math.min(1, displayName.length() - 1)))
-                        .addValue("displayName", displayName)
-                        .addValue("normalized", displayName.toLowerCase())
-                        .addValue("owner", fixture.userId)
-                        .addValue("now", java.sql.Timestamp.from(now)));
-        jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
-                        "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
-                        "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
-                        "created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,0,'PERSON',:contactId,NULL,:contactId,'MOBILE',:phone,:phone,:phone," +
-                        "'Mobile',TRUE,1,TRUE,'VERIFIED','INTERNAL','C-REF','BUSINESS','ACTIVE',:owner,:owner,:now,:now)",
-                p().addValue("id", UUID.randomUUID()).addValue("tenantId", fixture.tenantId)
-                        .addValue("contactId", id).addValue("phone", phone)
-                        .addValue("owner", fixture.userId).addValue("now", java.sql.Timestamp.from(now)));
+        SecurityContextHolder.getContext().setAuthentication(auth(fixture.tenantId, fixture.userId));
+        try {
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
+                                "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
+                                "created_by,updated_by,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,0,NULL,:given,:family,:displayName,:normalized,'ar-SA','Asia/Riyadh'," +
+                                "'ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
+                        p().addValue("id", id).addValue("tenantId", fixture.tenantId)
+                                .addValue("given", displayName.substring(0, 1))
+                                .addValue("family", displayName.substring(Math.min(1, displayName.length() - 1)))
+                                .addValue("displayName", displayName)
+                                .addValue("normalized", displayName.toLowerCase())
+                                .addValue("owner", fixture.userId)
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
+                                "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
+                                "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
+                                "created_by,updated_by,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,0,'PERSON',:contactId,NULL,:contactId,'MOBILE',:phone,:phone,:phone," +
+                                "'Mobile',TRUE,1,TRUE,'VERIFIED','INTERNAL','C-REF','BUSINESS','ACTIVE',:owner,:owner,:now,:now)",
+                        p().addValue("id", UUID.randomUUID()).addValue("tenantId", fixture.tenantId)
+                                .addValue("contactId", id).addValue("phone", phone)
+                                .addValue("owner", fixture.userId).addValue("now", java.sql.Timestamp.from(now)));
+            });
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
         return id;
     }
 
-    private Authentication auth(Fixture fixture) {
+    private Authentication auth(UUID tenantId, UUID userId) {
         Map<String, Object> details = new HashMap<>();
-        details.put("tenant_id", fixture.tenantId.toString());
-        details.put("user_id", fixture.userId.toString());
+        details.put("tenant_id", tenantId.toString());
+        details.put("user_id", userId.toString());
         List<GrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                fixture.userId.toString(), null, authorities);
+                userId.toString(), null, authorities);
         authentication.setDetails(details);
         return authentication;
+    }
+
+    private Authentication auth(Fixture fixture) {
+        return auth(fixture.tenantId, fixture.userId);
     }
 
     private static MapSqlParameterSource p() { return new MapSqlParameterSource(); }
