@@ -3,7 +3,6 @@ package com.sanad.platform.crm.caller.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -17,10 +16,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,15 +51,6 @@ class CallerIdentificationApiTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired MeterRegistry meterRegistry;
-    @Autowired private PlatformTransactionManager transactionManager;
-    private TransactionTemplate tx;
-
-    @BeforeEach
-    void initTx() {
-        if (tx == null) {
-            tx = new TransactionTemplate(transactionManager);
-        }
-    }
 
     // ===== EXACT / card contract =====
 
@@ -185,14 +172,10 @@ class CallerIdentificationApiTest {
     // ===== Privacy: CONFIDENTIAL / RESTRICTED =====
 
     @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void confidentialCardIsMaskedServerSideWithoutRestrictedCapability() throws Exception {
-        Fixture fixture = tx.execute(status -> fixture("g8-conf"));
-        tx.execute(status -> {
-            contact(fixture, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
-                    true, "VERIFIED", false);
-            return null;
-        });
+        Fixture fixture = fixture("g8-conf");
+        contact(fixture, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
+                true, "VERIFIED", false);
 
         MvcResult masked = mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
@@ -204,12 +187,9 @@ class CallerIdentificationApiTest {
         JsonNode body = mapper.readTree(masked.getResponse().getContentAsString());
         assertThat(body.path("displayName").asText()).isNotEqualTo("سرية محمد");
 
-        Fixture privileged = tx.execute(status -> fixture("g8-conf-priv"));
-        tx.execute(status -> {
-            contact(privileged, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
-                    true, "VERIFIED", false);
-            return null;
-        });
+        Fixture privileged = fixture("g8-conf-priv");
+        contact(privileged, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
+                true, "VERIFIED", false);
         mockMvc.perform(post(LOOKUP).with(authentication(auth(privileged, CAP_RESTRICTED)))
                         .contentType("application/json")
                         .content("{\"phone\":\"0541234567\",\"countryHint\":\"SA\",\"source\":\"MANUAL\"}"))
@@ -219,14 +199,10 @@ class CallerIdentificationApiTest {
     }
 
     @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void restrictedRecordIsRestrictedWithoutCapabilityAndExactWithIt() throws Exception {
-        Fixture fixture = tx.execute(status -> fixture("g8-restricted"));
-        tx.execute(status -> {
-            contact(fixture, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
-                    true, "VERIFIED", false);
-            return null;
-        });
+        Fixture fixture = fixture("g8-restricted");
+        contact(fixture, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
+                true, "VERIFIED", false);
 
         mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
@@ -235,12 +211,9 @@ class CallerIdentificationApiTest {
                 .andExpect(jsonPath("$.matchStatus").value("RESTRICTED"))
                 .andExpect(jsonPath("$.entityId").doesNotExist());
 
-        Fixture privileged = tx.execute(status -> fixture("g8-restricted-priv"));
-        tx.execute(status -> {
-            contact(privileged, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
-                    true, "VERIFIED", false);
-            return null;
-        });
+        Fixture privileged = fixture("g8-restricted-priv");
+        contact(privileged, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
+                true, "VERIFIED", false);
         mockMvc.perform(post(LOOKUP).with(authentication(auth(privileged, CAP_RESTRICTED)))
                         .contentType("application/json")
                         .content("{\"phone\":\"0541234567\",\"countryHint\":\"SA\",\"source\":\"MANUAL\"}"))
