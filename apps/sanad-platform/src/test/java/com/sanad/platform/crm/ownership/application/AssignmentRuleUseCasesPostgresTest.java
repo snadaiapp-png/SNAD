@@ -117,19 +117,19 @@ class AssignmentRuleUseCasesPostgresTest {
                                 "Queue", 10, "{\"source\":\"web\"}",
                                 DistributionMethod.QUEUE_ASSIGNMENT, null, null, queue.id(), null))));
 
-        AssignmentDecision decision = useCases.simulate(
+        AssignmentDecision decision = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of("source", "web"), List.of()));
+                        AssignmentRecordType.LEAD, Map.of("source", "web"), List.of())));
         assertThat(decision.ruleId()).isEqualTo(highPriority.id());
         assertThat(decision.ownerType()).isEqualTo(OwnerType.QUEUE);
         assertThat(decision.ownerId()).isEqualTo(queue.id());
         assertThat(decision.trace()).anyMatch(value -> value.contains("priority=10"));
 
-        AssignmentDecision noMatch = useCases.simulate(
+        AssignmentDecision noMatch = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of("source", "referral"), List.of()));
+                        AssignmentRecordType.LEAD, Map.of("source", "referral"), List.of())));
         assertThat(noMatch.matched()).isFalse();
 
         AssignmentRuleUseCases.VersionDefinition versionTwo = definition(
@@ -144,7 +144,7 @@ class AssignmentRuleUseCasesPostgresTest {
         assertThat(active.version()).isEqualTo(2);
         assertThat(ruleRepository.findActiveVersion(tenantId, lowPriority.id()))
                 .get().extracting(AssignmentRuleVersion::version).isEqualTo(2);
-        assertThat(useCases.listVersions(tenantId, lowPriority.id()))
+        assertThat(tx(() -> useCases.listVersions(tenantId, lowPriority.id())))
                 .extracting(AssignmentRuleVersion::version).containsExactly(2, 1);
     }
 
@@ -157,8 +157,8 @@ class AssignmentRuleUseCasesPostgresTest {
                                 "Round Robin", 1, "{}", DistributionMethod.ROUND_ROBIN,
                                 null, team.id(), null, null))));
 
-        AssignmentDecision simulationOne = useCases.simulate(tenantId, input());
-        AssignmentDecision simulationTwo = useCases.simulate(tenantId, input());
+        AssignmentDecision simulationOne = tx(() -> useCases.simulate(tenantId, input()));
+        AssignmentDecision simulationTwo = tx(() -> useCases.simulate(tenantId, input()));
         assertThat(simulationTwo.ownerId()).isEqualTo(simulationOne.ownerId());
         assertThat(ruleRepository.findCounter(tenantId, rule.id())).isEmpty();
 
@@ -183,7 +183,7 @@ class AssignmentRuleUseCasesPostgresTest {
                         "LEAST-" + shortId(), definition(
                                 "Least Loaded", 1, "{}", DistributionMethod.LEAST_LOADED,
                                 null, team.id(), null, actorId))));
-        AssignmentDecision decision = useCases.simulate(tenantId, input());
+        AssignmentDecision decision = tx(() -> useCases.simulate(tenantId, input()));
         assertThat(decision.ownerType()).isEqualTo(OwnerType.USER);
         assertThat(decision.ownerId()).isEqualTo(secondUser);
         assertThat(decision.trace()).anyMatch(value -> value.contains("least_loaded_user"));
@@ -207,10 +207,10 @@ class AssignmentRuleUseCasesPostgresTest {
                         "TERR-" + shortId(), definition(
                                 "Territory", 1, "{}", DistributionMethod.TERRITORY_BASED,
                                 null, null, null, null))));
-        AssignmentDecision decision = useCases.simulate(
+        AssignmentDecision decision = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of(), List.of(territory.id())));
+                        AssignmentRecordType.LEAD, Map.of(), List.of(territory.id()))));
         assertThat(decision.ownerId()).isEqualTo(firstUser);
 
         assertThatThrownBy(() -> tx(() -> useCases.createRule(
