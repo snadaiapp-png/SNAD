@@ -204,6 +204,7 @@ public class CallEventService {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public CallEvent get(UUID tenantId, UUID callId) {
         return repository.get(tenantId, callId)
                 .orElseThrow(() -> new CrmContractException(CrmErrorCode.CALL_EVENT_NOT_FOUND,
@@ -211,6 +212,7 @@ public class CallEventService {
     }
 
     /** Bounded, cursor-stable listing (created_at DESC). */
+    @Transactional(readOnly = true)
     public List<CallEvent> list(UUID tenantId, String status, long cursorMs, UUID cursorId, int limit) {
         return repository.list(tenantId, status, cursorMs, cursorId, Math.min(limit, CallEventRepository.MAX_LIST_LIMIT));
     }
