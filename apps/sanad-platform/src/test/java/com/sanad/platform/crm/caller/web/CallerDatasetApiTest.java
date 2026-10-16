@@ -1,7 +1,6 @@
 package com.sanad.platform.crm.caller.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,8 +15,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,6 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
+@Transactional
 @TestPropertySource(properties = "sanad.caller-dataset.master-key=g8-test-master-key")
 class CallerDatasetApiTest {
 
@@ -49,15 +48,6 @@ class CallerDatasetApiTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
-    @Autowired PlatformTransactionManager transactionManager;
-    TransactionTemplate tx;
-
-    @BeforeEach
-    void initTx() {
-        if (tx == null) {
-            tx = new TransactionTemplate(transactionManager);
-        }
-    }
 
     @Test
     void firstSyncIssuesTenantKeyAndEntriesCarryOnlyTokens() throws Exception {
@@ -103,17 +93,23 @@ class CallerDatasetApiTest {
         UUID contactA = contact(tenantA, "عميل أ", "+966541234567");
         UUID contactB = contact(tenantB, "عميل ب", "+966541234567");
 
-        // Without @Transactional on this class, each mockMvc.perform obtains
-        // a fresh pooled Connection with its own TenantRlsConnectionHandler.
-        // The handler applies SET LOCAL app.tenant_id from the
-        // SecurityContext on the first statement and resets on commit, so
-        // the per-tenant auth(...) drives the correct GUC automatically —
-        // no manual set_config workaround is needed here.
+        // TenantRlsConnectionHandler caches `tenantApplied=true` on the
+        // transaction-bound Connection proxy after the first SET LOCAL. Once
+        // cached, subsequent SecurityContext changes mid-transaction do NOT
+        // re-issue SET LOCAL, so the GUC stays at whatever value was last
+        // applied. The fixture's contact() helper sets the GUC to tenantB
+        // (the last contact() call), which would leak into the first mockMvc
+        // call for tenantA. Explicitly re-assert the GUC before each mockMvc
+        // call so the correct tenant is in effect for the query.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantA.tenantId().toString()), String.class);
         MvcResult resultA = mockMvc.perform(get(DELTA).with(authentication(auth(tenantA))))
                 .andExpect(status().isOk()).andReturn();
         String jsonA = resultA.getResponse().getContentAsString();
         assertThat(jsonA).contains(contactA.toString()).doesNotContain(contactB.toString());
 
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantB.tenantId().toString()), String.class);
         MvcResult resultB = mockMvc.perform(get(DELTA).with(authentication(auth(tenantB))))
                 .andExpect(status().isOk()).andReturn();
         String jsonB = resultB.getResponse().getContentAsString();
@@ -157,42 +153,36 @@ class CallerDatasetApiTest {
                         .addValue("now", java.sql.Timestamp.from(now)));
         // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
         // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
-        // is set on the same transaction-bound Connection. This class is NOT
-        // @Transactional (removed to avoid TenantRlsConnectionHandler caching
-        // across mockMvc calls when a test switches tenants mid-method), so
-        // set_config + the tenant-scoped INSERTs run inside an explicit
-        // TransactionTemplate. The GUC is scoped to this tx only
-        // (is_local=true) and resets on commit; the next mockMvc.perform
-        // obtains a fresh connection with no cached tenantAppliedFor.
-        tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                    p().addValue("t", tenantId.toString()), String.class);
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                            "VALUES (:id,:tenantId,:email,'G8 Dataset User','ACTIVE','dummy',:now,:now)",
-                    p().addValue("id", userId).addValue("tenantId", tenantId)
-                            .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                            .addValue("now", java.sql.Timestamp.from(now)));
-            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
-                            "VALUES (:id,:tenantId,:code,'G8 Dataset Role','G8 dataset tests','ACTIVE',:now,:now)",
-                    p().addValue("id", roleId).addValue("tenantId", tenantId)
-                            .addValue("code", "G8D_" + key.toUpperCase().replace('-', '_'))
-                            .addValue("now", java.sql.Timestamp.from(now)));
-            List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
-                    p().addValue("codes", capabilities), (rs, row) -> rs.getObject("id", UUID.class));
-            assertThat(capabilityIds).hasSize(capabilities.size());
-            for (UUID capabilityId : capabilityIds) {
-                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
-                                "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
-                        p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId)
-                                .addValue("now", java.sql.Timestamp.from(now)));
-            }
-            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
-                            "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
+        // is set on the same transaction-bound Connection. The class is
+        // @Transactional, so the Spring-managed tx provides a single physical
+        // connection for all jdbc calls in this fixture.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantId.toString()), String.class);
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                        "VALUES (:id,:tenantId,:email,'G8 Dataset User','ACTIVE','dummy',:now,:now)",
+                p().addValue("id", userId).addValue("tenantId", tenantId)
+                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
+                        .addValue("now", java.sql.Timestamp.from(now)));
+        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
+                        "VALUES (:id,:tenantId,:code,'G8 Dataset Role','G8 dataset tests','ACTIVE',:now,:now)",
+                p().addValue("id", roleId).addValue("tenantId", tenantId)
+                        .addValue("code", "G8D_" + key.toUpperCase().replace('-', '_'))
+                        .addValue("now", java.sql.Timestamp.from(now)));
+        List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
+                p().addValue("codes", capabilities), (rs, row) -> rs.getObject("id", UUID.class));
+        assertThat(capabilityIds).hasSize(capabilities.size());
+        for (UUID capabilityId : capabilityIds) {
+            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
+                            "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
                     p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                            .addValue("userId", userId).addValue("roleId", roleId)
+                            .addValue("roleId", roleId).addValue("capabilityId", capabilityId)
                             .addValue("now", java.sql.Timestamp.from(now)));
-        });
+        }
+        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
+                        "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
+                p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                        .addValue("userId", userId).addValue("roleId", roleId)
+                        .addValue("now", java.sql.Timestamp.from(now)));
         return new Fixture(tenantId, userId);
     }
 
@@ -203,35 +193,28 @@ class CallerDatasetApiTest {
     private UUID contact(Fixture fixture, String displayName, String phone, String privacy) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        // crm_contacts has FORCE ROW LEVEL SECURITY (V20260823_1); the
-        // set_config + INSERTs must share a tx-bound connection so the GUC
-        // is in effect when RLS evaluates WITH CHECK. is_local=true scopes
-        // the GUC to this tx only and resets on commit.
-        tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                    p().addValue("t", fixture.tenantId().toString()), String.class);
-            jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
-                            "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
-                            "created_by,updated_by,created_at,updated_at) " +
-                            "VALUES (:id,:tenantId,0,NULL,:given,:family,:displayName,:normalized,'ar-SA','Asia/Riyadh'," +
-                            "'ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
-                    p().addValue("id", id).addValue("tenantId", fixture.tenantId)
-                            .addValue("given", displayName.substring(0, 1))
-                            .addValue("family", displayName.substring(Math.min(1, displayName.length() - 1)))
-                            .addValue("displayName", displayName)
-                            .addValue("normalized", displayName.toLowerCase())
-                            .addValue("owner", fixture.userId)
-                            .addValue("now", java.sql.Timestamp.from(now)));
-            jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
-                            "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
-                            "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
-                            "created_by,updated_by,created_at,updated_at) " +
-                            "VALUES (:id,:tenantId,0,'PERSON',:contactId,NULL,:contactId,'MOBILE',:phone,:phone,:phone," +
-                            "'Mobile',TRUE,1,TRUE,'VERIFIED',:privacy,'C-REF','BUSINESS','ACTIVE',:owner,:owner,:now,:now)",
-                    p().addValue("id", UUID.randomUUID()).addValue("tenantId", fixture.tenantId)
-                            .addValue("contactId", id).addValue("phone", phone).addValue("privacy", privacy)
-                            .addValue("owner", fixture.userId).addValue("now", java.sql.Timestamp.from(now)));
-        });
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", p().addValue("t", fixture.tenantId().toString()), String.class);
+        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
+                        "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
+                        "created_by,updated_by,created_at,updated_at) " +
+                        "VALUES (:id,:tenantId,0,NULL,:given,:family,:displayName,:normalized,'ar-SA','Asia/Riyadh'," +
+                        "'ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
+                p().addValue("id", id).addValue("tenantId", fixture.tenantId)
+                        .addValue("given", displayName.substring(0, 1))
+                        .addValue("family", displayName.substring(Math.min(1, displayName.length() - 1)))
+                        .addValue("displayName", displayName)
+                        .addValue("normalized", displayName.toLowerCase())
+                        .addValue("owner", fixture.userId)
+                        .addValue("now", java.sql.Timestamp.from(now)));
+        jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
+                        "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
+                        "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
+                        "created_by,updated_by,created_at,updated_at) " +
+                        "VALUES (:id,:tenantId,0,'PERSON',:contactId,NULL,:contactId,'MOBILE',:phone,:phone,:phone," +
+                        "'Mobile',TRUE,1,TRUE,'VERIFIED',:privacy,'C-REF','BUSINESS','ACTIVE',:owner,:owner,:now,:now)",
+                p().addValue("id", UUID.randomUUID()).addValue("tenantId", fixture.tenantId)
+                        .addValue("contactId", id).addValue("phone", phone).addValue("privacy", privacy)
+                        .addValue("owner", fixture.userId).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 
