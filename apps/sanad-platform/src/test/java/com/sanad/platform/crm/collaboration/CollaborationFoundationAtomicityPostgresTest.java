@@ -435,16 +435,21 @@ class CollaborationFoundationAtomicityPostgresTest {
                 VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())
                 ON CONFLICT (id) DO NOTHING
                 """, tenantId, "Tenant " + tenantId, "atom-" + tenantId);
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', 'x', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, actorId, tenantId, "actor-" + actorId + "@snad.test", "Actor");
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', 'x', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, recipientId, tenantId, "rec-" + recipientId + "@snad.test", "Recipient");
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before INSERT INTO users.
+        transactions.executeWithoutResult(s -> {
+            setGuc(tenantId);
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', 'x', NOW(), NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """, actorId, tenantId, "actor-" + actorId + "@snad.test", "Actor");
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', 'x', NOW(), NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """, recipientId, tenantId, "rec-" + recipientId + "@snad.test", "Recipient");
+        });
     }
 
     private void seedTask(UUID tenantId, UUID taskId, UUID actorId) {
