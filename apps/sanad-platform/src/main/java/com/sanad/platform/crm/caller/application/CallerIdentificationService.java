@@ -81,7 +81,7 @@ public class CallerIdentificationService {
      * @throws CrmContractException with {@link CrmErrorCode#RATE_LIMITED} when the
      *         anti-enumeration quota is exceeded
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public CallerLookupResult lookup(
             UUID tenantId, UUID userId, String phone, String countryHint,
             CallerLookupSource source, boolean allowRestricted) {
