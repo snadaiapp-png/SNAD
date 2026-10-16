@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -188,11 +189,22 @@ class CallerIdentificationApiTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void confidentialCardIsMaskedServerSideWithoutRestrictedCapability() throws Exception {
         Fixture fixture = tx.execute(status -> fixture("g8-conf"));
-        tx.execute(status -> {
+        UUID contactId = tx.execute(status ->
             contact(fixture, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
-                    true, "VERIFIED", false);
-            return null;
+                    true, "VERIFIED", false));
+
+        // DIAGNOSTIC: verify contact is committed and visible with correct GUC
+        SecurityContextHolder.getContext().setAuthentication(auth(fixture.tenantId(), fixture.userId()));
+        Integer contactCount = tx.execute(status -> {
+            String guc = jdbc.queryForObject("SELECT current_setting('app.tenant_id', true)", String.class);
+            Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM crm_contacts WHERE id = :id",
+                    new MapSqlParameterSource().addValue("id", contactId), Integer.class);
+            System.err.println("[DIAG] GUC=" + guc + " tenantId=" + fixture.tenantId()
+                    + " match=" + fixture.tenantId().toString().equals(guc)
+                    + " contactCount=" + count);
+            return count;
         });
+        SecurityContextHolder.clearContext();
 
         MvcResult masked = mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
