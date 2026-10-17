@@ -4,6 +4,7 @@ import com.sanad.platform.organization.domain.Organization;
 import com.sanad.platform.organization.domain.OrganizationStatus;
 import com.sanad.platform.organization.membership.domain.MembershipStatus;
 import com.sanad.platform.organization.membership.domain.OrganizationMembership;
+import com.sanad.platform.organization.membership.dto.OrganizationMembershipResponse;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -135,7 +136,7 @@ class OrganizationMembershipUserLinkRlsPropagationTest {
         // app.tenant_id before the RLS-guarded user existence check runs.
         bindTenantContext(tenantAId);
 
-        List<OrganizationMembership> result = service.listMembershipsByUser(tenantAId, userAId);
+        List<OrganizationMembershipResponse> result = service.listMembershipsByUser(tenantAId, userAId);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getOrganizationId()).isEqualTo(orgA1Id);
