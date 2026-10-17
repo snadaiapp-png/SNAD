@@ -232,6 +232,11 @@ ON CONFLICT (id) DO NOTHING;
 -- committed to the repository. The seed uses crypt(:'g2_e2e_password', ...)
 -- so the cleartext never appears in SQL text.
 
+-- Bind deterministic fixture tenant before the first FORCE-RLS users write.
+-- The integration-test database role must also have an explicitly scoped
+-- policy; merely setting this GUC does not create or bypass a policy.
+SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (
     '33333333-3333-4333-8333-333333333341',

@@ -14,11 +14,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -105,9 +109,16 @@ class UserApiPersistenceIntegrationTest {
     @Test
     void crossTenantGetReturns404() throws Exception {
         JsonNode created = createUser(tenantId, "alice@example.com", "Alice");
-        mockMvc.perform(get("/api/v1/users/{userId}", created.get("id").asText())
-                        .param("tenantId", otherTenantId.toString()))
-                .andExpect(status().isNotFound());
+        // Bind other-tenant context for the cross-tenant get so the controller's
+        // SELECT on users uses RLS-visible rows for otherTenantId (returns 404).
+        bindTenantContext(otherTenantId);
+        try {
+            mockMvc.perform(get("/api/v1/users/{userId}", created.get("id").asText())
+                            .param("tenantId", otherTenantId.toString()))
+                    .andExpect(status().isNotFound());
+        } finally {
+            clearTenantContext();
+        }
     }
 
     private UUID saveTenant(String name) {
@@ -116,6 +127,12 @@ class UserApiPersistenceIntegrationTest {
     }
 
     private JsonNode createUser(UUID scope, String email, String name) throws Exception {
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so the controller's @Transactional participates in the test's tx. Bind the
+        // SecurityContextHolder with the scope tenant_id BEFORE mockMvc.perform so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id on the tx-bound
+        // Connection before the controller's userRepository.save(user) INSERT.
+        bindTenantContext(scope);
         MvcResult result = mockMvc.perform(post("/api/v1/users")
                         .param("tenantId", scope.toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -127,5 +144,22 @@ class UserApiPersistenceIntegrationTest {
 
     private String payload(String email, String name) throws Exception {
         return objectMapper.writeValueAsString(Map.of("email", email, "displayName", name));
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside the @Transactional boundary.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 }

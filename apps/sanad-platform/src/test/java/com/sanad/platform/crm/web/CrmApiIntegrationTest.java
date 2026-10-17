@@ -46,6 +46,7 @@ class CrmApiIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
@@ -165,6 +166,9 @@ class CrmApiIntegrationTest {
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
+        // Restore SecurityContext after MockMvc — Spring clears it after each request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
+
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
     }
@@ -177,15 +181,50 @@ class CrmApiIntegrationTest {
                 .content("""
                         {"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}
                         """), 201);
+        // Restore SecurityContext after MockMvc perform() — the handler on the
+        // outer @Transactional connection has tenantAppliedFor=TENANT_A, but
+        // Spring clears SecurityContext after each MockMvc request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
-        mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
-                        .with(authentication(auth(TENANT_B, USER_B))))
-                .andExpect(status().isNotFound());
+        // The GET as TENANT_B must run in a REQUIRES_NEW transaction so it
+        // gets a fresh connection with a new TenantRlsConnectionHandler
+        // (tenantAppliedFor=null). The MockMvc request sets SecurityContext
+        // to TENANT_B, the handler sets GUC to TENANT_B, and the query
+        // returns 0 rows (account belongs to TENANT_A) → 404.
+        // Without REQUIRES_NEW, the handler on the outer @Transactional
+        // connection detects tenantAppliedFor=TENANT_A vs currentTenantId()=TENANT_B
+        // → throws "Tenant identity changed" → HTTP 500.
+        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.executeWithoutResult(txStatus -> {
+            try {
+                mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
+                                .with(authentication(auth(TENANT_B, USER_B))))
+                        .andExpect(status().isNotFound());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
 
-        mockMvc.perform(get("/api/v1/crm/accounts")
-                        .with(authentication(auth(TENANT_B, USER_B))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+        // Restore SecurityContext after REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
+
+        // Second GET as TENANT_B also needs REQUIRES_NEW — same root cause.
+        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.executeWithoutResult(txStatus -> {
+            try {
+                mockMvc.perform(get("/api/v1/crm/accounts")
+                                .with(authentication(auth(TENANT_B, USER_B))))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.length()").value(0));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // Restore SecurityContext after second REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
     }
 
     private JsonNode perform(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request, int expected) throws Exception {
@@ -208,6 +247,12 @@ class CrmApiIntegrationTest {
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
+        // same transaction-bound connection. This test is @Transactional,
+        // so set_config(..., true) is transaction-local.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", ts, ts);
     }
 

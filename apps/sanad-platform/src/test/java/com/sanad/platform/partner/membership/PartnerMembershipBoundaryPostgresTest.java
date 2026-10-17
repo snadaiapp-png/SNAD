@@ -399,6 +399,12 @@ class PartnerMembershipBoundaryPostgresTest {
             ps.executeUpdate();
         }
 
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same Connection (transaction-local, since
+        // setAutoCommit(false) opens an implicit tx). Setting the tenant
+        // GUC here scopes the INSERT that follows.
+        setTenantContext(c, tenantId);
         UUID[] userIds = new UUID[userCount];
         for (int i = 0; i < userCount; i++) {
             userIds[i] = UUID.randomUUID();
@@ -448,6 +454,14 @@ class PartnerMembershipBoundaryPostgresTest {
         try (PreparedStatement ps = c.prepareStatement(
                 "SELECT set_config('app.partner_id', ?, true)")) {
             ps.setString(1, partnerId.toString());
+            ps.execute();
+        }
+    }
+
+    private void setTenantContext(Connection c, UUID tenantId) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT set_config('app.tenant_id', ?, true)")) {
+            ps.setString(1, tenantId.toString());
             ps.execute();
         }
     }

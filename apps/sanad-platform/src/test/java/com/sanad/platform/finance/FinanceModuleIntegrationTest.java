@@ -56,6 +56,13 @@ class FinanceModuleIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "fin-" + tenantId.toString().substring(0, 8), now, now);
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all jdbc.update() calls share the tx-bound physical Connection. Calling
+        // set_config('app.tenant_id', ..., true) once before the INSERT INTO users
+        // makes the GUC active for the rest of this transaction.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "fin-" + userId.toString().substring(0, 8) + "@test", now, now);

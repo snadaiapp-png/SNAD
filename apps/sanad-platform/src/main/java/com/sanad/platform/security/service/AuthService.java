@@ -25,6 +25,7 @@ import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -74,6 +75,8 @@ public class AuthService {
     private final SubscriptionResolutionService subscriptionResolution;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private PlatformAuditWriter credentialAuditWriter;
+    private TenantRlsTransactionContext loginTenantRlsContext;
+    private PreAuthTenantResolver preAuthTenantResolver;
 
     @Autowired
     public AuthService(
@@ -118,6 +121,22 @@ public class AuthService {
     @Autowired(required = false)
     void setCredentialAuditWriter(PlatformAuditWriter credentialAuditWriter) {
         this.credentialAuditWriter = credentialAuditWriter;
+    }
+
+    /**
+     * Pre-authentication tenant scoping for explicitly tenant-qualified login.
+     * The caller-provided tenant UUID is only a lookup scope, NOT proof of access:
+     * password verification and account/tenant eligibility still apply.
+     * Tenantless login requires a separate reviewed pre-auth resolver.
+     */
+    @Autowired
+    void setLoginTenantRlsContext(TenantRlsTransactionContext context) {
+        this.loginTenantRlsContext = context;
+    }
+
+    @Autowired
+    void setPreAuthTenantResolver(PreAuthTenantResolver resolver) {
+        this.preAuthTenantResolver = resolver;
     }
 
     /**
@@ -188,25 +207,35 @@ public class AuthService {
         // tenant-scoped and may legitimately exist in more than one tenant.
         User user;
         if (request.getTenantId() != null) {
+            // SET LOCAL on the same Spring-managed transaction before any users
+            // query. No privilege escalation; tenantId remains untrusted as auth.
+            if (loginTenantRlsContext != null) {
+                loginTenantRlsContext.applyForCurrentTransaction(request.getTenantId());
+            }
             user = emailLogin
                     ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
                     : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
         } else {
-            List<User> users = emailLogin
-                    ? userRepository.findAllByEmail(normalizedEmail)
-                    : userRepository.findAllByUsername(normalizedUsername);
-            if (users.isEmpty()) {
+            // Resolve tenant IDs only through the audited pre-auth function.
+            // Never retrieve unscoped User entities.
+            List<UUID> tenants = requirePreAuthTenantResolver().resolve(
+                    emailLogin ? "email" : "username", normalizedIdentifier);
+            if (tenants.isEmpty()) {
                 user = null;
-            } else if (users.size() == 1) {
-                user = users.get(0);
+            } else if (tenants.size() == 1) {
+                UUID tenantId = tenants.get(0);
+                applyTrustedUserScope(tenantId);
+                user = emailLogin
+                        ? userRepository.findByTenantIdAndEmail(tenantId, normalizedEmail).orElse(null)
+                        : userRepository.findByTenantIdAndUsername(tenantId, normalizedUsername).orElse(null);
             } else {
-                log.warn("Login ambiguous: identifierType={} found in {} tenants",
-                        emailLogin ? "email" : "username", users.size());
+                log.warn("Login ambiguous: identifierType={} tenant matches={}",
+                        emailLogin ? "email" : "username", tenants.size());
                 throw new AmbiguousTenantException(
                         emailLogin
                                 ? "البريد الإلكتروني موجود في عدة مستأجرين"
                                 : "اسم المستخدم موجود في عدة مستأجرين",
-                        users);
+                        tenants);
             }
         }
 
@@ -274,6 +303,22 @@ public class AuthService {
             log.warn("Authentication blocked: subscription status={} tenantId={}",
                     subscription.status(), user.getTenantId());
             throw new AccountInactiveException("الاشتراك غير متاح لتسجيل الدخول");
+        }
+    }
+
+    /** Scope a transaction to a tenant already derived from authenticated identity
+     *  or validated server-side credential state. Never use with raw request input
+     *  without separately validating the requested operation. */
+    private PreAuthTenantResolver requirePreAuthTenantResolver() {
+        if (preAuthTenantResolver == null) {
+            throw new IllegalStateException("G1 pre-auth tenant resolver is not configured");
+        }
+        return preAuthTenantResolver;
+    }
+
+    private void applyTrustedUserScope(UUID tenantId) {
+        if (loginTenantRlsContext != null) {
+            loginTenantRlsContext.applyForCurrentTransaction(tenantId);
         }
     }
 
@@ -350,6 +395,7 @@ public class AuthService {
             throw new InvalidCredentialsException("رمز التحديث منتهي الصلاحية");
         }
 
+        applyTrustedUserScope(refreshToken.getTenantId());
         User user = userRepository.findByTenantIdAndId(
                         refreshToken.getTenantId(), refreshToken.getUserId())
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -409,6 +455,7 @@ public class AuthService {
         int revoked = refreshTokenRepository.revokeAllActive(tenantId, userId);
 
         // Increment session version to invalidate all outstanding access tokens
+        applyTrustedUserScope(tenantId);
         userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
             user.incrementSessionVersion();
             userRepository.save(user);
@@ -441,6 +488,7 @@ public class AuthService {
             throw new IllegalArgumentException("Initial credential must be between 8 and 256 characters");
         }
 
+        applyTrustedUserScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("???????? ??? ?????"));
 
@@ -544,16 +592,20 @@ public class AuthService {
         // than one tenant. Recovery must never guess which tenant identity to
         // mutate. Keep the public response generic by returning null for both
         // missing/inactive and ambiguous matches.
-        List<User> activeUsers = userRepository.findAllByEmail(normalizedEmail).stream()
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .toList();
-        if (activeUsers.size() != 1) {
-            log.info("Password reset request not actionable for email={} activeMatches={}",
-                    normalizedEmail, activeUsers.size());
+        List<UUID> candidateTenants = requirePreAuthTenantResolver()
+                .resolve("email", normalizedEmail);
+        if (candidateTenants.size() != 1) {
+            log.info("Password reset request not actionable: tenant matches={}",
+                    candidateTenants.size());
             return null;
         }
-
-        User user = activeUsers.get(0);
+        UUID candidateTenant = candidateTenants.get(0);
+        applyTrustedUserScope(candidateTenant);
+        User user = userRepository.findByTenantIdAndEmail(candidateTenant, normalizedEmail)
+                .orElse(null);
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) {
+            return null;
+        }
 
         // Revoke any existing active reset tokens for this user
         passwordResetTokenRepository.revokeAllActive(user.getTenantId(), user.getId());
@@ -623,6 +675,9 @@ public class AuthService {
             throw new InvalidResetTokenException("رمز إعادة التعيين غير صالح أو منتهي الصلاحية");
         }
 
+        // The tenant scope is obtained from the validated recovery token,
+        // never from unauthenticated request parameters.
+        applyTrustedUserScope(resetToken.getTenantId());
         // Load user
         User user = userRepository.findByTenantIdAndId(resetToken.getTenantId(), resetToken.getUserId())
                 .orElseThrow(() -> new InvalidResetTokenException("المستخدم غير موجود"));

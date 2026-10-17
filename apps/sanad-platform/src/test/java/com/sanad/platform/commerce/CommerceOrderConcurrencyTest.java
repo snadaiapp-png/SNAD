@@ -15,6 +15,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -72,6 +74,8 @@ class CommerceOrderConcurrencyTest {
     @Autowired private CheckoutService checkoutService;
     @Autowired private OrderService orderService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
     @MockBean private EntitlementResolver entitlementResolver;
 
     private UUID tenantId;
@@ -79,6 +83,9 @@ class CommerceOrderConcurrencyTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
         when(entitlementResolver.hasExplicitModuleEntitlement(any(UUID.class), anyString())).thenReturn(true);
         when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(100L);
@@ -88,9 +95,20 @@ class CommerceOrderConcurrencyTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "c-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (?, ?, ?, 'Test Owner', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "owner-" + userId.toString().substring(0, 8) + "@test.example", now, now);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                            "VALUES (?, ?, ?, 'Test Owner', 'ACTIVE', 'dummy', ?, ?)",
+                    userId, tenantId, "owner-" + userId.toString().substring(0, 8) + "@test.example", now, now);
+        });
         // Set SecurityContextHolder so TenantRlsConnectionHandler applies
         // SET LOCAL app.tenant_id inside @Transactional checkout boundaries
         // for FORCE-RLS table commerce_order_number_sequences.

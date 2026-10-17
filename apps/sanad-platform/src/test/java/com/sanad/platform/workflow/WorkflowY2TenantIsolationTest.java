@@ -79,8 +79,10 @@ class WorkflowY2TenantIsolationTest {
         // that contract, switching tenants exactly where the fixture seeds each one.
         jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         UUID userA = createUser(tenantA, "iso-a");
+        this.userAId = userA;
         jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         UUID userB = createUser(tenantB, "iso-b");
+        this.userBId = userB;
         jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         employeeA = createEmployee(tenantA, "ISO-A", userA);
         jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
@@ -203,10 +205,19 @@ class WorkflowY2TenantIsolationTest {
     // ===== fixture helpers =====
 
     private UUID userAId;
+    private UUID userBId;
 
     private UUID userB() {
-        return jdbc.queryForObject(
-                "SELECT id FROM users WHERE tenant_id = ? LIMIT 1", UUID.class, tenantB);
+        // Cache the UUID captured in setUp(). A live jdbc.queryForObject against
+        // tenantB would fail under FORCE RLS because the test transaction's
+        // app.tenant_id GUC is set to tenantA (the cross-tenant "current"
+        // tenant). The fail-closed users_tenant_isolation policy would filter
+        // tenantB rows to 0 and queryForObject would throw
+        // EmptyResultDataAccessException instead of returning the cached id.
+        if (userBId == null) {
+            throw new IllegalStateException("userB fixture was not captured in setUp()");
+        }
+        return userBId;
     }
 
     private UUID userA() {

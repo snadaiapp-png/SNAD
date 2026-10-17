@@ -367,23 +367,41 @@ class SalesTeamUseCasesPostgresTest {
 
     private UUID createUser(UUID tenant, String prefix, String status) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO users
-                    (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES
-                    (:id, :tenantId, :email, :displayName, :status, 'dummy',
-                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("tenantId", tenant)
-                .addValue("email", prefix + "-" + id.toString().substring(0, 8) + "@test.example")
-                .addValue("displayName", "User " + prefix)
-                .addValue("status", status));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. Wrap setGuc +
+        // INSERT in transactions.executeWithoutResult(...) — same
+        // Connection, same GUC scope (transaction-local).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenant.toString()), String.class);
+            jdbc.update("""
+                    INSERT INTO users
+                        (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES
+                        (:id, :tenantId, :email, :displayName, :status, 'dummy',
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", id)
+                    .addValue("tenantId", tenant)
+                    .addValue("email", prefix + "-" + id.toString().substring(0, 8) + "@test.example")
+                    .addValue("displayName", "User " + prefix)
+                    .addValue("status", status));
+        });
         return id;
     }
 
     private <T> T inTransaction(java.util.function.Supplier<T> action) {
-        return transactions.execute(status -> action.get());
+        return transactions.execute(status -> {
+            // FORCE RLS on public.users (V20261011_3) — service-layer queries
+            // that validate user existence are filtered by RLS unless
+            // app.tenant_id is set on the tx-bound connection. Set the GUC
+            // at the start of every tx block so all queries within this
+            // transaction see the tenant context.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenantId.toString()), String.class);
+            return action.get();
+        });
     }
 
     private String shortId() {

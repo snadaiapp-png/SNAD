@@ -19,6 +19,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -60,6 +62,8 @@ class WorkflowSecurityNegativeTest {
     @Autowired private WorkflowExecutionService execService;
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -70,6 +74,9 @@ class WorkflowSecurityNegativeTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
                 + "workflow_step_instances, workflow_instances, workflow_steps, "
                 + "workflow_definitions RESTART IDENTITY CASCADE");
@@ -88,14 +95,36 @@ class WorkflowSecurityNegativeTest {
                     tid, "Tenant " + tid.toString().substring(0, 8),
                     "wfs-" + tid.toString().substring(0, 8), now, now);
         }
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.execute()/jdbc.update().
+        // The original code had two defects:
+        //   1. set_config used tenantB but INSERT used tenantA (RLS rejected the mismatch).
+        //   2. set_config on conn A is invisible to INSERT on conn B (HikariCP returns
+        //      different connections per call when no Spring-managed transaction is active).
+        // Fix: wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to this
+        // transaction only — no session-level leak when the connection is returned to
+        // HikariCP. set_config uses a JDBC prepared parameter (?) for the tenant value.
+        // Loop for [userA, approverA, noCapsUserA] — all inserted into tenantA.
         for (var uid : List.of(userA, approverA, noCapsUserA)) {
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                    uid, tenantA, "wfs-" + uid.toString().substring(0, 8) + "@test", now, now);
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantA.toString());
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
+                        uid, tenantA, "wfs-" + uid.toString().substring(0, 8) + "@test", now, now);
+            });
         }
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
-                userB, tenantB, "wfs-" + userB.toString().substring(0, 8) + "@test", now, now);
+        // userB INSERT — tenantB.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantB.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                            + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
+                    userB, tenantB, "wfs-" + userB.toString().substring(0, 8) + "@test", now, now);
+        });
 
         // Grant ALL workflow capabilities to userA and userB (tenantA and tenantB admins).
         // noCapsUserA is intentionally NOT granted any workflow capabilities.

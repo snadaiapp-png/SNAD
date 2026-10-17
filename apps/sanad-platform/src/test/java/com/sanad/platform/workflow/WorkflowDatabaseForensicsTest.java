@@ -165,9 +165,19 @@ class WorkflowDatabaseForensicsTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "rls-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "rls-" + userId.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: ConnectionCallback — set_config + INSERT on same connection
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)");
+            ps.setObject(1, userId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, "rls-" + userId.toString().substring(0, 8) + "@test");
+            ps.setObject(4, now);
+            ps.setObject(5, now);
+            ps.executeUpdate();
+            return null;
+        });
 
         jdbc.update("INSERT INTO workflow_definitions "
                 + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
@@ -206,12 +216,32 @@ class WorkflowDatabaseForensicsTest {
                     tid, "Tenant " + tid.toString().substring(0, 8),
                     "rls2-" + tid.toString().substring(0, 8), now, now);
         }
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User A', 'ACTIVE', 'dummy', ?, ?)",
-                userIdA, tenantA, "rls2-" + userIdA.toString().substring(0, 8) + "@test", now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
-                userIdB, tenantB, "rls2-" + userIdB.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: ConnectionCallback — set_config + INSERT on same connection
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User A', 'ACTIVE', 'dummy', ?, ?)");
+            ps.setObject(1, userIdA);
+            ps.setObject(2, tenantA);
+            ps.setString(3, "rls2-" + userIdA.toString().substring(0, 8) + "@test");
+            ps.setObject(4, now);
+            ps.setObject(5, now);
+            ps.executeUpdate();
+            return null;
+        });
+        // FIXED: ConnectionCallback — set_config + INSERT on same connection
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)");
+            ps.setObject(1, userIdB);
+            ps.setObject(2, tenantB);
+            ps.setString(3, "rls2-" + userIdB.toString().substring(0, 8) + "@test");
+            ps.setObject(4, now);
+            ps.setObject(5, now);
+            ps.executeUpdate();
+            return null;
+        });
 
         // Insert 1 row in tenantA, 1 row in tenantB
         jdbc.update("INSERT INTO workflow_definitions "
@@ -275,9 +305,19 @@ class WorkflowDatabaseForensicsTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "fk-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "fk-" + userId.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: ConnectionCallback — set_config + INSERT on same connection
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)");
+            ps.setObject(1, userId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, "fk-" + userId.toString().substring(0, 8) + "@test");
+            ps.setObject(4, now);
+            ps.setObject(5, now);
+            ps.executeUpdate();
+            return null;
+        });
         jdbc.update("INSERT INTO workflow_definitions "
                 + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
                 + "created_by, version_lock, created_at, updated_at) "

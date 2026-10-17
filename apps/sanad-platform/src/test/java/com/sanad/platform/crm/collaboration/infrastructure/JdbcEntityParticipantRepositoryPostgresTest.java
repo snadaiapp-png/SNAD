@@ -56,11 +56,17 @@ class JdbcEntityParticipantRepositoryPostgresTest {
                 jdbc.update("DELETE FROM crm_cases WHERE tenant_id = :t", p("t", t));
                 jdbc.update("DELETE FROM crm_contacts WHERE tenant_id = :t", p("t", t));
                 jdbc.update("DELETE FROM crm_accounts WHERE tenant_id = :t", p("t", t));
+                // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) means
+                // DELETE FROM users is also filtered by the policy's USING clause.
+                // Without the GUC scoped to the same Connection, 0 rows are
+                // deleted here and the subsequent DELETE FROM tenants fails with
+                // fk_users_tenant. Wrap the per-tenant users delete in tx with
+                // setGuc(t) — same Connection, same GUC scope.
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t", p("t", t));
             });
+            // Tenants have no FORCE RLS — delete outside GUC scope is fine.
+            jdbc.update("DELETE FROM tenants WHERE id = :t", p("t", t));
         }
-        var ts = new MapSqlParameterSource().addValue("a", TENANT_A).addValue("b", TENANT_B);
-        jdbc.update("DELETE FROM users WHERE tenant_id IN (:a,:b)", ts);
-        jdbc.update("DELETE FROM tenants WHERE id IN (:a,:b)", ts);
         ensureTenant(TENANT_A); ensureTenant(TENANT_B); ensureUser(USER_A, TENANT_A);
     }
 
@@ -180,5 +186,17 @@ class JdbcEntityParticipantRepositoryPostgresTest {
     private MapSqlParameterSource p(String k, Object v) { return new MapSqlParameterSource().addValue(k, v); }
     private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); transactions.executeWithoutResult(s -> { setGuc(t); jdbc.update("INSERT INTO crm_contacts (id, tenant_id, given_name, display_name, normalized_name, lifecycle_status, created_by, updated_by, created_at, updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A)); }); return id; }
     private void ensureTenant(UUID id) { jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:sub,'ACTIVE',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("name","Test "+id).addValue("sub","repo-"+id)); }
-    private void ensureUser(UUID id, UUID t) { jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:t,:email,:name,'ACTIVE','dummy',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("t",t).addValue("email","repo-"+id+"@snad.test").addValue("name","Repo User")); }
+    private void ensureUser(UUID id, UUID t) {
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. Each call to
+        // ensureUser() from the test body runs OUTSIDE an explicit tx, so
+        // wrap setGuc + INSERT in transactions.executeWithoutResult(...) —
+        // DataSourceTransactionManager binds the Connection to the thread
+        // and NamedParameterJdbcTemplate reuses it for both calls.
+        transactions.executeWithoutResult(s -> {
+            setGuc(t);
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:t,:email,:name,'ACTIVE','dummy',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("t",t).addValue("email","repo-"+id+"@snad.test").addValue("name","Repo User"));
+        });
+    }
 }

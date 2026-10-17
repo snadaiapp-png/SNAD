@@ -16,11 +16,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -53,25 +57,37 @@ class UserApiMutationIntegrationTest {
     @Test
     void crossTenantUpdateReturns404() throws Exception {
         UUID userId = createUser(tenantId, "alice@example.com", "Alice");
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", otherTenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload("new@example.com", "New")))
-                .andExpect(status().isNotFound());
+        // Bind other-tenant context for the cross-tenant update attempt so the
+        // controller's SELECT on users uses RLS-visible rows for otherTenantId.
+        bindTenantContext(otherTenantId);
+        try {
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", otherTenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload("new@example.com", "New")))
+                    .andExpect(status().isNotFound());
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
     void updateUserPersists() throws Exception {
         UUID userId = createUser(tenantId, "alice@example.com", "Alice");
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", tenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload("  NEW@Example.COM ", "Updated")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("new@example.com"));
+        bindTenantContext(tenantId);
+        try {
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", tenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload("  NEW@Example.COM ", "Updated")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.email").value("new@example.com"));
 
-        User persisted = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
-        assertThat(persisted.getDisplayName()).isEqualTo("Updated");
+            User persisted = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            assertThat(persisted.getDisplayName()).isEqualTo("Updated");
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test void activateUserPersistsActive() throws Exception { assertLifecycle("activate", UserStatus.ACTIVE); }
@@ -102,6 +118,12 @@ class UserApiMutationIntegrationTest {
     }
 
     private UUID createUser(UUID scope, String email, String name) throws Exception {
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so the controller's @Transactional participates in the test's tx. Bind the
+        // SecurityContextHolder with the scope tenant_id BEFORE mockMvc.perform so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id on the tx-bound
+        // Connection before the controller's userRepository.save(user) INSERT.
+        bindTenantContext(scope);
         MvcResult result = mockMvc.perform(post("/api/v1/users")
                         .param("tenantId", scope.toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -118,11 +140,33 @@ class UserApiMutationIntegrationTest {
 
     private void assertLifecycle(String operation, UserStatus expected) throws Exception {
         UUID userId = createUser(tenantId, operation + "@example.com", operation);
-        mockMvc.perform(patch("/api/v1/users/{userId}/" + operation, userId)
-                        .param("tenantId", tenantId.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(expected.name()));
-        assertThat(userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow().getStatus())
-                .isEqualTo(expected);
+        bindTenantContext(tenantId);
+        try {
+            mockMvc.perform(patch("/api/v1/users/{userId}/" + operation, userId)
+                            .param("tenantId", tenantId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(expected.name()));
+            assertThat(userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow().getStatus())
+                    .isEqualTo(expected);
+        } finally {
+            clearTenantContext();
+        }
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside the @Transactional boundary.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 }

@@ -15,6 +15,7 @@ import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -80,6 +81,7 @@ public class CallerIdentificationService {
      * @throws CrmContractException with {@link CrmErrorCode#RATE_LIMITED} when the
      *         anti-enumeration quota is exceeded
      */
+    @Transactional
     public CallerLookupResult lookup(
             UUID tenantId, UUID userId, String phone, String countryHint,
             CallerLookupSource source, boolean allowRestricted) {

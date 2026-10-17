@@ -3,6 +3,7 @@ package com.sanad.platform.crm.caller.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,7 +17,10 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -51,6 +55,15 @@ class CallerIdentificationApiTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired MeterRegistry meterRegistry;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
+
+    @BeforeEach
+    void initTx() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+    }
 
     // ===== EXACT / card contract =====
 
@@ -172,10 +185,14 @@ class CallerIdentificationApiTest {
     // ===== Privacy: CONFIDENTIAL / RESTRICTED =====
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void confidentialCardIsMaskedServerSideWithoutRestrictedCapability() throws Exception {
-        Fixture fixture = fixture("g8-conf");
-        contact(fixture, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
-                true, "VERIFIED", false);
+        Fixture fixture = tx.execute(status -> fixture("g8-conf"));
+        tx.execute(status -> {
+            contact(fixture, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
+                    true, "VERIFIED", false);
+            return null;
+        });
 
         MvcResult masked = mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
@@ -187,9 +204,12 @@ class CallerIdentificationApiTest {
         JsonNode body = mapper.readTree(masked.getResponse().getContentAsString());
         assertThat(body.path("displayName").asText()).isNotEqualTo("سرية محمد");
 
-        Fixture privileged = fixture("g8-conf-priv");
-        contact(privileged, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
-                true, "VERIFIED", false);
+        Fixture privileged = tx.execute(status -> fixture("g8-conf-priv"));
+        tx.execute(status -> {
+            contact(privileged, "سرية محمد", "س", "م", SA_PHONE, "ACTIVE", "CONFIDENTIAL",
+                    true, "VERIFIED", false);
+            return null;
+        });
         mockMvc.perform(post(LOOKUP).with(authentication(auth(privileged, CAP_RESTRICTED)))
                         .contentType("application/json")
                         .content("{\"phone\":\"0541234567\",\"countryHint\":\"SA\",\"source\":\"MANUAL\"}"))
@@ -199,10 +219,14 @@ class CallerIdentificationApiTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void restrictedRecordIsRestrictedWithoutCapabilityAndExactWithIt() throws Exception {
-        Fixture fixture = fixture("g8-restricted");
-        contact(fixture, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
-                true, "VERIFIED", false);
+        Fixture fixture = tx.execute(status -> fixture("g8-restricted"));
+        tx.execute(status -> {
+            contact(fixture, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
+                    true, "VERIFIED", false);
+            return null;
+        });
 
         mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
@@ -211,9 +235,12 @@ class CallerIdentificationApiTest {
                 .andExpect(jsonPath("$.matchStatus").value("RESTRICTED"))
                 .andExpect(jsonPath("$.entityId").doesNotExist());
 
-        Fixture privileged = fixture("g8-restricted-priv");
-        contact(privileged, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
-                true, "VERIFIED", false);
+        Fixture privileged = tx.execute(status -> fixture("g8-restricted-priv"));
+        tx.execute(status -> {
+            contact(privileged, "مقيد جدا", "م", "ق", SA_PHONE, "ACTIVE", "RESTRICTED",
+                    true, "VERIFIED", false);
+            return null;
+        });
         mockMvc.perform(post(LOOKUP).with(authentication(auth(privileged, CAP_RESTRICTED)))
                         .contentType("application/json")
                         .content("{\"phone\":\"0541234567\",\"countryHint\":\"SA\",\"source\":\"MANUAL\"}"))
@@ -363,6 +390,13 @@ class CallerIdentificationApiTest {
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
                         .addValue("now", java.sql.Timestamp.from(now)));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. The class is
+        // @Transactional, so the Spring-managed tx provides a single physical
+        // connection for all jdbc calls in this fixture.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantId.toString()), String.class);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'G8 Caller User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

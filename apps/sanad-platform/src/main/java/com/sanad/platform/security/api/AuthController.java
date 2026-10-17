@@ -13,6 +13,7 @@ import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.security.dto.AdminInitializeCredentialRequest;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.ForgotPasswordRequest;
 import com.sanad.platform.security.dto.LoginRequest;
@@ -32,11 +33,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -72,6 +75,12 @@ public class AuthController {
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
     private final LoginDestinationResolver destinationResolver;
     private final LoginRateLimitKeys rateLimitKeys;
+    private TenantRlsTransactionContext tenantRlsContext;
+
+    @Autowired(required = false)
+    void setTenantRlsContext(TenantRlsTransactionContext context) {
+        this.tenantRlsContext = context;
+    }
 
     public AuthController(
             AuthService authService,
@@ -102,6 +111,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @Transactional
     @Operation(summary = "Authenticate and return the complete post-login bootstrap")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         String normalizedIdentifier = request.getUsername() != null && !request.getUsername().isBlank()
@@ -112,6 +122,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
+    @Transactional
     @Operation(summary = "Rotate a BFF-held refresh token and return a complete session bootstrap")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request, @RequestBody(required = false) RefreshRequest body) {
         String refreshToken = request.getHeader(REFRESH_TOKEN_HEADER);
@@ -151,6 +162,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
+    @Transactional
     @Operation(summary = "Get the authenticated user's identity, memberships, and role grants")
     public ResponseEntity<MeResponse> me(Authentication authentication) {
         PrincipalIds principal = principal(authentication);
@@ -325,6 +337,12 @@ public class AuthController {
     }
 
     private MeResponse buildMeResponse(UUID tenantId, UUID userId) {
+        // Set trusted tenant scope for FORCE RLS before querying public.users.
+        // The caller must be @Transactional (login, refresh, me) so that
+        // applyForCurrentTransaction can issue SET LOCAL app.tenant_id.
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
 

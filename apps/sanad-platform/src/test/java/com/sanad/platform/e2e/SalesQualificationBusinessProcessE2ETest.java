@@ -243,6 +243,14 @@ class SalesQualificationBusinessProcessE2ETest {
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all jdbc.update() calls share the tx-bound physical Connection. Calling
+        // set_config('app.tenant_id', ..., true) before the INSERT INTO users makes
+        // the GUC active for the rest of this transaction. seedUser is called for
+        // multiple tenants, so set_config must precede each INSERT.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE','dummy',?,?)",
                 id, tenantId, email, "Business Process E2E User", ts, ts);
     }

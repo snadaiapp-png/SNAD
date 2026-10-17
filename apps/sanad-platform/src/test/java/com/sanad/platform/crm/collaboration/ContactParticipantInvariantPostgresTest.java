@@ -539,13 +539,18 @@ class ContactParticipantInvariantPostgresTest {
     }
 
     private void ensureUser(UUID id, UUID tenant) {
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, p("id", id).addValue("t", tenant)
-                .addValue("email", "c3-" + id + "@snad.test")
-                .addValue("name", "C3 User " + id.toString().substring(0, 8)));
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before INSERT INTO users.
+        transactions.executeWithoutResult(s -> {
+            setGuc(tenant);
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """, p("id", id).addValue("t", tenant)
+                    .addValue("email", "c3-" + id + "@snad.test")
+                    .addValue("name", "C3 User " + id.toString().substring(0, 8)));
+        });
     }
 
     private MapSqlParameterSource p(String k, Object v) {

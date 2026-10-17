@@ -46,8 +46,14 @@ class CrmEntityParticipantIntegrityPostgresTest {
         for (UUID t : new UUID[]{TENANT_A, TENANT_B}) {
             transactions.executeWithoutResult(s -> { setGuc(t); del(t, "crm_entity_participants"); del(t, "crm_timeline_events"); del(t, "crm_tasks"); del(t, "crm_cases"); del(t, "crm_contacts"); del(t, "crm_accounts"); });
         }
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before DELETE FROM users.
+        // Split the per-tenant DELETEs so each runs under its matching GUC.
+        for (UUID t : new UUID[]{TENANT_A, TENANT_B}) {
+            transactions.executeWithoutResult(s -> { setGuc(t); jdbc.update("DELETE FROM users WHERE tenant_id = :t", p("t", t)); });
+        }
         var ts = new MapSqlParameterSource().addValue("a", TENANT_A).addValue("b", TENANT_B);
-        jdbc.update("DELETE FROM users WHERE tenant_id IN (:a,:b)", ts);
+        // tenants has no RLS — single bulk DELETE is safe.
         jdbc.update("DELETE FROM tenants WHERE id IN (:a,:b)", ts);
         ensureTenant(TENANT_A); ensureTenant(TENANT_B); ensureUser(USER_A, TENANT_A);
     }
@@ -152,6 +158,6 @@ class CrmEntityParticipantIntegrityPostgresTest {
     private UUID seedTask(UUID t, String title) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_tasks (id,tenant_id,title,status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:title,'OPEN',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("title",title).addValue("u",USER_A)); return id; }
     private UUID seedCase(UUID t, String subject) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_cases (id,tenant_id,subject,status) VALUES (:id,:t,:subject,'OPEN')", p("id",id).addValue("t",t).addValue("subject",subject)); return id; }
     private void ensureTenant(UUID id) { jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:sub,'ACTIVE',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("name","Test "+id).addValue("sub","integ-"+id)); }
-    private void ensureUser(UUID id, UUID t) { jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:t,:email,:name,'ACTIVE','dummy',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("t",t).addValue("email","integ-"+id+"@snad.test").addValue("name","Test User")); }
+    private void ensureUser(UUID id, UUID t) { transactions.executeWithoutResult(s -> { setGuc(t); jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:t,:email,:name,'ACTIVE','dummy',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("t",t).addValue("email","integ-"+id+"@snad.test").addValue("name","Test User")); }); }
     private MapSqlParameterSource p(String k, Object v) { return new MapSqlParameterSource().addValue(k, v); }
 }
