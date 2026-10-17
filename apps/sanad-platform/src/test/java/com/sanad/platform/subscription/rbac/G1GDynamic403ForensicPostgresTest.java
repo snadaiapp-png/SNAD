@@ -184,6 +184,15 @@ class G1GDynamic403ForensicPostgresTest {
         List<UUID> tenantIds = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE subdomain LIKE 'g1g-forensic-%'", UUID.class);
         for (UUID tenantId : tenantIds) {
+            // Cause C fix: delete refresh_tokens by tenant_id BEFORE deleting users.
+            // The first loop deletes refresh_tokens only for users in disposableUsers
+            // (email LIKE 'g1g-%@forensic.sanad.test'). But the tenant loop deletes
+            // ALL users in the tenant (DELETE FROM users WHERE tenant_id = ?), which
+            // may include users not in disposableUsers (e.g., users created during
+            // the test with different email patterns). The FK constraint
+            // fk_refresh_tokens_user blocks the DELETE if refresh_tokens still
+            // reference the user. Fix: delete refresh_tokens by tenant_id first.
+            jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);

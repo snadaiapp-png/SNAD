@@ -111,8 +111,14 @@ class TenantLifecycleRlsContractTest {
      * <p>Proves: set_config('app.tenant_id', tenantA, true) + INSERT INTO users
      * wrapped in tx.executeWithoutResult → both share the tx-bound physical
      * Connection → RLS WITH CHECK accepts the row.
+     *
+     * <p>Note: this test method is @Transactional so the same Connection is
+     * used for set_config + INSERT + the verification SELECT. The test class
+     * itself is NOT @Transactional (to allow {@link #auditLogWriteFailsInReadOnlyTx}
+     * to create a fresh read-only tx and verify the SQL state 25006 regression).
      */
     @Test
+    @org.springframework.transaction.annotation.Transactional
     @DisplayName("1: tenantCreationAndInsertSucceedsWithGucOnSameConnection")
     void tenantCreationAndInsertSucceedsWithGucOnSameConnection() {
         TransactionTemplate tx = tx();

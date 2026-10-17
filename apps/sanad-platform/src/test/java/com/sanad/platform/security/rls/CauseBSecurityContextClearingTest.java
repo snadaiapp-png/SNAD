@@ -153,15 +153,15 @@ class CauseBSecurityContextClearingTest {
                     .as("post-mockMvc query must throw \"Tenant identity changed\"")
                     .hasMessageContaining("Tenant identity changed inside an active RLS transaction");
         } finally {
+            // No explicit cleanup needed — the class-level @Transactional rolls back
+            // the test tx (including the tenants INSERT, users INSERT, and any
+            // controller-side writes from mockMvc.perform) at end of test method.
+            // Note: we intentionally DON'T do a cleanup tx.execute because it would
+            // hit the SAME "Tenant identity changed" issue (tenantAppliedFor=tenantId
+            // is still set from mockMvc.perform, currentTenantId()=NULL after filter
+            // cleared SecurityContextHolder). This confirms Cause B affects even
+            // cleanup operations, not just assertion-time queries.
             SecurityContextHolder.clearContext();
-            // Cleanup — the parent @Transactional will roll back, but the tenant INSERT
-            // (via raw jdbc.update) doesn't roll back. Need explicit cleanup.
-            tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
-                jdbc.update("DELETE FROM users WHERE id = ?", userId);
-            });
-            jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
     }
 
@@ -223,13 +223,9 @@ class CauseBSecurityContextClearingTest {
                     "SELECT COUNT(*) FROM users WHERE id = ?", Integer.class, userId);
             assertThat(count).as("post-mockMvc query succeeds with re-bind").isEqualTo(1);
         } finally {
+            // No explicit cleanup needed — class-level @Transactional rolls back the
+            // test tx at end of test method.
             SecurityContextHolder.clearContext();
-            tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
-                jdbc.update("DELETE FROM users WHERE id = ?", userId);
-            });
-            jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
     }
 
