@@ -213,9 +213,11 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — suspended user returns 401")
     void login_suspendedUser_returns401() throws Exception {
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
-        user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        withTenantFixtureScope(tenantId, () -> {
+            User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+            user.setStatus(UserStatus.SUSPENDED);
+            userRepository.save(user);
+        });
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         request.setTenantId(tenantId);
@@ -236,7 +238,12 @@ class AuthApiIntegrationTest {
         // Mirrors the testuser-<uuid> pattern used by setUp().
         String nopassEmail = "nopass-" + UUID.randomUUID() + "@example.com";
         User nopassUser = new User(tenantId, nopassEmail, "No Pass User", UserStatus.ACTIVE);
-        userRepository.save(nopassUser);
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> userRepository.save(nopassUser));
+        } finally {
+            clearTenantContext();
+        }
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
         request.setTenantId(tenantId);
@@ -301,7 +308,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        withTenantFixtureScope(tenant2Id, () -> userRepository.save(user2));
 
         // Login without tenantId should return 409
         LoginRequest request = new LoginRequest(testEmail, testPassword);
@@ -326,7 +333,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        withTenantFixtureScope(tenant2Id, () -> userRepository.save(user2));
 
         // Login WITH explicit tenantId should succeed
         LoginRequest request = new LoginRequest(testEmail, testPassword);
@@ -399,10 +406,12 @@ class AuthApiIntegrationTest {
     void refresh_blockedForSuspendedUser() throws Exception {
         LoginResult loginResult = loginAndExtractCookie();
 
-        // Suspend the user
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
-        user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        // Suspend the user (FORCE RLS: the read must be tenant-scoped)
+        withTenantFixtureScope(tenantId, () -> {
+            User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+            user.setStatus(UserStatus.SUSPENDED);
+            userRepository.save(user);
+        });
 
         // Attempt refresh — should fail with 401
         RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
@@ -627,5 +636,24 @@ class AuthApiIntegrationTest {
 
     private void clearTenantContext() {
         SecurityContextHolder.clearContext();
+        // spring-security-test replays TestSecurityContextHolder into every
+        // MockMvc request; a stale fixture identity would defeat the
+        // unauthenticated-request contract tests (401 expectations).
+        org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
+    }
+
+    /**
+     * Run a users-table operation inside a transaction whose GUC is bound to
+     * the fixture tenant. public.users is FORCE RLS (V20261011_3): bare
+     * repository calls outside a request run fail-closed (0 rows / rejected
+     * INSERTs), so fixture reads/writes must be explicitly scoped.
+     */
+    private void withTenantFixtureScope(UUID scopedTenantId, Runnable action) {
+        bindTenantContext(scopedTenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> action.run());
+        } finally {
+            clearTenantContext();
+        }
     }
 }

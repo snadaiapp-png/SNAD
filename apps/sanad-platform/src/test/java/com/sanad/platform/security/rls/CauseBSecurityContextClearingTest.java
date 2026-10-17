@@ -86,9 +86,21 @@ class CauseBSecurityContextClearingTest {
      * {@code AuthApiIntegrationTest} (test method failures),
      * {@code CredentialRotationIntegrationTest}.
      */
+    /**
+     * B1 documents the STATELESS filter clearing the SecurityContextHolder
+     * after each MockMvc request. B2 originally asserted that the follow-up
+     * query THROWS "Tenant identity changed" — that contract treated a CLEARED
+     * context as an identity change and broke every deferred-flush /
+     * post-request audit path (the very failures this class documents). The
+     * guard now treats null-current as scope-preserving: the previously
+     * applied SET LOCAL GUC still scopes the statement, so RLS remains
+     * fail-closed while legitimate post-request work succeeds. A REAL tenant
+     * swap mid-transaction is still rejected
+     * (see TenantRlsConnectionHandlerTest#rejectsRealIdentityChangeInsideActiveTransaction).
+     */
     @Test
-    @DisplayName("B1: post-mockMvc DB query throws \"Tenant identity changed\" because STATELESS filter cleared SecurityContextHolder")
-    void postMockMvcDbQueryThrowsTenantIdentityChanged() throws Exception {
+    @DisplayName("B1/B2: STATELESS filter clears SecurityContextHolder; the follow-up query still runs under the already-applied tenant scope")
+    void postMockMvcDbQueryRunsUnderAppliedTenantScope() throws Exception {
         TransactionTemplate tx = tx();
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -140,18 +152,19 @@ class CauseBSecurityContextClearingTest {
                             + "(NullSecurityContextRepository saves NULL)")
                     .isNull();
 
-            // B2 assertion: the next DB query throws "Tenant identity changed"
-            // because tenantAppliedFor=tenantId (set during mockMvc.perform) !=
-            // currentTenantId()=NULL (cleared by filter).
-            // Use platform_audit_logs (no RLS) to prove the handler throws regardless
-            // of whether the target table has RLS.
-            assertThatThrownBy(() -> {
+            // B2 assertion (corrected contract): the next DB query does NOT
+            // throw — a cleared context is not an identity change. The handler
+            // keeps the tenant GUC that was applied during mockMvc.perform, so
+            // the statement stays tenant-scoped and RLS stays fail-closed.
+            // platform_audit_logs has no RLS; the point is that the handler no
+            // longer rejects the statement on the null-current path.
+            org.assertj.core.api.Assertions.assertThatCode(() -> {
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id = ?",
                         Integer.class, tenantId);
             })
-                    .as("post-mockMvc query must throw \"Tenant identity changed\"")
-                    .hasMessageContaining("Tenant identity changed inside an active RLS transaction");
+                    .as("post-mockMvc query must run under the already-applied tenant scope")
+                    .doesNotThrowAnyException();
         } finally {
             // No explicit cleanup needed — the class-level @Transactional rolls back
             // the test tx (including the tenants INSERT, users INSERT, and any

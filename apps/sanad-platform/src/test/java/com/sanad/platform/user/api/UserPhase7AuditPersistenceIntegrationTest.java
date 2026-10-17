@@ -212,10 +212,16 @@ class UserPhase7AuditPersistenceIntegrationTest {
     // ------------------------------------------------------------------
 
     private List<Map<String, Object>> auditRows(String action) {
+        // Scope to THIS test's tenants: platform_audit_logs has no RLS, so an
+        // action-only filter would also match rows committed by other suites'
+        // runs on a reused database. The assertions are about the rows this
+        // test's own API calls produced.
         return jdbcTemplate.queryForList(
                 "SELECT actor_tenant_id, actor_user_id, target_tenant_id, action, resource_type, "
                 + "resource_id, reason, before_state, after_state, result, created_at "
-                + "FROM platform_audit_logs WHERE action = ? ORDER BY created_at, id", action);
+                + "FROM platform_audit_logs WHERE action = ? "
+                + "AND target_tenant_id IN (?, ?) ORDER BY created_at, id",
+                action, tenantId, otherTenantId);
     }
 
     private UUID saveTenant(String name) {

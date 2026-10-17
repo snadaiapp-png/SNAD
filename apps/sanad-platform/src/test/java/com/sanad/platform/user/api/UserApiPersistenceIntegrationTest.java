@@ -43,6 +43,8 @@ class UserApiPersistenceIntegrationTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
 
     private UUID tenantId;
     private UUID otherTenantId;
@@ -88,13 +90,66 @@ class UserApiPersistenceIntegrationTest {
 
     @Test
     void listUsersIsTenantScoped() throws Exception {
+        // Each INSERT must execute under ITS OWN tenant's RLS scope. The test
+        // transaction shares one physical connection, so flush immediately
+        // while the creator's tenant GUC is applied, then switch scope.
         createUser(tenantId, "alice@example.com", "Alice");
+        flushPendingUsersInsert(tenantId);
         createUser(tenantId, "bob@example.com", "Bob");
-        createUser(otherTenantId, "carol@example.com", "Carol");
+        flushPendingUsersInsert(tenantId);
 
-        mockMvc.perform(get("/api/v1/users").param("tenantId", tenantId.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
+        seedForeignTenantUserRaw(otherTenantId, "carol@example.com", "Carol");
+
+        // Restore tenant A scope for the listing request: carol belongs to
+        // otherTenantId and the fail-closed users policy must hide her here.
+        bindTenantContext(tenantId);
+        try {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                    tenantId.toString());
+            mockMvc.perform(get("/api/v1/users").param("tenantId", tenantId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2));
+        } finally {
+            clearTenantContext();
+        }
+    }
+
+    /**
+     * Force the deferred users INSERT (created by the API request inside the
+     * shared test transaction) to execute NOW, while the creator tenant's
+     * app.tenant_id GUC is still applied. Without this the INSERT flushes
+     * later under whatever tenant scope is current and the fail-closed
+     * users_tenant_isolation policy (V20261011_3) rejects it.
+     */
+    private void flushPendingUsersInsert(UUID creatorTenantId) {
+        bindTenantContext(creatorTenantId);
+        try {
+            entityManager.flush();
+        } finally {
+            clearTenantContext();
+        }
+    }
+
+    /**
+     * Insert a user of a DIFFERENT tenant with an explicit transaction-local
+     * GUC (the same contract as AccessPersistenceIntegrationTest#seedUserRaw).
+     * SecurityContextHolder is deliberately NOT bound, so
+     * TenantRlsConnectionHandler stays passive and the fail-closed
+     * users_tenant_isolation policy (V20261011_3) still scopes the INSERT to
+     * the explicitly supplied tenant. This keeps the test tx roll-backable
+     * without tripping the in-transaction identity guard.
+     */
+    private void seedForeignTenantUserRaw(UUID scopedTenantId, String email, String name) {
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                scopedTenantId.toString());
+        jdbc.update(
+                "INSERT INTO users (id, tenant_id, email, display_name, status, "
+                        + "password_hash, must_change_password, platform_admin, session_version, "
+                        + "created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', false, false, 0, NOW(), NOW())",
+                UUID.randomUUID(), scopedTenantId, email, name);
     }
 
     @Test
@@ -161,5 +216,6 @@ class UserApiPersistenceIntegrationTest {
 
     private void clearTenantContext() {
         SecurityContextHolder.clearContext();
+        org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
     }
 }

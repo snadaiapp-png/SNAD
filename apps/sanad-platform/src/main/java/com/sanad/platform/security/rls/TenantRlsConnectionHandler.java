@@ -78,7 +78,13 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
         }
         UUID tenantId = currentTenantId();
         if (tenantAppliedFor != null) {
-            if (!tenantAppliedFor.equals(tenantId)) {
+            // A DIFFERENT non-null tenant is a hard violation: the actor swapped
+            // identity inside one transaction. A CLEARED context (null) is not an
+            // identity change: the previously applied SET LOCAL GUC still scopes
+            // every statement of this transaction to the original tenant, so RLS
+            // remains fail-closed. Deferred flushes and post-authentication
+            // verification queries therefore continue under the applied scope.
+            if (tenantId != null && !tenantAppliedFor.equals(tenantId)) {
                 throw new SQLException("Tenant identity changed inside an active RLS transaction");
             }
             return;

@@ -53,14 +53,28 @@ async function mockAuthApi(page: Page): Promise<void> {
       status: "ACTIVE",
     },
   };
-  const cookie = "sanad_refresh=crm-integration-ui-refresh; Path=/; HttpOnly; SameSite=Lax";
+  // Chrome 155 stopped applying set-cookie headers carried by
+  // route.fulfill({headers}); the BFF session cookie is therefore planted
+  // through the context cookie API at the exact moments the real BFF would
+  // set it (login success and refresh success). Same cookie name/flags as the
+  // production BFF contract; no security expectation is changed.
+  const plantSessionCookie = async (): Promise<void> => {
+    await page.context().addCookies([{
+      name: "sanad_refresh",
+      value: "crm-integration-ui-refresh",
+      url: page.url(),
+      httpOnly: true,
+      sameSite: "Lax",
+    }]);
+  };
 
   await page.route("**/api/platform/api/v1/auth/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path.endsWith("/auth/login") && request.method() === "POST") {
       loggedIn = true;
-      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      await plantSessionCookie();
+      await fulfillJson(route, loginResponse, 200);
       return;
     }
     if (path.endsWith("/auth/refresh") && request.method() === "POST") {
@@ -68,11 +82,13 @@ async function mockAuthApi(page: Page): Promise<void> {
         await fulfillJson(route, { errorCode: "UNAUTHENTICATED" }, 401);
         return;
       }
-      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      await plantSessionCookie();
+      await fulfillJson(route, loginResponse, 200);
       return;
     }
     if (path.endsWith("/auth/logout")) {
       loggedIn = false;
+      await page.context().clearCookies();
       await fulfillJson(route, {}, 204);
       return;
     }

@@ -163,7 +163,18 @@ class CredentialRotationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.credentialRotationRequired").value(false));
 
-        User persisted = userRepository.findByTenantIdAndEmail(tenant.getId(), email).orElseThrow();
+        // public.users is FORCE RLS (V20261011_3): the verification read must
+        // run inside a transaction scoped to the fixture tenant, otherwise the
+        // fail-closed policy hides the row and orElseThrow() fires.
+        bindTenantContext(tenant.getId());
+        final User[] persistedHolder = new User[1];
+        try {
+            tx.executeWithoutResult(txStatus -> persistedHolder[0] =
+                    userRepository.findByTenantIdAndEmail(tenant.getId(), email).orElseThrow());
+        } finally {
+            clearTenantContext();
+        }
+        User persisted = persistedHolder[0];
         assertThat(persisted.isMustChangePassword()).isFalse();
         assertThat(persisted.getPasswordSetBy()).isEqualTo("self-service");
         assertThat(refreshTokenRepository
