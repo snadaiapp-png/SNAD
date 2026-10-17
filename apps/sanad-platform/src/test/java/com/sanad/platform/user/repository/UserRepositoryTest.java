@@ -64,9 +64,15 @@ class UserRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        Tenant tenantA = tenantRepository.save(
+        // Cause A fix: use saveAndFlush to force tenant INSERTs to execute immediately
+        // (not deferred by Hibernate). This is required because seedUserRaw() uses raw
+        // JdbcTemplate INSERT INTO users (bypassing Hibernate's persistence context),
+        // and the FK constraint fk_users_tenant requires the tenant row to exist in
+        // the DB at INSERT time. Without saveAndFlush, Hibernate defers the tenant
+        // INSERT, and the raw JdbcTemplate user INSERT fails with FK violation.
+        Tenant tenantA = tenantRepository.saveAndFlush(
                 new Tenant("Tenant A", "tenant-a-" + UUID.randomUUID(), TenantStatus.ACTIVE));
-        Tenant tenantB = tenantRepository.save(
+        Tenant tenantB = tenantRepository.saveAndFlush(
                 new Tenant("Tenant B", "tenant-b-" + UUID.randomUUID(), TenantStatus.ACTIVE));
         tenantAId = tenantA.getId();
         tenantBId = tenantB.getId();
