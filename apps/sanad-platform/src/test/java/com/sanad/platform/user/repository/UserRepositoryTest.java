@@ -13,11 +13,14 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -47,6 +50,14 @@ class UserRepositoryTest {
 
     @Autowired
     private TenantRepository tenantRepository;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private TransactionTemplate tx;
 
     private UUID tenantAId;
     private UUID tenantBId;
@@ -106,13 +117,16 @@ class UserRepositoryTest {
     @Test
     @DisplayName("TEST 3: findByTenantId returns all users for the tenant")
     void findByTenantId_returnsAllForTenant() {
-        bindTenantContext(tenantAId);
-        userRepository.save(new User(tenantAId, "alice@a.com", "Alice", UserStatus.ACTIVE));
-        userRepository.save(new User(tenantAId, "bob@a.com", "Bob", UserStatus.INVITED));
-        bindTenantContext(tenantBId);
-        userRepository.save(new User(tenantBId, "carol@b.com", "Carol", UserStatus.ACTIVE));
-        // Rebind to tenantA so the SELECT WHERE tenant_id=tenantA sees RLS-visible
-        // rows for tenantA.
+        // Cause A fix: replace JPA userRepository.save() (which defers INSERTs and
+        // flushes them all with the LAST set GUC) with raw JdbcTemplate set_config
+        // + INSERT per tenant. Each INSERT runs immediately with the correct GUC,
+        // bypassing Hibernate's deferred-flush + handler's per-tx GUC model.
+        // The test class is @Transactional, so all INSERTs run in the test tx and
+        // are rolled back at end of test method.
+        seedUserRaw(tenantAId, "alice@a.com", "Alice", "ACTIVE");
+        seedUserRaw(tenantAId, "bob@a.com", "Bob", "INVITED");
+        seedUserRaw(tenantBId, "carol@b.com", "Carol", "ACTIVE");
+
         bindTenantContext(tenantAId);
         try {
             List<User> result = userRepository.findByTenantId(tenantAId);
@@ -302,5 +316,34 @@ class UserRepositoryTest {
 
     private void clearTenantContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    /**
+     * Cause A fix helper — raw JdbcTemplate set_config + INSERT INTO users
+     * per tenant, so each INSERT runs immediately with the correct GUC.
+     * Bypasses Hibernate's deferred-flush + handler's per-tx GUC model
+     * (incompatible with multi-tenant JPA fixtures).
+     *
+     * <p>The INSERT runs inside a {@code tx.execute} block so set_config
+     * (is_local=true, scoped to tx) and the INSERT share the same tx-bound
+     * Connection. No SecurityContextHolder is bound (handler returns early
+     * when {@code currentTenantId()==null}), so the GUC is managed entirely
+     * by the explicit {@code set_config} call.
+     */
+    private void seedUserRaw(UUID tenantId, String email, String displayName, String status) {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update(
+                    "INSERT INTO users (id, tenant_id, email, display_name, status, "
+                            + "password_hash, must_change_password, platform_admin, session_version, "
+                            + "created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, ?, 'dummy', false, false, 0, NOW(), NOW())",
+                    UUID.randomUUID(), tenantId, email, displayName, status);
+        });
     }
 }
