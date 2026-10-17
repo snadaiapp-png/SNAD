@@ -26,7 +26,6 @@ import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.Timeline
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
@@ -72,7 +71,6 @@ class CrmService {
         this.queryUseCases = queryUseCases;
     }
 
-    @Transactional
     Map<String, Object> createAccount(Authentication authentication, CreateAccountRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -90,7 +88,6 @@ class CrmService {
         return toAccountRow(created);
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> listAccounts(Authentication authentication, int requestedLimit,
                                            String search) {
         return accountUseCases.list(tenantId(authentication), limit(requestedLimit), search).stream()
@@ -98,12 +95,10 @@ class CrmService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     Map<String, Object> getAccount(Authentication authentication, UUID accountId) {
         return toAccountRow(accountUseCases.getById(tenantId(authentication), accountId));
     }
 
-    @Transactional
     Map<String, Object> updateAccount(Authentication authentication, UUID accountId,
                                       UpdateAccountRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -122,7 +117,6 @@ class CrmService {
         return toAccountRow(updated);
     }
 
-    @Transactional
     Map<String, Object> archiveAccount(Authentication authentication, UUID accountId) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -130,7 +124,6 @@ class CrmService {
         return toAccountRow(accountUseCases.archive(tenantId, actorId, accountId, current.version()));
     }
 
-    @Transactional
     Map<String, Object> createContact(Authentication authentication, CreateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -153,7 +146,6 @@ class CrmService {
         return toContactRow(created);
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> listContacts(Authentication authentication, int requestedLimit,
                                            UUID accountId, String search) {
         UUID tenantId = tenantId(authentication);
@@ -165,7 +157,6 @@ class CrmService {
                 .toList();
     }
 
-    @Transactional
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -183,7 +174,6 @@ class CrmService {
         return toLeadRow(created);
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> listLeads(Authentication authentication, int requestedLimit,
                                         String status) {
         String normalizedStatus = status == null || status.isBlank()
@@ -192,7 +182,6 @@ class CrmService {
                 .stream().map(this::toLeadRow).toList();
     }
 
-    @Transactional
     Map<String, Object> convertLead(Authentication authentication, UUID leadId,
                                     ConvertLeadRequest request) {
         var result = leadConversionUseCases.convert(
@@ -229,7 +218,6 @@ class CrmService {
         return response;
     }
 
-    @Transactional
     Map<String, Object> createPipeline(Authentication authentication, CreatePipelineRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -256,14 +244,12 @@ class CrmService {
         return result;
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> listPipelines(Authentication authentication) {
         return opportunityUseCases.listPipelines(tenantId(authentication)).stream()
                 .map(this::toPipelineRow)
                 .toList();
     }
 
-    @Transactional
     Map<String, Object> createOpportunity(Authentication authentication,
                                           CreateOpportunityRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -293,7 +279,6 @@ class CrmService {
         return toOpportunityRow(created);
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> listOpportunities(Authentication authentication, int requestedLimit,
                                                 UUID accountId) {
         UUID tenantId = tenantId(authentication);
@@ -305,7 +290,6 @@ class CrmService {
                 .toList();
     }
 
-    @Transactional
     Map<String, Object> moveOpportunity(Authentication authentication, UUID opportunityId,
                                         MoveOpportunityRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -334,7 +318,6 @@ class CrmService {
         return toOpportunityRow(moved);
     }
 
-    @Transactional
     Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -361,7 +344,6 @@ class CrmService {
         return toActivityRow(created);
     }
 
-    @Transactional(readOnly = true)
     List<Map<String, Object>> timeline(Authentication authentication, String subjectType,
                                        UUID subjectId, int requestedLimit) {
         UUID tenantId = tenantId(authentication);

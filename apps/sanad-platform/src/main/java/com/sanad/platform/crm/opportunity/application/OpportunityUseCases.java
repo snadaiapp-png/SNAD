@@ -34,10 +34,12 @@ public class OpportunityUseCases {
         return created;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public OpportunityRecord getById(UUID tenantId, UUID id) {
         return oppRepo.findById(tenantId, id);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<OpportunityRecord> list(UUID tenantId, int limit, UUID accountId) {
         return oppRepo.findAll(tenantId, limit, accountId);
     }
@@ -58,14 +60,17 @@ public class OpportunityUseCases {
         return moved;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<PipelineRecord> listPipelines(UUID tenantId) {
         return pipelineRepo.findAll(tenantId);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public PipelineRecord getPipeline(UUID tenantId, UUID pipelineId) {
         return pipelineRepo.findById(tenantId, pipelineId);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<StageRecord> listStages(UUID tenantId, UUID pipelineId) {
         return pipelineRepo.findStages(tenantId, pipelineId);
     }
