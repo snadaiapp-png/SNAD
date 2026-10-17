@@ -19,11 +19,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -45,6 +48,9 @@ class AccessPersistenceIntegrationTest {
     @Autowired private AccessCapabilityRepository capabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
     @Autowired private UserRoleGrantRepository grantRepository;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -57,34 +63,32 @@ class AccessPersistenceIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+        // Cause A fix: use saveAndFlush for tenants to force INSERTs immediately
+        // (FK constraint fk_users_tenant requires tenant rows to exist before
+        // seedUserRaw's raw JdbcTemplate INSERT INTO users).
         tenantA = saveTenant("Access A");
         tenantB = saveTenant("Access B");
-        organizationA = organizationRepository.save(new Organization(
+        organizationA = organizationRepository.saveAndFlush(new Organization(
                 tenantRepository.findById(tenantA).orElseThrow(),
                 "Org A", "desc", OrganizationStatus.ACTIVE)).getId();
-        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
-        // so all repository.save() calls share the tx-bound physical Connection.
-        // TenantRlsConnectionHandler reads tenant_id from SecurityContextHolder on
-        // the first prepareStatement of the tx and applies SET LOCAL app.tenant_id.
-        // Bind tenantA before saving userA, then tenantB before saving userB,
-        // then rebind to tenantA for the rest of setUp (roleA save).
-        bindTenantContext(tenantA);
-        userA = userRepository.save(new User(
-                tenantA, "a@example.com", "A", UserStatus.ACTIVE)).getId();
-        bindTenantContext(tenantB);
-        userB = userRepository.save(new User(
-                tenantB, "b@example.com", "B", UserStatus.ACTIVE)).getId();
-        bindTenantContext(tenantA);
+        // Cause A fix: use seedUserRaw (raw JdbcTemplate set_config + INSERT) for
+        // multi-tenant user INSERTs. JPA userRepository.save() defers INSERTs via
+        // Hibernate; at flush time all deferred INSERTs run with the LAST set GUC,
+        // causing RLS rejection for userB (tenant_id=tenantB mismatches GUC=tenantA).
+        // seedUserRaw executes each INSERT immediately with the correct GUC.
+        userA = seedUserRaw(tenantA, "a@example.com", "A");
+        userB = seedUserRaw(tenantB, "b@example.com", "B");
+        // Roles and capabilities don't have RLS — JPA save() (deferred) is fine.
+        // At flush time the handler fires on the first prepareStatement but returns
+        // early (currentTenantId()=NULL, no bindTenantContext), so no GUC is set.
+        // The INSERTs succeed because roles/access_capabilities have no RLS policy.
         roleA = roleRepository.save(new Role(
                 tenantA, "ADMIN", "Admin A", null)).getId();
-        bindTenantContext(tenantB);
         roleB = roleRepository.save(new Role(
                 tenantB, "ADMIN", "Admin B", null)).getId();
-        // Rebind to tenantA so test methods operating in tenantA see the right GUC.
-        // Tests that need tenantB context (e.g., cross-tenant rejection tests) work
-        // because they expect DataIntegrityViolationException from FK violation,
-        // not RLS rejection.
-        bindTenantContext(tenantA);
         capabilityId = capabilityRepository.save(new AccessCapability(
                 "TEST_PERSISTENCE.READ", "Test persistence read", null)).getId();
     }
@@ -179,8 +183,30 @@ class AccessPersistenceIntegrationTest {
     }
 
     private UUID saveTenant(String name) {
-        return tenantRepository.save(new Tenant(
+        // Cause A fix: use saveAndFlush to force tenant INSERT immediately
+        return tenantRepository.saveAndFlush(new Tenant(
                 name, name.toLowerCase().replace(' ', '-') + "-" + UUID.randomUUID(),
                 TenantStatus.ACTIVE)).getId();
+    }
+
+    /**
+     * Cause A fix helper — raw JdbcTemplate set_config + INSERT INTO users per
+     * tenant, so each INSERT runs immediately with the correct GUC. Bypasses
+     * Hibernate's deferred-flush + handler's per-tx GUC model.
+     */
+    private UUID seedUserRaw(UUID tenantId, String email, String displayName) {
+        UUID userId = UUID.randomUUID();
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update(
+                    "INSERT INTO users (id, tenant_id, email, display_name, status, "
+                            + "password_hash, must_change_password, platform_admin, session_version, "
+                            + "created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', false, false, 0, NOW(), NOW())",
+                    userId, tenantId, email, displayName);
+        });
+        return userId;
     }
 }
