@@ -84,7 +84,17 @@ public class OrganizationMembershipUserLinkService {
         return membershipMapper.toResponse(membershipRepository.save(membership));
     }
 
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    // Propagation.REQUIRED (the default) ensures a Spring-managed transaction
+    // is always open for this read. With SUPPORTS and no outer transaction the
+    // connection stays in autoCommit=true mode, so TenantRlsConnectionHandler
+    // never applies app.tenant_id, and under FORCE ROW LEVEL SECURITY on
+    // public.users (V20261011_3) the users_tenant_isolation policy returns 0
+    // rows — making the mandatory user existence check below throw
+    // EntityNotFoundException and fail the whole Users detail payload
+    // (observed as missing #user-memberships-heading in Users Module Closure).
+    // REQUIRED forces a transaction boundary, which activates the RLS handler
+    // and applies the tenant GUC. Same fix pattern as UserService#listUsers.
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
     public List<OrganizationMembershipResponse> listMembershipsByUser(
             UUID tenantId, UUID userId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
