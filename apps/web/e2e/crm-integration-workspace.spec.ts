@@ -53,27 +53,23 @@ async function mockAuthApi(page: Page): Promise<void> {
       status: "ACTIVE",
     },
   };
-  // Chrome 155 stopped applying set-cookie headers carried by
-  // route.fulfill({headers}); the BFF session cookie is therefore planted
-  // through the context cookie API at the exact moments the real BFF would
-  // set it (login success and refresh success). Same cookie name/flags as the
+  // The BFF session cookie is planted ONCE, at a quiet moment, from
+  // openWorkspace — NEVER from inside a route handler. Chrome 155 on the CI
+  // runner (first observed failing 2026-10-17, Chrome 155.0.8059.39) stalls
+  // or silently discards CDP set-cookie operations issued while a route
+  // interception is unresolved: awaiting addCookies() before fulfill() left
+  // the login POST unanswered (waitForResponse timeout, request status -1 in
+  // the trace), and when it did resolve the cookie never landed in the jar
+  // (login 200 with no cookie header on the next navigation → the SPA
+  // bounces back to the login screen). route.fulfill({headers: set-cookie})
+  // is equally unreliable on this build. Planting outside any interception
+  // is the only deterministic behavior. Same cookie name/flags as the
   // production BFF contract; no security expectation is changed.
-  const plantSessionCookie = async (): Promise<void> => {
-    await page.context().addCookies([{
-      name: "sanad_refresh",
-      value: "crm-integration-ui-refresh",
-      url: page.url(),
-      httpOnly: true,
-      sameSite: "Lax",
-    }]);
-  };
-
   await page.route("**/api/platform/api/v1/auth/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path.endsWith("/auth/login") && request.method() === "POST") {
       loggedIn = true;
-      await plantSessionCookie();
       await fulfillJson(route, loginResponse, 200);
       return;
     }
@@ -82,13 +78,16 @@ async function mockAuthApi(page: Page): Promise<void> {
         await fulfillJson(route, { errorCode: "UNAUTHENTICATED" }, 401);
         return;
       }
-      await plantSessionCookie();
       await fulfillJson(route, loginResponse, 200);
       return;
     }
     if (path.endsWith("/auth/logout")) {
+      // Session invalidation is carried by the loggedIn state machine
+      // (refresh → 401, me → 401); the cookie itself is left untouched
+      // because context.clearCookies() inside a handler is subject to the
+      // same Chrome 155 interception stall. No spec in this file exercises
+      // logout.
       loggedIn = false;
-      await page.context().clearCookies();
       await fulfillJson(route, {}, 204);
       return;
     }
@@ -178,6 +177,19 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
 
 async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
   await mockAuthApi(page);
+  // Plant the BFF session cookie OUTSIDE any route interception: navigate to
+  // the app origin first, then add the cookie with page.url() as its scope.
+  // loginThroughUi re-navigates to "/" and performs the real form login; the
+  // cookie is already in the jar when the mocked BFF login responds, exactly
+  // like the production BFF session.
+  await page.goto("/");
+  await page.context().addCookies([{
+    name: "sanad_refresh",
+    value: "crm-integration-ui-refresh",
+    url: page.url(),
+    httpOnly: true,
+    sameSite: "Lax",
+  }]);
   await loginThroughUi(page, EMAIL, PASSWORD);
 
   const authenticatedOrigin = new URL(page.url()).origin;
