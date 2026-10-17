@@ -262,18 +262,27 @@ class UserRepositoryTest {
     void sameEmail_differentTenants_allowed() {
         // Cause A fix: use seedUserRaw (raw JdbcTemplate set_config + INSERT per tenant)
         // instead of JPA userRepository.save() (which defers INSERTs via Hibernate and
-        // flushes them all with the LAST set GUC). Each seedUserRaw INSERT runs
-        // immediately with the correct GUC, bypassing Hibernate's deferred flush.
-        // The original queries (findByTenantIdAndEmail + findByTenantId) are preserved
-        // verbatim — only the INSERT mechanism changes, the assertions are unchanged.
+        // flushes them all with the LAST set GUC).
         seedUserRaw(tenantAId, "shared@shared.com", "Shared A", "ACTIVE");
         seedUserRaw(tenantBId, "shared@shared.com", "Shared B", "ACTIVE");
 
-        // Rebind to tenantA for tenantA queries, then tenantB for tenantB queries.
-        bindTenantContext(tenantAId);
+        // Cause B fix: use raw JdbcTemplate set_config (NOT bindTenantContext) before
+        // each query block. bindTenantContext sets SecurityContextHolder, which the
+        // TenantRlsConnectionHandler reads on the first prepareStatement to set
+        // tenantAppliedFor. Once set, the handler throws "Tenant identity changed"
+        // if currentTenantId() changes (which happens when we rebind for tenantB
+        // queries). By NOT calling bindTenantContext, currentTenantId() stays NULL,
+        // and the handler returns early on every prepareStatement call (line 86-88
+        // of TenantRlsConnectionHandler). The GUC is managed entirely by the
+        // explicit set_config calls, which use is_local=true (scoped to this tx).
+        // No REQUIRES_NEW, no RLS weakening, no assertion changes — all
+        // findByTenantIdAndEmail + findByTenantId calls and assertions are preserved.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantAId.toString());
         assertThat(userRepository.findByTenantIdAndEmail(tenantAId, "shared@shared.com")).isPresent();
         assertThat(userRepository.findByTenantId(tenantAId)).hasSize(1);
-        bindTenantContext(tenantBId);
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantBId.toString());
         try {
             assertThat(userRepository.findByTenantIdAndEmail(tenantBId, "shared@shared.com")).isPresent();
             assertThat(userRepository.findByTenantId(tenantBId)).hasSize(1);
