@@ -260,12 +260,14 @@ class UserRepositoryTest {
     @Test
     @DisplayName("TEST 9: Same email in different tenants is allowed")
     void sameEmail_differentTenants_allowed() {
-        bindTenantContext(tenantAId);
-        userRepository.save(
-                new User(tenantAId, "shared@shared.com", "Shared A", UserStatus.ACTIVE));
-        bindTenantContext(tenantBId);
-        userRepository.saveAndFlush(
-                new User(tenantBId, "shared@shared.com", "Shared B", UserStatus.ACTIVE));
+        // Cause A fix: use seedUserRaw (raw JdbcTemplate set_config + INSERT per tenant)
+        // instead of JPA userRepository.save() (which defers INSERTs via Hibernate and
+        // flushes them all with the LAST set GUC). Each seedUserRaw INSERT runs
+        // immediately with the correct GUC, bypassing Hibernate's deferred flush.
+        // The original queries (findByTenantIdAndEmail + findByTenantId) are preserved
+        // verbatim — only the INSERT mechanism changes, the assertions are unchanged.
+        seedUserRaw(tenantAId, "shared@shared.com", "Shared A", "ACTIVE");
+        seedUserRaw(tenantBId, "shared@shared.com", "Shared B", "ACTIVE");
 
         // Rebind to tenantA for tenantA queries, then tenantB for tenantB queries.
         bindTenantContext(tenantAId);
