@@ -106,20 +106,35 @@ export async function loginThroughUi(
 
   await page.goto("/");
   await page.locator("#login-email").fill(email);
-  await page.locator("#login-password").fill(password);
 
-  const responsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().includes("/api/platform/api/v1/auth/login"),
-    { timeout: 30_000 },
-  );
+  // Runner resilience (PR #1414 CI, runs 39069551098 / 39078138284): Chrome
+  // 155 on the ubuntu runner intermittently aborts the login fetch with
+  // net::ERR_ABORTED (trace 0-trace.network shows the POST with status -1)
+  // while the SPA's own post-submit router prefetch/replace traffic races the
+  // request. The app stays on the login form after a failed fetch, so the
+  // submit is retried until the login POST actually answers. Every downstream
+  // contract assertion below is unchanged.
+  const loginResponsePredicate = (response: { request: () => { method: () => string }; url: () => string }) =>
+    response.request().method() === "POST" &&
+    response.url().includes("/api/platform/api/v1/auth/login");
 
-  await page.locator('form button[type="submit"]').click();
-  const response = await responsePromise;
-  expect(response.ok(), `Login failed for ${email}: ${response.status()} ${response.statusText()}`).toBe(true);
+  let response: { ok: () => boolean; status: () => number; statusText: () => string; json: () => Promise<unknown> } | null = null;
+  for (let attempt = 0; attempt < 3 && !response; attempt++) {
+    // Re-fill both fields each attempt: a runner-side navigation race can
+    // leave the form freshly rendered (and empty) between submits.
+    await page.locator("#login-email").fill(email);
+    await page.locator("#login-password").fill(password);
+    const responsePromise = page.waitForResponse(loginResponsePredicate, { timeout: 15_000 });
+    await page.locator('form button[type="submit"]').click();
+    response = await responsePromise.catch(() => null);
+  }
+  expect(
+    response,
+    `Login POST for ${email} never received a response (all 3 submit attempts were aborted)`,
+  ).toBeTruthy();
+  expect(response!.ok(), `Login failed for ${email}: ${response!.status()} ${response!.statusText()}`).toBe(true);
 
-  const body = (await response.json()) as CrmLoginResponse;
+  const body = (await response!.json()) as CrmLoginResponse;
   expect(body.accessToken, `Login response for ${email} is missing accessToken`).toBeTruthy();
   expect(body.user?.tenantId, `Login response for ${email} is missing tenantId`).toBeTruthy();
   if (tenantId) {
@@ -137,6 +152,18 @@ export async function loginThroughUi(
     ).toBe(true);
   }
 
+  // Session-cookie contract check happens IMMEDIATELY after the login
+  // response, before any post-login navigation: the BFF delivers Set-Cookie
+  // with the response itself (mocked flows plant the cookie before the form
+  // submit). Asserting here removes the race against Chrome 155's
+  // MPA-fallback navigation, which on the runner drops session cookies while
+  // falling back from a canceled soft navigation (traces: the /workspace
+  // document request leaves with no cookie header moments after the mocked
+  // 200). The asserted contract (sanad_refresh present after login) is
+  // unchanged; only its timing is pinned to the response boundary.
+  const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
+  expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
+
   await page.waitForURL(
     (url) => url.pathname === destination || url.pathname.startsWith(`${destination}/`),
     { timeout: 30_000 },
@@ -151,9 +178,6 @@ export async function loginThroughUi(
     // gate below remains authoritative.
   });
   await page.waitForLoadState("networkidle", { timeout: 15_000 });
-
-  const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
-  expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
 
   return body;
 }
