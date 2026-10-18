@@ -318,22 +318,43 @@ class ApiRegressionSuiteTest {
         @Test
         @DisplayName("Session version increments on each logout")
         void sessionVersionIncrements() throws Exception {
-            User before = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
-            long initialVersion = before.getSessionVersion();
+            long initialVersion = readSessionVersionAsTenant();
 
             String token = loginAndGetToken();
             mockMvc.perform(post("/api/v1/auth/logout")
                             .header("Authorization", "Bearer " + token))
                     .andExpect(status().isNoContent());
 
-            User after = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
-            assertThat(after.getSessionVersion()).isEqualTo(initialVersion + 1);
+            assertThat(readSessionVersionAsTenant()).isEqualTo(initialVersion + 1);
         }
     }
 
     // ================================================================
     // Helpers
     // ================================================================
+
+    /**
+     * Direct reads of public.users are tenant-scoped under FORCE ROW LEVEL
+     * SECURITY (V20261011_3): with no app.tenant_id GUC the users_tenant_isolation
+     * policy returns no rows (fail closed), which is why the unscoped pre-login
+     * read in sessionVersionIncrements threw NoSuchElementException. Bind the
+     * tenant GUC on the same transaction-bound connection — the identical
+     * contract the seed block above and the production SessionVersionCache
+     * use. Test-only helper: orElseThrow strictness and every assertion are
+     * unchanged.
+     */
+    private long readSessionVersionAsTenant() {
+        Long version = new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class,
+                    tenantId.toString());
+            return userRepository.findByTenantIdAndId(tenantId, userId)
+                    .orElseThrow()
+                    .getSessionVersion();
+        });
+        return version == null ? 0L : version;
+    }
 
     private String loginAndGetToken() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
