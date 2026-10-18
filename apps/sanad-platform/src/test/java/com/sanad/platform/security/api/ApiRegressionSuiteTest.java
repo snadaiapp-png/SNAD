@@ -35,6 +35,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -69,6 +71,7 @@ class ApiRegressionSuiteTest {
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantId;
     private UUID orgId;
@@ -102,7 +105,7 @@ class ApiRegressionSuiteTest {
 
     @BeforeEach
     void setUp() {
-        // Use unique tenant-scoped fixtures; never delete shared platform seed data.
+        // Tenant itself is platform-scoped; create it before entering tenant RLS context.
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Regression Test Tenant",
                 "regression-" + UUID.randomUUID(),
@@ -111,37 +114,49 @@ class ApiRegressionSuiteTest {
 
         testEmail = "regression-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
-        User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
-        user.setPasswordHash(passwordEncoder.encode(testPassword));
-        userId = userRepository.save(user).getId();
 
-        // Canonical login-eligibility gate (fail-closed): seed the exactly-one
-        // effective subscription the authentication flow requires.
-        seedLoginEligibleSubscription(tenantId);
+        // All tenant-scoped fixture writes share one transaction/connection. SET LOCAL
+        // (via set_config(..., true)) therefore applies to the same connection used by
+        // the repositories and JDBC inserts, satisfying FORCE ROW LEVEL SECURITY.
+        TransactionTemplate tenantTransaction = new TransactionTemplate(transactionManager);
+        tenantTransaction.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class,
+                    tenantId.toString());
 
-        Organization org = organizationRepository.save(new Organization(
-                tenant, "Regression Org", "Test organization", OrganizationStatus.ACTIVE));
-        orgId = org.getId();
+            User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
+            user.setPasswordHash(passwordEncoder.encode(testPassword));
+            userId = userRepository.save(user).getId();
 
-        OrganizationMembership membership = new OrganizationMembership(
-                tenantId, orgId, testEmail, "Regression User", MembershipStatus.ACTIVE);
-        membership.setUserId(userId);
-        membershipRepository.save(membership);
+            // Canonical login-eligibility gate (fail-closed): seed the exactly-one
+            // effective subscription the authentication flow requires.
+            seedLoginEligibleSubscription(tenantId);
 
-        // Grant ADMIN role with all capabilities for regression testing
-        Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, "ADMIN")
-                .orElseGet(() -> roleRepository.save(new Role(
-                        tenantId, "ADMIN", "Administrator", "Full access")));
-        // Add all active capabilities to the admin role
-        for (AccessCapability cap : accessCapabilityRepository.findAll()) {
-            if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
-                    tenantId, adminRole.getId(), cap.getId())) {
-                roleCapabilityRepository.save(new RoleCapability(
-                        tenantId, adminRole.getId(), cap.getId()));
+            Organization org = organizationRepository.save(new Organization(
+                    tenant, "Regression Org", "Test organization", OrganizationStatus.ACTIVE));
+            orgId = org.getId();
+
+            OrganizationMembership membership = new OrganizationMembership(
+                    tenantId, orgId, testEmail, "Regression User", MembershipStatus.ACTIVE);
+            membership.setUserId(userId);
+            membershipRepository.save(membership);
+
+            // Grant ADMIN role with all capabilities for regression testing.
+            Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, "ADMIN")
+                    .orElseGet(() -> roleRepository.save(new Role(
+                            tenantId, "ADMIN", "Administrator", "Full access")));
+            // Add all active capabilities to the admin role.
+            for (AccessCapability cap : accessCapabilityRepository.findAll()) {
+                if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
+                        tenantId, adminRole.getId(), cap.getId())) {
+                    roleCapabilityRepository.save(new RoleCapability(
+                            tenantId, adminRole.getId(), cap.getId()));
+                }
             }
-        }
-        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, adminRole.getId(), null);
-        userRoleGrantRepository.save(grant);
+            UserRoleGrant grant = new UserRoleGrant(tenantId, userId, adminRole.getId(), null);
+            userRoleGrantRepository.save(grant);
+        });
     }
 
     // ================================================================
