@@ -49,7 +49,7 @@ jobs:
   playwright:
     name: Playwright E2E & Visual Regression
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     defaults:
       run:

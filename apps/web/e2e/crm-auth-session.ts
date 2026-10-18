@@ -125,9 +125,25 @@ export async function loginThroughUi(
     // leave the form freshly rendered (and empty) between submits.
     await page.locator("#login-email").fill(email);
     await page.locator("#login-password").fill(password);
-    const responsePromise = page.waitForResponse(loginResponsePredicate, { timeout: 15_000 });
+    const responsePromise = page.waitForResponse(loginResponsePredicate, { timeout: 15_000 }).catch(() => null);
+    // ERR_ABORTED surfaces as a requestfailed event milliseconds after the
+    // click — retry immediately on it instead of burning the full response
+    // timeout (24 failing attempts at 45s each pushed the E2E job past its
+    // 30-minute budget, cancelling the whole gate).
+    const abortPromise = page
+      .waitForEvent("requestfailed", {
+        predicate: (request) =>
+          request.method() === "POST" && request.url().includes("/api/platform/api/v1/auth/login"),
+        timeout: 15_000,
+      })
+      .then(() => "aborted" as const)
+      .catch(() => null);
     await page.locator('form button[type="submit"]').click();
-    response = await responsePromise.catch(() => null);
+    const outcome = await Promise.race([
+      responsePromise.then((res) => (res ? ({ response: res } as const) : null)),
+      abortPromise,
+    ]);
+    response = outcome && "response" in outcome ? outcome.response : null;
   }
   expect(
     response,
