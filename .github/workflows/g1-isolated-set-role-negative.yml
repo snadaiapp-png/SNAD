@@ -1,0 +1,106 @@
+name: G1 Isolated PostgreSQL SET ROLE Denial
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/g1-isolated-set-role-negative.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-isolated-set-role-negative
+  cancel-in-progress: false
+
+jobs:
+  isolated-postgres-negative-test:
+    name: Prove restricted role cannot SET ROLE to elevated role
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install and start isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql postgresql-client
+          sudo service postgresql start
+          sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF current_setting('server_version_num')::integer < 160000 THEN
+              RAISE EXCEPTION 'PostgreSQL 16+ required for explicit role membership SET option';
+            END IF;
+          END
+          $$;
+          CREATE ROLE g1_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE g1_restricted_probe LOGIN PASSWORD 'ephemeral-g1-probe-only'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          GRANT g1_elevated_probe TO g1_restricted_probe WITH INHERIT FALSE, SET FALSE;
+          SQL
+
+      - name: Assert membership cannot be used to assume elevated identity
+        shell: bash
+        env:
+          PGPASSWORD: ephemeral-g1-probe-only
+        run: |
+          set -euo pipefail
+          psql --no-psqlrc --host 127.0.0.1 --username g1_restricted_probe --dbname postgres \
+            --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
+          DO $$
+          DECLARE
+            effective_role text := current_user;
+            can_set boolean;
+          BEGIN
+            IF effective_role <> 'g1_restricted_probe' THEN
+              RAISE EXCEPTION 'Unexpected effective identity: %', effective_role;
+            END IF;
+
+            SELECT set_option INTO can_set
+            FROM pg_auth_members
+            WHERE roleid = 'g1_elevated_probe'::regrole
+              AND member = 'g1_restricted_probe'::regrole;
+
+            IF can_set IS DISTINCT FROM FALSE THEN
+              RAISE EXCEPTION 'Fixture invalid: membership SET option is not FALSE';
+            END IF;
+
+            BEGIN
+              EXECUTE 'SET ROLE g1_elevated_probe';
+              RAISE EXCEPTION 'SECURITY FAILURE: restricted role assumed elevated role';
+            EXCEPTION
+              WHEN insufficient_privilege THEN
+                RAISE NOTICE 'PASS: SET ROLE denied with SQLSTATE 42501';
+            END;
+
+            IF current_user <> 'g1_restricted_probe' THEN
+              RAISE EXCEPTION 'SECURITY FAILURE: effective identity changed after denied SET ROLE';
+            END IF;
+          END
+          $$;
+          SQL
+          echo "ISOLATED_SET_ROLE_DENIAL_PASS"
+
+      - name: Verify privileged attributes remain unavailable to restricted role
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
+          DO $$
+          DECLARE
+            is_super boolean;
+            can_create_db boolean;
+            can_bypass_rls boolean;
+          BEGIN
+            SELECT rolsuper, rolcreatedb, rolbypassrls
+              INTO is_super, can_create_db, can_bypass_rls
+            FROM pg_roles WHERE rolname = 'g1_restricted_probe';
+
+            IF is_super OR can_create_db OR can_bypass_rls THEN
+              RAISE EXCEPTION 'Restricted role has a prohibited elevated attribute';
+            END IF;
+          END
+          $$;
+          SQL
+          echo "ISOLATED_RESTRICTED_ROLE_ATTRIBUTES_PASS"
