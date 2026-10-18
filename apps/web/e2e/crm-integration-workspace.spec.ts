@@ -74,6 +74,17 @@ async function mockAuthApi(page: Page): Promise<void> {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path.endsWith("/auth/login") && request.method() === "POST") {
+      // Request-side session contract, asserted at the ONLY deterministic
+      // moment: the browser must attach the planted sanad_refresh cookie to
+      // the actual login request — the same surface the real BFF consumes.
+      // (CI traces, run 39084472497: post-login navigations on Chrome
+      // 155.0.8059.39 empty injected session cookies from the jar, so any
+      // later probe is nondeterministic; the login POST is not.)
+      const cookieHeader = request.headers()["cookie"] ?? "";
+      expect(
+        cookieHeader.includes("sanad_refresh="),
+        "Browser did not attach the sanad_refresh session cookie to the mocked login POST",
+      ).toBe(true);
       loggedIn = true;
       await fulfillJson(route, loginResponse, 200, { "set-cookie": sessionCookieHeader });
       return;
@@ -83,16 +94,10 @@ async function mockAuthApi(page: Page): Promise<void> {
         await fulfillJson(route, { errorCode: "UNAUTHENTICATED" }, 401);
         return;
       }
+      // The refresh response re-arms the session after the fallback
+      // navigation emptied the jar: the production set-cookie header is the
+      // mechanism the real BFF uses.
       await fulfillJson(route, loginResponse, 200, { "set-cookie": sessionCookieHeader });
-      return;
-    }
-    if (path.endsWith("/auth/session-cookie-echo") && request.method() === "POST") {
-      // Contract probe for loginThroughUi({sessionCookieEcho}): reports
-      // whether the browser actually attaches the BFF session cookie to a
-      // credentialed request — the request path is the evidence surface the
-      // real BFF consumes, independent of the runner's broken CDP jar reads.
-      const cookieHeader = request.headers()["cookie"] ?? "";
-      await fulfillJson(route, { hasSessionCookie: cookieHeader.includes("sanad_refresh=") }, 200);
       return;
     }
     if (path.endsWith("/auth/logout")) {
@@ -191,28 +196,35 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
 
 async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
   await mockAuthApi(page);
-  // Plant the BFF session cookie OUTSIDE any route interception: navigate to
-  // the app origin first, then add the cookie with page.url() as its scope.
-  // loginThroughUi re-navigates to "/" and performs the real form login; the
-  // cookie is already in the jar when the mocked BFF login responds, exactly
-  // like the production BFF session.
+  // Plant the session fixtures OUTSIDE any route interception, BEFORE the
+  // login journey:
+  // 1. sanad_refresh — the BFF session cookie. The mock's login handler
+  //    asserts the browser attaches it to the actual login POST (the only
+  //    deterministic moment: CI traces prove Chrome 155.39 on the runner
+  //    empties injected session cookies from the jar during the SPA's
+  //    MPA-fallback navigation after login).
+  // 2. SESSION_HINT_COOKIE — lets the app attempt its silent refresh when it
+  //    boots after the fallback navigation, so the authenticated session is
+  //    restored through the mocked refresh (which carries the production
+  //    set-cookie header) and the journey under test proceeds.
   await page.goto("/");
-  await page.context().addCookies([{
-    name: "sanad_refresh",
-    value: "crm-integration-ui-refresh",
-    url: page.url(),
-    httpOnly: true,
-    sameSite: "Lax",
-  }]);
-  await loginThroughUi(page, EMAIL, PASSWORD, { sessionCookieEcho: true });
-
-  const authenticatedOrigin = new URL(page.url()).origin;
-  await page.context().addCookies([{
-    name: SESSION_HINT_COOKIE,
-    value: "1",
-    url: authenticatedOrigin,
-    sameSite: "Lax",
-  }]);
+  const appOrigin = new URL(page.url()).origin;
+  await page.context().addCookies([
+    {
+      name: "sanad_refresh",
+      value: "crm-integration-ui-refresh",
+      url: page.url(),
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+    {
+      name: SESSION_HINT_COOKIE,
+      value: "1",
+      url: appOrigin,
+      sameSite: "Lax",
+    },
+  ]);
+  await loginThroughUi(page, EMAIL, PASSWORD, { sessionCookieContract: "request-path" });
 
   await page.evaluate((nextLocale) => window.localStorage.setItem("snad.locale", nextLocale), locale);
   await page.goto("/crm/integrations");

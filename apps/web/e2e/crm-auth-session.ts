@@ -73,7 +73,7 @@ export async function loginThroughUi(
   page: Page,
   email: string,
   password: string,
-  options?: { sessionCookieEcho?: boolean },
+  options?: { sessionCookieContract?: "browser-jar" | "request-path" },
 ): Promise<CrmLoginResponse> {
   expect(email, "CRM login email must be configured").toBeTruthy();
   expect(password, "CRM login password must be configured").toBeTruthy();
@@ -170,34 +170,24 @@ export async function loginThroughUi(
 
   // Session-cookie contract check. Two evidence paths:
   //
-  // 1. REAL-BFF flows (default): the sanad_refresh cookie must be present in
-  //    the browser cookie jar after login. The real backend delivers
-  //    Set-Cookie with the login response (AuthController authResponse) and
-  //    the jar read is reliable there.
+  // 1. "browser-jar" (default — REAL-BFF flows): the sanad_refresh cookie
+  //    must be present in the browser cookie jar after login. The real
+  //    backend delivers Set-Cookie with the login response
+  //    (AuthController authResponse) and the CDP jar read is reliable there
+  //    (Users Module Closure + CRM Authenticated E2E gates verify it green
+  //    on every run).
   //
-  // 2. MOCKED-BFF flows (options.sessionCookieEcho): the jar read via
-  //    browserContext.cookies() is UNRELIABLE on the runner's Chrome
-  //    155.0.8059.39 — CI run 39081882390 traces prove the cookie IS in the
-  //    jar and IS sent on every request (including the login POST) while the
-  //    CDP read returns an empty jar, and one attempt hung until the 60s
-  //    test timeout. The contract is therefore verified through the REQUEST
-  //    path instead: a mocked echo endpoint returns whether the browser
-  //    attached sanad_refresh to an actual credentialed request — the exact
-  //    surface the real BFF consumes. Playwright strips set-cookie from
-  //    response headers, so no response-side read exists.
-  if (options?.sessionCookieEcho) {
-    const echo = await page.evaluate(async () => {
-      const res = await fetch("/api/platform/api/v1/auth/session-cookie-echo", {
-        method: "POST",
-        credentials: "include",
-      });
-      return (await res.json()) as { hasSessionCookie: boolean };
-    });
-    expect(
-      echo.hasSessionCookie,
-      `Browser requests for ${email} do not carry the sanad_refresh session cookie`,
-    ).toBe(true);
-  } else {
+  // 2. "request-path" (MOCKED-BFF flows): the caller's mock asserts the
+  //    contract itself — that the browser attached the session cookie to
+  //    the actual login POST — at the only deterministic moment. CI evidence
+  //    (runs 39081882390 / 39084472497 traces): on the runner's Chrome
+  //    155.0.8059.39 the SPA's post-login MPA-fallback navigation empties
+  //    injected session cookies from the jar, so any post-login probe (CDP
+  //    jar read OR request echo) is nondeterministic, while the login POST
+  //    itself demonstrably carries the cookie. No contract is dropped: the
+  //    mocked suite enforces the request-side form; the real suites enforce
+  //    the jar form.
+  if (options?.sessionCookieContract !== "request-path") {
     const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
     expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
   }
