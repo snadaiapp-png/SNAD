@@ -26,7 +26,6 @@ import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.Timeline
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
@@ -125,28 +124,32 @@ class CrmService {
         return toAccountRow(accountUseCases.archive(tenantId, actorId, accountId, current.version()));
     }
 
-    // FORCE-RLS users owner validation and contact creation must share a tenant-bound transaction.
-    @Transactional
+    // FORCE-RLS users owner validation and contact creation must share a
+    // tenant-bound transaction. Transaction ownership stays outside web
+    // packages (CrmArchitectureTest.crmWebMustNotOwnTransactions): the
+    // boundary is owned by the legacy infrastructure service.
     Map<String, Object> createContact(Authentication authentication, CreateContactRequest request) {
-        UUID tenantId = tenantId(authentication);
-        UUID actorId = userId(authentication);
-        if (request.accountId() != null) {
-            account(tenantId, request.accountId());
-        }
-        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
-        extended.validateOwner(tenantId, ownerUserId);
-        ContactRecord created = contactUseCases.create(tenantId, actorId,
-                new ContactRepository.CreateContactCommand(
-                        request.accountId(),
-                        required(request.givenName(), 120, "givenName"),
-                        optional(request.familyName(), 120, "familyName"),
-                        optional(request.primaryEmail(), 255, "primaryEmail"),
-                        optional(request.primaryPhone(), 64, "primaryPhone"),
-                        locale(request.preferredLocale()),
-                        zone(request.timeZone()),
-                        ownerUserId,
-                        value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
-        return toContactRow(created);
+        return extended.inTenantBoundTransaction(() -> {
+            UUID tenantId = tenantId(authentication);
+            UUID actorId = userId(authentication);
+            if (request.accountId() != null) {
+                account(tenantId, request.accountId());
+            }
+            UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
+            extended.validateOwner(tenantId, ownerUserId);
+            ContactRecord created = contactUseCases.create(tenantId, actorId,
+                    new ContactRepository.CreateContactCommand(
+                            request.accountId(),
+                            required(request.givenName(), 120, "givenName"),
+                            optional(request.familyName(), 120, "familyName"),
+                            optional(request.primaryEmail(), 255, "primaryEmail"),
+                            optional(request.primaryPhone(), 64, "primaryPhone"),
+                            locale(request.preferredLocale()),
+                            zone(request.timeZone()),
+                            ownerUserId,
+                            value(request.consentSummary(), "UNKNOWN").toUpperCase(Locale.ROOT)));
+            return toContactRow(created);
+        });
     }
 
     List<Map<String, Object>> listContacts(Authentication authentication, int requestedLimit,
@@ -161,23 +164,26 @@ class CrmService {
     }
 
     // validateOwner reads FORCE-RLS users: bind the authenticated tenant
-    // to the same transaction before checking owner membership.
-    @Transactional
+    // to the same transaction before checking owner membership. Transaction
+    // ownership stays outside web packages; the boundary is owned by the
+    // legacy infrastructure service.
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
-        UUID tenantId = tenantId(authentication);
-        UUID actorId = userId(authentication);
-        UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
-        extended.validateOwner(tenantId, ownerUserId);
-        LeadRecord created = leadUseCases.create(tenantId, actorId,
-                new LeadRepository.CreateLeadCommand(
-                        required(request.displayName(), 240, "displayName"),
-                        optional(request.companyName(), 240, "companyName"),
-                        optional(request.email(), 255, "email"),
-                        optional(request.phone(), 64, "phone"),
-                        optional(request.source(), 120, "source"),
-                        ownerUserId,
-                        request.score()));
-        return toLeadRow(created);
+        return extended.inTenantBoundTransaction(() -> {
+            UUID tenantId = tenantId(authentication);
+            UUID actorId = userId(authentication);
+            UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
+            extended.validateOwner(tenantId, ownerUserId);
+            LeadRecord created = leadUseCases.create(tenantId, actorId,
+                    new LeadRepository.CreateLeadCommand(
+                            required(request.displayName(), 240, "displayName"),
+                            optional(request.companyName(), 240, "companyName"),
+                            optional(request.email(), 255, "email"),
+                            optional(request.phone(), 64, "phone"),
+                            optional(request.source(), 120, "source"),
+                            ownerUserId,
+                            request.score()));
+            return toLeadRow(created);
+        });
     }
 
     List<Map<String, Object>> listLeads(Authentication authentication, int requestedLimit,
@@ -257,10 +263,12 @@ class CrmService {
     }
 
     // The owner validation queries FORCE-RLS users; perform it under the
-    // authenticated tenant's transaction-local RLS context.
-    @Transactional
+    // authenticated tenant's transaction-local RLS context. Transaction
+    // ownership stays outside web packages; the boundary is owned by the
+    // legacy infrastructure service.
     Map<String, Object> createOpportunity(Authentication authentication,
                                           CreateOpportunityRequest request) {
+        return extended.inTenantBoundTransaction(() -> {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
         account(tenantId, request.accountId());
@@ -286,6 +294,7 @@ class CrmService {
                         request.expectedCloseDate(),
                         ownerUserId));
         return toOpportunityRow(created);
+        });
     }
 
     List<Map<String, Object>> listOpportunities(Authentication authentication, int requestedLimit,
@@ -328,8 +337,10 @@ class CrmService {
     }
 
     // Owner/related record validation queries tenant-scoped RLS tables.
-    @Transactional
+    // Transaction ownership stays outside web packages; the boundary is
+    // owned by the legacy infrastructure service.
     Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
+        return extended.inTenantBoundTransaction(() -> {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
         UUID ownerUserId = request.ownerUserId() != null ? request.ownerUserId() : actorId;
@@ -353,6 +364,7 @@ class CrmService {
                         request.startAt(),
                         request.dueAt()));
         return toActivityRow(created);
+        });
     }
 
     List<Map<String, Object>> timeline(Authentication authentication, String subjectType,

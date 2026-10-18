@@ -1140,6 +1140,24 @@ public class LegacyCrmInfrastructureService {
         }
     }
 
+    /**
+     * Runs the supplied work inside one tenant-bound transaction so that
+     * FORCE-RLS reads (owner validation against {@code users}) and the
+     * subsequent writes share the same transaction-local RLS scope.
+     *
+     * <p>Transaction ownership for CRM mutations deliberately lives here in
+     * the legacy infrastructure layer and NOT in the {@code crm.web} package
+     * (CrmArchitectureTest.crmWebMustNotOwnTransactions: web packages are
+     * HTTP boundaries, not persistence infrastructure). The
+     * {@code TenantRlsConnectionHandler} applies
+     * {@code SET LOCAL app.tenant_id} from the authenticated security context
+     * on the first statement of this transaction; the GUC is scoped to the
+     * transaction and resets on commit/rollback.</p>
+     */
+    public <T> T inTenantBoundTransaction(java.util.function.Supplier<T> work) {
+        return transaction.execute(status -> work.get());
+    }
+
     public void validateOwner(UUID tenantId, UUID ownerId) {
         if (ownerId == null) return;
         if (scalarLong(
