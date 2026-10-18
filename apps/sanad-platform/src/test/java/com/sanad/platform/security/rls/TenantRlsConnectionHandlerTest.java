@@ -112,6 +112,48 @@ class TenantRlsConnectionHandlerTest {
                 "SET LOCAL app.tenant_id = '" + tenantId + "'");
     }
 
+    /**
+     * A CLEARED security context (null current tenant) is not an identity
+     * change: the already-applied SET LOCAL GUC keeps every statement of the
+     * transaction scoped to the original tenant (fail-closed under FORCE RLS).
+     * Deferred flushes and post-authentication verification queries must not
+     * be rejected by the guard. Regression guard for the null-context path.
+     */
+    @Test
+    void keepsAppliedTenantScopeWhenContextIsClearedMidTransaction() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        setSecurityContext(tenantId);
+        when(delegate.getAutoCommit()).thenReturn(false);
+
+        proxy = wrap();
+        proxy.prepareStatement("SELECT 1"); // applies SET LOCAL for tenantId
+
+        // Actor context ends (request cleared it); a deferred statement follows.
+        SecurityContextHolder.clearContext();
+        proxy.prepareStatement("SELECT 2"); // must NOT throw; must NOT re-apply
+
+        verify(statement, times(1)).execute(
+                "SET LOCAL app.tenant_id = '" + tenantId + "'");
+    }
+
+    /** Swapping to a DIFFERENT tenant inside one transaction remains rejected. */
+    @Test
+    void rejectsRealIdentityChangeInsideActiveTransaction() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        setSecurityContext(tenantA);
+        when(delegate.getAutoCommit()).thenReturn(false);
+
+        proxy = wrap();
+        proxy.prepareStatement("SELECT 1"); // applies SET LOCAL for tenantA
+
+        setSecurityContext(tenantB);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> proxy.prepareStatement("SELECT 2"))
+                .isInstanceOf(java.sql.SQLException.class)
+                .hasMessageContaining("Tenant identity changed inside an active RLS transaction");
+    }
+
     @Test
     void doesNotApplySetLocalWhenTenantIdInvalid() throws Exception {
         // Set a malformed tenant_id in the details map
@@ -127,6 +169,36 @@ class TenantRlsConnectionHandlerTest {
 
         // Invalid UUID → no SET LOCAL applied (graceful degradation)
         verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void resetsTenantBindingAfterCommitForPooledConnectionReuse() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        when(delegate.getAutoCommit()).thenReturn(false);
+        proxy = wrap();
+
+        setSecurityContext(tenantA);
+        proxy.prepareStatement("SELECT 1");
+        proxy.commit();
+
+        setSecurityContext(tenantB);
+        proxy.prepareStatement("SELECT 1");
+
+        verify(statement).execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+        verify(statement).execute("SET LOCAL app.tenant_id = '" + tenantB + "'");
+    }
+
+    @Test
+    void rejectsTenantSwitchWithinSingleTransaction() throws Exception {
+        when(delegate.getAutoCommit()).thenReturn(false);
+        proxy = wrap();
+        setSecurityContext(UUID.randomUUID());
+        proxy.createStatement();
+
+        setSecurityContext(UUID.randomUUID());
+        org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                () -> proxy.prepareStatement("SELECT 1"));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

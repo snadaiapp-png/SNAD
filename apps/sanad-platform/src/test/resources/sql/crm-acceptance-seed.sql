@@ -94,6 +94,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+
 -- ----------------------------------------------------------------------------
 -- 3. Users (5 total, bcrypt-hashed password "TestPass123!")
 -- ----------------------------------------------------------------------------
@@ -152,6 +154,9 @@ VALUES (
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Tenant B must be bound before inserting its user under FORCE RLS.
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (

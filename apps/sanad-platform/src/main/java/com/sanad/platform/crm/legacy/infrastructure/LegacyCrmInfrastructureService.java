@@ -1140,6 +1140,7 @@ public class LegacyCrmInfrastructureService {
         }
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public void validateOwner(UUID tenantId, UUID ownerId) {
         if (ownerId == null) return;
         if (scalarLong(
@@ -1149,6 +1150,7 @@ public class LegacyCrmInfrastructureService {
         }
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public void validateRelated(UUID tenantId, String relatedType, UUID relatedId) {
         if (relatedType == null && relatedId == null) return;
         if (relatedType == null || relatedId == null) {

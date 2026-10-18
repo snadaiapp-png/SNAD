@@ -18,12 +18,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +62,8 @@ class RefreshTokenConcurrencyPostgresTest {
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId;
     private UUID userId;
@@ -65,6 +73,9 @@ class RefreshTokenConcurrencyPostgresTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         // This test used to TRUNCATE the shared identity graph (tenants, users,
         // roles, role_capabilities, user_role_assignments, refresh_tokens) plus
         // the whole CRM graph with RESTART IDENTITY CASCADE. That destroyed the
@@ -93,7 +104,22 @@ class RefreshTokenConcurrencyPostgresTest {
         credential = UUID.randomUUID().toString();
         User user = new User(tenantId, email, "Refresh Lock User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(credential));
-        userId = userRepository.save(user).getId();
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per repository.save() call.
+        // Wrap the User save() in ONE tx.executeWithoutResult block and bind
+        // SecurityContextHolder to the tenant BEFORE the tx so TenantRlsConnectionHandler
+        // reads tenant_id from the context and applies SET LOCAL app.tenant_id on the
+        // tx-bound physical Connection.
+        final User[] userHolder = new User[]{user};
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> {
+                userHolder[0] = userRepository.save(userHolder[0]);
+            });
+        } finally {
+            clearTenantContext();
+        }
+        userId = userHolder[0].getId();
         seedLoginEligibleSubscription(tenantId);
     }
 
@@ -161,7 +187,14 @@ class RefreshTokenConcurrencyPostgresTest {
             jdbcTemplate.update("DELETE FROM saas_plans WHERE id = ?", planId);
         }
         if (userId != null) {
-            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            // public.users is FORCE RLS (V20261011_3) — wrap set_config + DELETE in tx.
+            UUID userTenantId = tenantId;
+            tx.executeWithoutResult(txStatus -> {
+                jdbcTemplate.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, userTenantId.toString());
+                jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            });
         }
         jdbcTemplate.update("DELETE FROM tenants WHERE id = ?", tenantId);
     }
@@ -189,5 +222,22 @@ class RefreshTokenConcurrencyPostgresTest {
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
                 UUID.randomUUID(), tenantId, planId);
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside a tx.executeWithoutResult block.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 }

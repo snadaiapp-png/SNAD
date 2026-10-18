@@ -15,7 +15,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,7 +33,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
-@Transactional
 class CrmApiIntegrationTest {
     private static final UUID TENANT_A = UUID.fromString("10000000-0000-0000-0000-000000000001");
     private static final UUID TENANT_B = UUID.fromString("10000000-0000-0000-0000-000000000002");
@@ -46,10 +44,17 @@ class CrmApiIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+    private org.springframework.transaction.support.TransactionTemplate seedTx;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
+        if (seedTx == null) {
+            seedTx = new org.springframework.transaction.support.TransactionTemplate(txManager);
+        }
         Instant now = Instant.now();
+        purgeTenantRows(TENANT_A);
+        purgeTenantRows(TENANT_B);
         seedTenant(TENANT_A, "crm-a", "CRM Tenant A", now);
         seedTenant(TENANT_B, "crm-b", "CRM Tenant B", now);
         seedUser(USER_A, TENANT_A, "crm-a@example.test", now);
@@ -165,8 +170,21 @@ class CrmApiIntegrationTest {
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
+        // Restore SecurityContext after MockMvc — Spring clears it after each request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
+
+        assertThat(tenantScopedCount("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", TENANT_A)).isEqualTo(2);
+        assertThat(tenantScopedCount("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", TENANT_A)).isGreaterThanOrEqualTo(8);
+    }
+
+    private long tenantScopedCount(String sql, UUID tenantId) {
+        Long value = seedTx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                    tenantId.toString());
+            return jdbc.queryForObject(sql, Long.class, tenantId);
+        });
+        return value == null ? 0L : value;
     }
 
     @Test
@@ -177,21 +195,81 @@ class CrmApiIntegrationTest {
                 .content("""
                         {"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}
                         """), 201);
+        // Restore SecurityContext after MockMvc perform() — the handler on the
+        // outer @Transactional connection has tenantAppliedFor=TENANT_A, but
+        // Spring clears SecurityContext after each MockMvc request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
+        // The GET as TENANT_B runs its own service transaction (no class-level
+        // @Transactional anymore): the handler applies GUC=TENANT_B from the
+        // request-scoped authentication, the fail-closed policy hides the
+        // TENANT_A account, and the read maps to 404.
         mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
                         .with(authentication(auth(TENANT_B, USER_B))))
                 .andExpect(status().isNotFound());
 
-        mockMvc.perform(get("/api/v1/crm/accounts")
-                        .with(authentication(auth(TENANT_B, USER_B))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+        // Restore SecurityContext after REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
+
+        // Second GET as TENANT_B also needs REQUIRES_NEW — same root cause.
+        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.executeWithoutResult(txStatus -> {
+            try {
+                mockMvc.perform(get("/api/v1/crm/accounts")
+                                .with(authentication(auth(TENANT_B, USER_B))))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.length()").value(0));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // Restore SecurityContext after second REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
     }
 
     private JsonNode perform(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request, int expected) throws Exception {
         String body = mockMvc.perform(request).andExpect(status().is(expected))
                 .andReturn().getResponse().getContentAsString();
         return body.isBlank() ? objectMapper.nullNode() : objectMapper.readTree(body);
+    }
+
+
+    private void purgeTenantRows(UUID tenantId) {
+        seedTx.executeWithoutResult(status -> {
+            // Fail-closed RLS on every crm table: the DELETEs need the tenant
+            // GUC on this transaction or they silently see zero rows.
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                    tenantId.toString());
+            for (String sql : new String[] {
+                    "DELETE FROM crm_contact_relationship_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_status_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_merge_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_addresses WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_identifiers WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_relationships WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_communication_method_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_communication_methods WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_call_events WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_timeline_events WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_activities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_leads WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_contact_account_relationships WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_opportunities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_contacts WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_accounts WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_pipeline_stages WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_pipelines WHERE tenant_id = ?::uuid",
+                    "DELETE FROM role_capabilities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM user_role_assignments WHERE tenant_id = ?::uuid",
+                    "DELETE FROM roles WHERE tenant_id = ?::uuid",
+                    "DELETE FROM users WHERE tenant_id = ?::uuid",
+                    "DELETE FROM tenants WHERE id = ?::uuid"}) {
+                jdbc.update(sql, tenantId.toString());
+            }
+        });
     }
 
     private Authentication auth(UUID tenantId, UUID userId) {
@@ -203,29 +281,38 @@ class CrmApiIntegrationTest {
 
     private void seedTenant(UUID id, String subdomain, String name, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)", id, subdomain, name, ts, ts);
+        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?) ON CONFLICT DO NOTHING", id, subdomain, name, ts, ts);
     }
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", ts, ts);
+        // Under FORCE RLS (V20261011_3) the fixture INSERT needs the tenant GUC
+        // on its own transaction: the class no longer shares one test tx, so
+        // each seed runs in an explicit transaction with set_config scoped to
+        // the user's tenant (no SecurityContextHolder bound, no guard state).
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, email, "CRM Test User", ts, ts);
+        });
     }
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?)", id, tenantId, ts, ts);
+        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, ts, ts);
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
     }
 
     private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
         List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
         for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
+            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
         }
     }
 }

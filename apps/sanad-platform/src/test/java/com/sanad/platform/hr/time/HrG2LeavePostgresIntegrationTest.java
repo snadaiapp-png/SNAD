@@ -20,6 +20,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.sql.Timestamp;
@@ -67,6 +70,8 @@ class HrG2LeavePostgresIntegrationTest {
             "SPRING_DATASOURCE_PASSWORD", "");
 
     private JdbcTemplate jdbc;
+    private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
     private JdbcWorkflowDefinitionRepository defRepo;
     private JdbcWorkflowInstanceRepository instanceRepo;
     private JdbcWorkflowStepInstanceRepository stepInstanceRepo;
@@ -101,6 +106,8 @@ class HrG2LeavePostgresIntegrationTest {
 
         DataSource dataSource = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
+        transactionManager = new DataSourceTransactionManager(dataSource);
+        tx = new TransactionTemplate(transactionManager);
 
         defRepo = new JdbcWorkflowDefinitionRepository(jdbc);
         instanceRepo = new JdbcWorkflowInstanceRepository(jdbc);
@@ -150,9 +157,20 @@ class HrG2LeavePostgresIntegrationTest {
         // password_hash is added by V10 migration — required column for the
         // canonical users schema. No silent fallback; if the column is missing
         // the test fails closed (migration chain drift indicator).
-        jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, email, roleSuffix + " user", now, now);
+        //
+        // public.users is FORCE RLS (V20261011_3). DriverManagerDataSource
+        // returns a fresh physical Connection per jdbc.update() call (no pooling,
+        // no Spring-managed tx), so set_config + INSERT INTO users must share
+        // ONE tx.executeWithoutResult block to use the same tx-bound Connection.
+        // is_local=true scopes the GUC to this transaction only.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
+                    userId, tenantId, email, roleSuffix + " user", now, now);
+        });
     }
 
     private void publishWorkflowDefinition() {
@@ -430,10 +448,19 @@ class HrG2LeavePostgresIntegrationTest {
                         + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 tenantBId, "Tenant B " + tenantBId.toString().substring(0, 8),
                 "tenant-b-" + tenantBId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
-                tenantBUser, tenantBId, "tenant-b-" + tenantBUser.toString().substring(0, 8) + "@test",
-                "Tenant B User", now, now);
+        // public.users is FORCE RLS (V20261011_3). DriverManagerDataSource
+        // returns a fresh physical Connection per jdbc.update() call (no pooling,
+        // no Spring-managed tx), so set_config + INSERT INTO users must share
+        // ONE tx.executeWithoutResult block to use the same tx-bound Connection.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantBId.toString());
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
+                    tenantBUser, tenantBId, "tenant-b-" + tenantBUser.toString().substring(0, 8) + "@test",
+                    "Tenant B User", now, now);
+        });
 
         // Tenant B workflow definition + steps + instance + step instance + approval
         WorkflowDefinition tenantBDef = WorkflowDefinition.createY2Draft(

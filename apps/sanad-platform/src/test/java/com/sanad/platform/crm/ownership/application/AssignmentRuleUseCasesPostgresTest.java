@@ -117,19 +117,19 @@ class AssignmentRuleUseCasesPostgresTest {
                                 "Queue", 10, "{\"source\":\"web\"}",
                                 DistributionMethod.QUEUE_ASSIGNMENT, null, null, queue.id(), null))));
 
-        AssignmentDecision decision = useCases.simulate(
+        AssignmentDecision decision = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of("source", "web"), List.of()));
+                        AssignmentRecordType.LEAD, Map.of("source", "web"), List.of())));
         assertThat(decision.ruleId()).isEqualTo(highPriority.id());
         assertThat(decision.ownerType()).isEqualTo(OwnerType.QUEUE);
         assertThat(decision.ownerId()).isEqualTo(queue.id());
         assertThat(decision.trace()).anyMatch(value -> value.contains("priority=10"));
 
-        AssignmentDecision noMatch = useCases.simulate(
+        AssignmentDecision noMatch = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of("source", "referral"), List.of()));
+                        AssignmentRecordType.LEAD, Map.of("source", "referral"), List.of())));
         assertThat(noMatch.matched()).isFalse();
 
         AssignmentRuleUseCases.VersionDefinition versionTwo = definition(
@@ -144,7 +144,7 @@ class AssignmentRuleUseCasesPostgresTest {
         assertThat(active.version()).isEqualTo(2);
         assertThat(ruleRepository.findActiveVersion(tenantId, lowPriority.id()))
                 .get().extracting(AssignmentRuleVersion::version).isEqualTo(2);
-        assertThat(useCases.listVersions(tenantId, lowPriority.id()))
+        assertThat(tx(() -> useCases.listVersions(tenantId, lowPriority.id())))
                 .extracting(AssignmentRuleVersion::version).containsExactly(2, 1);
     }
 
@@ -157,8 +157,8 @@ class AssignmentRuleUseCasesPostgresTest {
                                 "Round Robin", 1, "{}", DistributionMethod.ROUND_ROBIN,
                                 null, team.id(), null, null))));
 
-        AssignmentDecision simulationOne = useCases.simulate(tenantId, input());
-        AssignmentDecision simulationTwo = useCases.simulate(tenantId, input());
+        AssignmentDecision simulationOne = tx(() -> useCases.simulate(tenantId, input()));
+        AssignmentDecision simulationTwo = tx(() -> useCases.simulate(tenantId, input()));
         assertThat(simulationTwo.ownerId()).isEqualTo(simulationOne.ownerId());
         assertThat(ruleRepository.findCounter(tenantId, rule.id())).isEmpty();
 
@@ -183,7 +183,7 @@ class AssignmentRuleUseCasesPostgresTest {
                         "LEAST-" + shortId(), definition(
                                 "Least Loaded", 1, "{}", DistributionMethod.LEAST_LOADED,
                                 null, team.id(), null, actorId))));
-        AssignmentDecision decision = useCases.simulate(tenantId, input());
+        AssignmentDecision decision = tx(() -> useCases.simulate(tenantId, input()));
         assertThat(decision.ownerType()).isEqualTo(OwnerType.USER);
         assertThat(decision.ownerId()).isEqualTo(secondUser);
         assertThat(decision.trace()).anyMatch(value -> value.contains("least_loaded_user"));
@@ -207,10 +207,10 @@ class AssignmentRuleUseCasesPostgresTest {
                         "TERR-" + shortId(), definition(
                                 "Territory", 1, "{}", DistributionMethod.TERRITORY_BASED,
                                 null, null, null, null))));
-        AssignmentDecision decision = useCases.simulate(
+        AssignmentDecision decision = tx(() -> useCases.simulate(
                 tenantId,
                 new AssignmentRuleUseCases.EvaluationInput(
-                        AssignmentRecordType.LEAD, Map.of(), List.of(territory.id())));
+                        AssignmentRecordType.LEAD, Map.of(), List.of(territory.id()))));
         assertThat(decision.ownerId()).isEqualTo(firstUser);
 
         assertThatThrownBy(() -> tx(() -> useCases.createRule(
@@ -287,18 +287,34 @@ class AssignmentRuleUseCasesPostgresTest {
 
     private UUID createUser(UUID tenant, String prefix) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO users
-                  (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (:id, :tenantId, :email, :name, 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, new MapSqlParameterSource().addValue("id", id).addValue("tenantId", tenant)
-                .addValue("email", prefix + "-" + shortId() + "@test.example")
-                .addValue("name", prefix));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. Wrap setGuc +
+        // INSERT in transactions.executeWithoutResult(...) — same
+        // Connection, same GUC scope (transaction-local).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenant.toString()), String.class);
+            jdbc.update("""
+                    INSERT INTO users
+                      (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (:id, :tenantId, :email, :name, 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, new MapSqlParameterSource().addValue("id", id).addValue("tenantId", tenant)
+                    .addValue("email", prefix + "-" + shortId() + "@test.example")
+                    .addValue("name", prefix));
+        });
         return id;
     }
 
     private <T> T tx(java.util.concurrent.Callable<T> callable) {
         return transactions.execute(status -> {
+            // FORCE RLS on public.users (V20261011_3) — service-layer queries
+            // that validate user existence (e.g. AssignmentRuleUseCases.validateDefinition)
+            // are filtered by RLS unless app.tenant_id is set on the tx-bound
+            // connection. Set the GUC at the start of every tx block so all
+            // queries within this transaction see the tenant context.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", tenantId.toString()), String.class);
             try { return callable.call(); }
             catch (RuntimeException runtime) { throw runtime; }
             catch (Exception checked) { throw new IllegalStateException(checked); }

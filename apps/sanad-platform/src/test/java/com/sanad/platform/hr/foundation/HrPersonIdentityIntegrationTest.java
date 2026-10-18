@@ -107,6 +107,12 @@ class HrPersonIdentityIntegrationTest {
 
     private UUID seedUser(UUID tenantId, String email) throws Exception {
         UUID userId = UUID.randomUUID();
+        // public.users is FORCE RLS (V20261011_3). setTenant(tenantId) sets the
+        // session GUC on the SAME admin `conn` used by the INSERT INTO users
+        // below, so the RLS WITH CHECK clause accepts the row. Callers that need
+        // a different tenant for subsequent inserts (e.g., cross-tenant tests)
+        // explicitly call setTenant(...) again after seedUser — see line 268.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO users (id, tenant_id, email, display_name, status, created_at, updated_at) VALUES (?, ?, ?, 'Test User', 'ACTIVE', NOW(), NOW())")) {
             ps.setObject(1, userId);

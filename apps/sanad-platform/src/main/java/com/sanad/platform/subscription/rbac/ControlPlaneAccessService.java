@@ -3,6 +3,7 @@ package com.sanad.platform.subscription.rbac;
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import com.sanad.platform.security.SecurityContextUtils;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -55,11 +56,14 @@ public class ControlPlaneAccessService {
             "PLATFORM.SECURITY.READ", "PLATFORM.SECURITY.MANAGE");
     private final CapabilityEvaluationService evaluationService;
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
     public ControlPlaneAccessService(CapabilityEvaluationService evaluationService,
-                                     JdbcTemplate jdbc) {
+                                     JdbcTemplate jdbc,
+                                     TenantRlsTransactionContext tenantRlsContext) {
         this.evaluationService = evaluationService;
         this.jdbc = jdbc;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     public record AccessCheckV2(boolean authenticated, Map<String, Boolean> capabilities) {}
@@ -78,6 +82,10 @@ public class ControlPlaneAccessService {
             }
         }
         if (tenantId == null || userId == null) return new AccessCheckV2(false, Map.of());
+
+        // The authenticated subject supplies a trusted tenant for this
+        // read-only transaction; user/grant lookups are protected by FORCE RLS.
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
 
         Map<String, Boolean> capabilities = new LinkedHashMap<>();
         for (String code : CONTROL_PLANE_CAPABILITIES) {

@@ -49,7 +49,7 @@ jobs:
   playwright:
     name: Playwright E2E & Visual Regression
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     defaults:
       run:
@@ -252,6 +252,43 @@ jobs:
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
+      - name: Provision and verify restricted sanad runtime role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This role is required by V20261011_3. It is a restricted policy
+          # principal in the isolated runner cluster, not a migration owner.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_test WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_test', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
+          # Does not assert full G1 isolation certification: the CI application
+          # session still uses its dedicated per-job acceptance database role.
+
       - name: Generate isolated CI credentials
         shell: bash
         run: |
@@ -262,6 +299,8 @@ jobs:
           echo 'CRM_TENANT_A_EMAIL=tenant-a-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
           echo 'CRM_TENANT_A_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
           echo 'CRM_TENANT_B_EMAIL=tenant-b-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_A_ID=11111111-1111-4111-8111-111111111111' >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_B_ID=22222222-2222-4222-8222-222222222222' >> "$GITHUB_ENV"
           echo 'CRM_TENANT_B_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
           echo 'CRM_READONLY_EMAIL=tenant-a-readonly@snad-crm-acceptance.example' >> "$GITHUB_ENV"
           echo 'CRM_READONLY_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
@@ -323,14 +362,57 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f src/test/resources/sql/crm-acceptance-subscription-seed.sql
 
-      - name: Verify seeded identities
+      - name: Verify seeded identities under tenant-scoped RLS
         shell: bash
         run: |
           set -euo pipefail
-          count="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
-            "SELECT COUNT(*) FROM users WHERE email IN ('tenant-a-admin@snad-crm-acceptance.example','tenant-b-admin@snad-crm-acceptance.example','tenant-a-readonly@snad-crm-acceptance.example','tenant-a-lead-writer@snad-crm-acceptance.example','tenant-a-import-reader@snad-crm-acceptance.example')")"
-          test "$count" = '5'
+          # Verify using the restricted CI login, not the postgres owner.
+          # Each transaction has exactly one tenant-local context.
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -X -v ON_ERROR_STOP=1 -At <<'SQL'
+          BEGIN;
+          SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
+          DO $check$
+          DECLARE own_count integer; foreign_count integer;
+          BEGIN
+            SELECT count(*) INTO own_count FROM users WHERE
+              email IN ('tenant-a-admin@snad-crm-acceptance.example',
+                        'tenant-a-readonly@snad-crm-acceptance.example',
+                        'tenant-a-lead-writer@snad-crm-acceptance.example',
+                        'tenant-a-import-reader@snad-crm-acceptance.example');
+            SELECT count(*) INTO foreign_count FROM users
+              WHERE email='tenant-b-admin@snad-crm-acceptance.example';
+            IF own_count <> 4 OR foreign_count <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_TENANT_A_ISOLATION_FAILED own=%, foreign=%', own_count, foreign_count;
+            END IF;
+          END $check$;
+          COMMIT;
+          BEGIN;
+          SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', true);
+          DO $check$
+          DECLARE own_count integer; foreign_count integer;
+          BEGIN
+            SELECT count(*) INTO own_count FROM users
+              WHERE email='tenant-b-admin@snad-crm-acceptance.example';
+            SELECT count(*) INTO foreign_count FROM users
+              WHERE email LIKE 'tenant-a-%@snad-crm-acceptance.example';
+            IF own_count <> 1 OR foreign_count <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_TENANT_B_ISOLATION_FAILED own=%, foreign=%', own_count, foreign_count;
+            END IF;
+          END $check$;
+          COMMIT;
+          BEGIN;
+          SELECT set_config('app.tenant_id', '', true);
+          DO $check$
+          BEGIN
+            IF (SELECT count(*) FROM users) <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_FAIL_CLOSED_MISSING_CONTEXT';
+            END IF;
+          END $check$;
+          ROLLBACK;
+          SQL
+          echo 'G1_SEEDED_USERS_RLS_ISOLATION=PASS'
 
       - name: Start Spring Boot backend
         id: backend
@@ -362,17 +444,18 @@ jobs:
           login_check() {
             local email="$1"
             local password="$2"
+            local tenant_id="$3"
             curl --fail --silent --show-error \
               -X POST http://127.0.0.1:8080/api/v1/auth/login \
               -H 'Content-Type: application/json' \
-              -d "{\"email\":\"${email}\",\"password\":\"${password}\"}" \
+              -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"tenantId\":\"${tenant_id}\"}" \
               | python3 -c 'import json,sys; assert json.load(sys.stdin).get("accessToken")'
           }
-          login_check "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD"
-          login_check "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD"
-          login_check "$CRM_READONLY_EMAIL" "$CRM_READONLY_PASSWORD"
-          login_check "$CRM_LEAD_WRITER_EMAIL" "$CRM_LEAD_WRITER_PASSWORD"
-          login_check "$CRM_IMPORT_READER_EMAIL" "$CRM_IMPORT_READER_PASSWORD"
+          login_check "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD" "11111111-1111-4111-8111-111111111111"
+          login_check "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD" "22222222-2222-4222-8222-222222222222"
+          login_check "$CRM_READONLY_EMAIL" "$CRM_READONLY_PASSWORD" "11111111-1111-4111-8111-111111111111"
+          login_check "$CRM_LEAD_WRITER_EMAIL" "$CRM_LEAD_WRITER_PASSWORD" "11111111-1111-4111-8111-111111111111"
+          login_check "$CRM_IMPORT_READER_EMAIL" "$CRM_IMPORT_READER_PASSWORD" "11111111-1111-4111-8111-111111111111"
 
       - name: Install frontend dependencies
         working-directory: apps/web
@@ -522,6 +605,43 @@ jobs:
           role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_subscription_test'")"
           echo "SUBSCRIPTION_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
           test "$role_contract" = "false|false|false|false"
+
+      - name: Provision and verify restricted sanad runtime role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This role is required by V20261011_3. It is a restricted policy
+          # principal in the isolated runner cluster, not a migration owner.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_subscription_test WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_subscription_test', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_subscription_test'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
+          # Does not assert full G1 isolation certification: the CI application
+          # session still uses its dedicated per-job acceptance database role.
 
       - name: Generate isolated CI credentials
         shell: bash

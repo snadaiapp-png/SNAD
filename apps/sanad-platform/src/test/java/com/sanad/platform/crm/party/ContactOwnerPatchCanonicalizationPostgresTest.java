@@ -425,15 +425,20 @@ class ContactOwnerPatchCanonicalizationPostgresTest {
     }
 
     private void ensureUser(UUID id, UUID tenant) {
-        rawJdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("t", tenant)
-                .addValue("email", "c6ar1-" + id + "@snad.test")
-                .addValue("name", "C6AR1 User " + id));
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before INSERT INTO users.
+        rawTransactions.executeWithoutResult(s -> {
+            setRawGuc(tenant);
+            rawJdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """, new MapSqlParameterSource()
+                    .addValue("id", id)
+                    .addValue("t", tenant)
+                    .addValue("email", "c6ar1-" + id + "@snad.test")
+                    .addValue("name", "C6AR1 User " + id));
+        });
     }
 
     // ── Test-only ContactRepository decorator ─────────────────────────────

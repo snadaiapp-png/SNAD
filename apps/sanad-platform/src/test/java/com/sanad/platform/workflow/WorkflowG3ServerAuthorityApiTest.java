@@ -55,6 +55,7 @@ class WorkflowG3ServerAuthorityApiTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'G3 Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "g3-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'G3 User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "g3-" + userId.toString().substring(0, 8) + "@test", now, now);

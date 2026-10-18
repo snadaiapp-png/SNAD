@@ -18,6 +18,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.sql.Timestamp;
@@ -58,6 +60,8 @@ class G1GDynamic403ForensicPostgresTest {
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private RequestMappingHandlerMapping handlerMapping;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID controlUserId;
     private UUID controlRoleId;
@@ -70,6 +74,9 @@ class G1GDynamic403ForensicPostgresTest {
 
     @BeforeEach
     void seedForensicIdentityChains() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         purgeForensicResidue();
         Instant now = Instant.now();
         controlAdminCredential = UUID.randomUUID() + "-C!9g";
@@ -83,13 +90,24 @@ class G1GDynamic403ForensicPostgresTest {
 
         controlUserId = UUID.randomUUID();
         controlAdminEmail = "g1g-control-" + controlUserId + "@forensic.sanad.test";
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status,
-                                   password_hash, must_change_password, platform_admin,
-                                   session_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'G1-G Disposable Control Admin', 'ACTIVE', ?, false, true, 0, ?, ?)
-                """, controlUserId, controlTenantId, controlAdminEmail,
-                passwordEncoder.encode(controlAdminCredential), Timestamp.from(now), Timestamp.from(now));
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP. Control-plane user is in the control tenant (CONTROL_PLANE_TENANT_ID).
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, controlTenantId.toString());
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status,
+                                       password_hash, must_change_password, platform_admin,
+                                       session_version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'G1-G Disposable Control Admin', 'ACTIVE', ?, false, true, 0, ?, ?)
+                    """, controlUserId, controlTenantId, controlAdminEmail,
+                    passwordEncoder.encode(controlAdminCredential), Timestamp.from(now), Timestamp.from(now));
+        });
         jdbc.update("""
                 INSERT INTO user_role_assignments
                     (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -107,13 +125,22 @@ class G1GDynamic403ForensicPostgresTest {
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (?, 'G1-G Forensic Tenant', ?, 'ACTIVE', ?, ?)
                 """, forensicTenantId, forensicSubdomain, Timestamp.from(now), Timestamp.from(now));
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status,
-                                   password_hash, must_change_password, platform_admin,
-                                   session_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'G1-G Forensic Tenant Admin', 'ACTIVE', ?, false, false, 0, ?, ?)
-                """, forensicUserId, forensicTenantId, tenantAdminEmail,
-                passwordEncoder.encode(tenantAdminCredential), Timestamp.from(now), Timestamp.from(now));
+        // public.users is FORCE RLS (V20261011_3) — wrap set_config + INSERT INTO
+        // users for the forensic tenant admin in ONE tx.executeWithoutResult block
+        // so both share the tx-bound physical connection.
+        UUID forensicTenantIdFinal = forensicTenantId;
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, forensicTenantIdFinal.toString());
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status,
+                                       password_hash, must_change_password, platform_admin,
+                                       session_version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'G1-G Forensic Tenant Admin', 'ACTIVE', ?, false, false, 0, ?, ?)
+                    """, forensicUserId, forensicTenantIdFinal, tenantAdminEmail,
+                    passwordEncoder.encode(tenantAdminCredential), Timestamp.from(now), Timestamp.from(now));
+        });
         jdbc.update("""
                 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
                 VALUES (?, ?, 'ADMIN', 'Administrator', 'G1-G forensic tenant admin', 'ACTIVE', ?, ?)
@@ -157,15 +184,41 @@ class G1GDynamic403ForensicPostgresTest {
         List<UUID> tenantIds = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE subdomain LIKE 'g1g-forensic-%'", UUID.class);
         for (UUID tenantId : tenantIds) {
+            // Cause C fix: delete refresh_tokens by tenant_id BEFORE deleting users.
+            // The first loop deletes refresh_tokens only for users in disposableUsers
+            // (email LIKE 'g1g-%@forensic.sanad.test'). But the tenant loop deletes
+            // ALL users in the tenant (DELETE FROM users WHERE tenant_id = ?), which
+            // may include users not in disposableUsers (e.g., users created during
+            // the test with different email patterns). The FK constraint
+            // fk_refresh_tokens_user blocks the DELETE if refresh_tokens still
+            // reference the user. Fix: delete refresh_tokens by tenant_id first.
+            jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+            // public.users FORCE RLS (V20261011_3) — wrap set_config + DELETE in tx.
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+            });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
+        UUID controlTenantId = UUID.fromString(CONTROL_PLANE_TENANT_ID);
         for (UUID userId : disposableUsers) {
-            jdbc.update("DELETE FROM users WHERE id = ?", userId);
+            // public.users FORCE RLS — wrap set_config + DELETE in tx. Disposable users
+            // are either in the control tenant (CONTROL_PLANE_TENANT_ID) or the forensic
+            // tenant (already deleted in the loop above). Setting control tenant context
+            // covers the control-plane user; for already-deleted forensic users the
+            // DELETE is a no-op (RLS USING returns 0 rows).
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, controlTenantId.toString());
+                jdbc.update("DELETE FROM users WHERE id = ?", userId);
+            });
         }
     }
 

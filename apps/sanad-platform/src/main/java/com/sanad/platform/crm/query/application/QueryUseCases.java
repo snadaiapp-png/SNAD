@@ -24,10 +24,13 @@ public class QueryUseCases {
         this.customer360Port = customer360Port;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<TimelineEvent> getTimeline(UUID tenantId, String subjectType, UUID subjectId, int limit) {
         return timelineRepo.findBySubject(tenantId, subjectType, subjectId, limit);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public DashboardKpisView getDashboard(UUID tenantId) { return dashboardPort.getDashboardKpis(tenantId); }
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public Customer360View getCustomer360(UUID tenantId, UUID accountId) { return customer360Port.getCustomer360(tenantId, accountId); }
 }

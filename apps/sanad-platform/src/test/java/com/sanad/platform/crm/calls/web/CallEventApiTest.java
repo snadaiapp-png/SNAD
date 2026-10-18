@@ -2,6 +2,7 @@ package com.sanad.platform.crm.calls.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,7 +16,10 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -49,6 +53,15 @@ class CallEventApiTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
+
+    @BeforeEach
+    void initTx() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+    }
 
     private String body(String callId, String status) {
         return "{\"provider\":\"NATIVE\",\"providerCallId\":\"" + callId
@@ -146,9 +159,10 @@ class CallEventApiTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void crossTenantReadIsIsolated() throws Exception {
-        Fixture tenantA = fixture("ce-api-a");
-        Fixture tenantB = fixture("ce-api-b");
+        Fixture tenantA = tx.execute(status -> fixture("ce-api-a"));
+        Fixture tenantB = tx.execute(status -> fixture("ce-api-b"));
 
         MvcResult created = mockMvc.perform(post(EVENTS).with(authentication(auth(tenantA)))
                         .contentType("application/json")
@@ -215,6 +229,13 @@ class CallEventApiTest {
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
                         .addValue("now", java.sql.Timestamp.from(now)));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. The class is
+        // @Transactional, so the Spring-managed tx provides a single physical
+        // connection for all jdbc calls in this fixture.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantId.toString()), String.class);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'G8 Call User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

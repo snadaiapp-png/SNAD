@@ -30,10 +30,12 @@ public class LeadUseCases {
         return created;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public LeadRecord getById(UUID tenantId, UUID leadId) {
         return repo.findById(tenantId, leadId);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<LeadRecord> list(UUID tenantId, int limit, String status) {
         return repo.findAll(tenantId, limit, status);
     }

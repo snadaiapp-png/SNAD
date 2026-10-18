@@ -116,8 +116,19 @@ public class UserService {
         }
         return userMapper.toResponse(saved);
     }
-    @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
-    @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public UserResponse getUser(UUID tenantId,UUID userId){return userMapper.toResponse(loadUser(tenantId,userId));}
+    // Propagation.REQUIRED (the default) ensures a Spring-managed transaction
+    // is always open for these reads. Without it, Propagation.SUPPORTS runs
+    // non-transactionally when no outer transaction exists, leaving the
+    // connection in autoCommit=true mode. The TenantRlsConnectionHandler
+    // activates only when autoCommit=false, so SUPPORTS would skip setting
+    // app.tenant_id. Under FORCE ROW LEVEL SECURITY on public.users
+    // (V20261011_3), the users_tenant_isolation policy then returns 0 rows
+    // because current_setting('app.tenant_id', true) is NULL/empty. This
+    // would make /api/v1/users return an empty list and break the
+    // Users Module Closure Playwright gate. REQUIRED forces a transaction
+    // boundary, which activates the RLS handler and applies the tenant GUC.
+    @Transactional(readOnly=true,propagation=Propagation.REQUIRED) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
+    @Transactional(readOnly=true,propagation=Propagation.REQUIRED) public UserResponse getUser(UUID tenantId,UUID userId){return userMapper.toResponse(loadUser(tenantId,userId));}
 
     @Transactional
     public UserResponse updateUser(UUID tenantId,UUID userId,UpdateUserRequest request){

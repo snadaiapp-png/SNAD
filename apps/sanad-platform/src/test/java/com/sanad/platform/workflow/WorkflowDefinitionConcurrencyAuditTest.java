@@ -41,6 +41,7 @@ class WorkflowDefinitionConcurrencyAuditTest {
     @Autowired private WorkflowDefinitionRepository definitionRepository;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private TransactionTemplate tx;
 
     private UUID tenantId;
     private UUID userId;
@@ -53,9 +54,13 @@ class WorkflowDefinitionConcurrencyAuditTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Workflow audit tenant', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-audit-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                        + "VALUES (?, ?, ?, 'Workflow audit user', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "wf-audit-" + userId.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: TransactionTemplate — set_config + INSERT on same connection
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+            + "VALUES (?, ?, ?, 'Workflow audit user', 'ACTIVE', 'dummy', ?, ?)",
+            userId, tenantId, "wf-audit-" + userId.toString().substring(0, 8) + "@test", now, now);
+        });
     }
 
     @Test

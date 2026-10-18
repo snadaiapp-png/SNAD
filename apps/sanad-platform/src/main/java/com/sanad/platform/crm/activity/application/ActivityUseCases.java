@@ -30,10 +30,12 @@ public class ActivityUseCases {
         return created;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ActivityRecord getById(UUID tenantId, UUID id) {
         return repo.findById(tenantId, id);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<ActivityRecord> list(UUID tenantId, int limit, String relatedType,
                                      UUID relatedId, String status) {
         return repo.findAll(tenantId, limit, relatedType, relatedId, status);

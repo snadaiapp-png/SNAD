@@ -12,6 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -33,11 +35,16 @@ class CrmManagementIntegrationTest {
 
     @Autowired private CrmManagementIntegrationService crmIntegrationService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         tenantId = UUID.randomUUID();
         var userId = UUID.randomUUID();
         var now = java.sql.Timestamp.from(java.time.Instant.now());
@@ -45,9 +52,20 @@ class CrmManagementIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "crmi-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                userId, tenantId, "crmi@test", now, now);
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
+                    userId, tenantId, "crmi@test", now, now);
+        });
 
         RlsTestSupport.setSecurityContext(tenantId, userId);
     }

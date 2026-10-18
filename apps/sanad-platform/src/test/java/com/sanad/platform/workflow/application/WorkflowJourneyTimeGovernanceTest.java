@@ -53,6 +53,7 @@ class WorkflowJourneyTimeGovernanceTest {
 
     private UUID newRealInstance(UUID tenantId) {
         UUID userId = UUID.randomUUID();
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
                 + "VALUES (?, ?, ?, 'JTG User', 'ACTIVE', 'x', NOW(), NOW())", userId, tenantId,
                 "r1jtg-" + userId + "@test");

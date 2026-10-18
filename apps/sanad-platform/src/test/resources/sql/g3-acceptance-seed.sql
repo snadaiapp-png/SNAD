@@ -184,6 +184,10 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 4. Users (3 total)
 -- ----------------------------------------------------------------------------
+-- CI fixture only: establish the test tenant before FORCE-RLS users inserts.
+-- This grants no privileges and does not bypass the RLS policy.
+SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
+
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (
     '44444444-4444-4444-8444-444444444451',

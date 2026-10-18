@@ -120,9 +120,20 @@ class WorkflowR2ExternalPortalTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "R2Portal-" + tag,
                 "r2-portal-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-                        + "created_at,updated_at) VALUES (?, ?, ?, 'R2 Portal', 'ACTIVE', 'dummy', ?, ?)",
-                user, tenant, "r2-portal-" + user.toString().substring(0, 8) + "@test", now, now);
+        // public.users is FORCE RLS (V20261011_3). DriverManagerDataSource is
+        // NOT a pool — every jdbc.execute()/jdbc.update() OUTSIDE a tx-bound
+        // context obtains a fresh physical connection that is closed after the
+        // call. A session-scoped GUC set on conn N dies with conn N, so the
+        // next INSERT on conn N+1 has no tenant context and RLS rejects it.
+        // Fix: wrap set_config + INSERT users in ONE tx.executeWithoutResult
+        // block so they share the tx-bound connection. is_local=true (not false)
+        // scopes the GUC to this transaction only — no session-level leak.
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
+                            + "created_at,updated_at) VALUES (?, ?, ?, 'R2 Portal', 'ACTIVE', 'dummy', ?, ?)",
+                    user, tenant, "r2-portal-" + user.toString().substring(0, 8) + "@test", now, now);
+        });
         jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,

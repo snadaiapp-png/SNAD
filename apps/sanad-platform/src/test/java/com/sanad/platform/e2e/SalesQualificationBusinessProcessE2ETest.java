@@ -14,7 +14,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class SalesQualificationBusinessProcessE2ETest {
 
     private static final UUID TENANT_A = UUID.fromString("71000000-0000-0000-0000-000000000001");
@@ -54,10 +52,20 @@ class SalesQualificationBusinessProcessE2ETest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    private org.springframework.transaction.support.TransactionTemplate seedTx;
+
+    private String runSuffix;
 
     @BeforeEach
     void seedIdentityAndCapabilities() {
+        if (seedTx == null) {
+            seedTx = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        }
+        runSuffix = UUID.randomUUID().toString().substring(0, 8);
         Instant now = Instant.now();
+        purgeTenantBusinessRows(TENANT_A);
+        purgeTenantBusinessRows(TENANT_B);
         seedTenant(TENANT_A, "e2e-sales-a", "E2E Sales Tenant A", now);
         seedTenant(TENANT_B, "e2e-sales-b", "E2E Sales Tenant B", now);
         seedUser(ADMIN_A, TENANT_A, "sales-admin-a@example.test", now);
@@ -71,15 +79,57 @@ class SalesQualificationBusinessProcessE2ETest {
         grantCrmCapabilities(TENANT_B, ROLE_B, now);
     }
 
+
+    /**
+     * These fixed test tenants are owned by this suite. Rows now commit (no
+     * test-managed rollback), so purge this tenant's business rows before
+     * seeding to keep the run deterministic on a reused database.
+     */
+    private void purgeTenantBusinessRows(UUID tenantId) {
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                    tenantId.toString());
+            // Child-first FK order; the tenant rows are recreated by seedIdentityAndCapabilities.
+            for (String sql : new String[] {
+                    "DELETE FROM crm_contact_relationship_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_status_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_merge_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_addresses WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_identifiers WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_account_relationships WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_communication_method_history WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_communication_methods WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_call_events WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_timeline_events WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_activities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_leads WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_contact_account_relationships WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_opportunities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_contacts WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_accounts WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_pipeline_stages WHERE tenant_id = ?::uuid",
+                    "DELETE FROM crm_pipelines WHERE tenant_id = ?::uuid",
+                    "DELETE FROM role_capabilities WHERE tenant_id = ?::uuid",
+                    "DELETE FROM user_role_assignments WHERE tenant_id = ?::uuid",
+                    "DELETE FROM roles WHERE tenant_id = ?::uuid",
+                    "DELETE FROM users WHERE tenant_id = ?::uuid",
+                    "DELETE FROM tenants WHERE id = ?::uuid"}) {
+                jdbc.update(sql, tenantId.toString());
+            }
+        });
+    }
+
     @Test
     void provesLeadToWonOpportunityWithGovernedCrossCuttingEvidence() throws Exception {
         JsonNode pipeline = perform(post("/api/v1/crm/pipelines")
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"name":"REM-P1-007 Enterprise Sales","currencyCode":"SAR",
+                        {"name":"REM-P1-007 Enterprise Sales %s",
+                         "currencyCode":"SAR",
                          "stages":["New","Qualified","Proposal","Won","Lost"]}
-                        """), 201);
+                        """.formatted(runSuffix)), 201);
         String pipelineId = pipeline.path("id").asText();
 
         JsonNode stages = perform(get("/api/v1/crm/pipelines/{pipelineId}/stages", pipelineId)
@@ -91,10 +141,10 @@ class SalesQualificationBusinessProcessE2ETest {
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"displayName":"Maha Al-Salem","companyName":"Maha Digital",
-                         "email":"maha@example.test","phone":"+966500000001",
+                        {"displayName":"Maha Al-Salem %s","companyName":"Maha Digital %s",
+                         "email":"maha%s@example.test","phone":"+966500000001",
                          "source":"REM-P1-007-E2E","score":90}
-                        """), 201);
+                        """.formatted(runSuffix, runSuffix, runSuffix)), 201);
         String leadId = lead.path("id").asText();
 
         JsonNode qualified = perform(patch("/api/v1/crm/leads/{id}/status", leadId)
@@ -104,11 +154,11 @@ class SalesQualificationBusinessProcessE2ETest {
         assertThat(qualified.path("status").asText()).isEqualTo("QUALIFIED");
 
         String conversionPayload = """
-                {"accountName":"Maha Digital","createOpportunity":true,
+                {"accountName":"Maha Digital %s","createOpportunity":true,
                  "pipelineId":"%s","stageId":"%s",
-                 "opportunityName":"Enterprise Platform Rollout",
+                 "opportunityName":"Enterprise Platform Rollout %s",
                  "amount":250000,"currencyCode":"SAR"}
-                """.formatted(pipelineId, firstStageId);
+                """.formatted(runSuffix, pipelineId, firstStageId, runSuffix);
 
         JsonNode conversion = perform(post("/api/v1/crm/leads/{id}/convert", leadId)
                 .with(authentication(auth(TENANT_A, ADMIN_A)))
@@ -231,31 +281,51 @@ class SalesQualificationBusinessProcessE2ETest {
     }
 
     private long count(String sql, Object... arguments) {
-        Long value = jdbc.queryForObject(sql, Long.class, arguments);
+        // RLS-scoped tables (crm_timeline_events) fail-closed on autocommit
+        // connections: without a transaction the app.tenant_id GUC is whatever
+        // the pooled session last held (often ''), and ''::uuid raises inside
+        // the policy. Run verification counts in a tenant-scoped transaction.
+        Long value = seedTx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
+                    TENANT_A.toString());
+            return jdbc.queryForObject(sql, Long.class, arguments);
+        });
         return value == null ? 0L : value;
     }
 
     private void seedTenant(UUID id, String subdomain, String name, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
+        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?) ON CONFLICT DO NOTHING",
                 id, subdomain, name, ts, ts);
     }
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE','dummy',?,?)",
-                id, tenantId, email, "Business Process E2E User", ts, ts);
+        // public.users is FORCE RLS (V20261011_3). Without a class-level
+        // @Transactional boundary, jdbc calls run in autocommit mode where a
+        // transaction-local set_config would be discarded immediately. Each
+        // fixture user therefore seeds inside its own explicit transaction
+        // whose GUC is set to the user's tenant (fail-closed policy satisfied,
+        // no SecurityContextHolder bound, no RLS-handler guard state created).
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE','dummy',?,?) ON CONFLICT DO NOTHING",
+                    id, tenantId, email, "Business Process E2E User", ts, ts);
+        });
     }
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','Business process E2E role','ACTIVE',?,?)",
+        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','Business process E2E role','ACTIVE',?,?) ON CONFLICT DO NOTHING",
                 id, tenantId, ts, ts);
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
+        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?) ON CONFLICT DO NOTHING",
                 UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
     }
 
@@ -264,7 +334,7 @@ class SalesQualificationBusinessProcessE2ETest {
         List<UUID> capabilityIds = jdbc.queryForList(
                 "SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
         for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
+            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
                     UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
         }
     }

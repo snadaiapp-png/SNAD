@@ -143,6 +143,7 @@ class WorkflowSystemActionBackoffSafetyTest {
     private UUID createUser(String prefix) {
         UUID id = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
                 id, tenantId, prefix + "-" + id.toString().substring(0, 8) + "@test",

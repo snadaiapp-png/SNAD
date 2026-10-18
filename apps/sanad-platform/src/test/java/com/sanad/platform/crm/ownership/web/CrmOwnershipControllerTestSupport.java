@@ -39,6 +39,13 @@ final class CrmOwnershipControllerTestSupport {
                 .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
                 .addValue("now", now));
 
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. All four V1
+        // ownership controller tests are @Transactional, so the Spring-
+        // managed tx provides a single physical connection for both calls.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantId.toString()), String.class);
         jdbc.update("""
                 INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at)
                 VALUES (:id,:tenantId,:email,'CRM Test User','ACTIVE','dummy',:now,:now)

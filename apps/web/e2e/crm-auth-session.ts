@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type Response } from "@playwright/test";
 
 export interface CrmLoginResponse {
   accessToken: string;
@@ -28,6 +28,29 @@ function configuredTenantId(email: string): string | undefined {
   if (tenantBEmail && normalized === tenantBEmail) {
     return process.env.CRM_TENANT_B_ID || undefined;
   }
+  // Authenticated Users closure fixtures may reuse an email across tenants.
+  // Pass the fixture's verified tenant explicitly; do not weaken backend
+  // ambiguity checks or accept a tenant selected by an untrusted response.
+  const crmTenantAFixtures = [
+    "CRM_READONLY_EMAIL", "CRM_LEAD_WRITER_EMAIL", "CRM_IMPORT_READER_EMAIL",
+  ] as const;
+  for (const key of crmTenantAFixtures) {
+    const fixtureEmail = (process.env[key] ?? "").trim().toLowerCase();
+    if (fixtureEmail && normalized === fixtureEmail) {
+      return process.env.CRM_TENANT_A_ID || undefined;
+    }
+  }
+  const usersFixtures = [
+    ["USERS_CONTROL_EMAIL", "USERS_CONTROL_TENANT_ID"],
+    ["USERS_PHASE8_ADMIN_EMAIL", "USERS_TENANT_ID"],
+    ["USERS_TENANT_EMAIL", "USERS_TENANT_ID"],
+  ] as const;
+  for (const [emailKey, tenantKey] of usersFixtures) {
+    const fixtureEmail = (process.env[emailKey] ?? "").trim().toLowerCase();
+    if (fixtureEmail && normalized === fixtureEmail) {
+      return process.env[tenantKey] || undefined;
+    }
+  }
   return undefined;
 }
 
@@ -50,6 +73,7 @@ export async function loginThroughUi(
   page: Page,
   email: string,
   password: string,
+  options?: { sessionCookieContract?: "browser-jar" | "request-path" },
 ): Promise<CrmLoginResponse> {
   expect(email, "CRM login email must be configured").toBeTruthy();
   expect(password, "CRM login password must be configured").toBeTruthy();
@@ -83,20 +107,60 @@ export async function loginThroughUi(
 
   await page.goto("/");
   await page.locator("#login-email").fill(email);
-  await page.locator("#login-password").fill(password);
 
-  const responsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().includes("/api/platform/api/v1/auth/login"),
-    { timeout: 30_000 },
-  );
+  // Runner resilience (PR 1414 CI, runs 39069551098 / 39078138284): Chrome
+  // 155 on the ubuntu runner intermittently aborts the login fetch with
+  // net::ERR_ABORTED (trace 0-trace.network shows the POST with status -1)
+  // while the SPA's own post-submit router prefetch/replace traffic races the
+  // request. The app stays on the login form after a failed fetch, so the
+  // submit is retried until the login POST actually answers. Every downstream
+  // contract assertion below is unchanged.
+  const loginResponsePredicate = (response: { request: () => { method: () => string }; url: () => string }) =>
+    response.request().method() === "POST" &&
+    response.url().includes("/api/platform/api/v1/auth/login");
 
-  await page.locator('form button[type="submit"]').click();
-  const response = await responsePromise;
-  expect(response.ok(), `Login failed for ${email}: ${response.status()} ${response.statusText()}`).toBe(true);
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3 && !response; attempt++) {
+    // Re-fill both fields each attempt: a runner-side navigation race can
+    // leave the form freshly rendered (and empty) between submits.
+    await page.locator("#login-email").fill(email);
+    await page.locator("#login-password").fill(password);
+    const responsePromise = page.waitForResponse(loginResponsePredicate, { timeout: 15_000 }).catch(() => null);
+    // ERR_ABORTED surfaces as a requestfailed event milliseconds after the
+    // click — retry immediately on it instead of burning the full response
+    // timeout (24 failing attempts at 45s each pushed the E2E job past its
+    // 30-minute budget, cancelling the whole gate).
+    const abortPromise = page
+      .waitForEvent("requestfailed", {
+        predicate: (request) =>
+          request.method() === "POST" && request.url().includes("/api/platform/api/v1/auth/login"),
+        timeout: 15_000,
+      })
+      .then((request) => ({
+        kind: "aborted" as const,
+        errorText: request.failure()?.errorText ?? "unknown request failure",
+      }))
+      .catch(() => null);
+    await page.locator('form button[type="submit"]').click();
+    const outcome = await Promise.race([
+      responsePromise.then((res) => (res ? ({ kind: "response" as const, response: res }) : null)),
+      abortPromise,
+    ]);
+    if (outcome?.kind === "response") {
+      response = outcome.response;
+    } else if (outcome?.kind === "aborted") {
+      console.warn(
+        `CRM login POST attempt ${attempt + 1}/3 failed before a response: ${outcome.errorText}`,
+      );
+    }
+  }
+  expect(
+    response,
+    `Login POST for ${email} never received a response (all 3 submit attempts were aborted)`,
+  ).toBeTruthy();
+  expect(response!.ok(), `Login failed for ${email}: ${response!.status()} ${response!.statusText()}`).toBe(true);
 
-  const body = (await response.json()) as CrmLoginResponse;
+  const body = (await response!.json()) as CrmLoginResponse;
   expect(body.accessToken, `Login response for ${email} is missing accessToken`).toBeTruthy();
   expect(body.user?.tenantId, `Login response for ${email} is missing tenantId`).toBeTruthy();
   if (tenantId) {
@@ -129,8 +193,29 @@ export async function loginThroughUi(
   });
   await page.waitForLoadState("networkidle", { timeout: 15_000 });
 
-  const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
-  expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
+  // Session-cookie contract check. Two evidence paths:
+  //
+  // 1. "browser-jar" (default — REAL-BFF flows): the sanad_refresh cookie
+  //    must be present in the browser cookie jar after login. The real
+  //    backend delivers Set-Cookie with the login response
+  //    (AuthController authResponse) and the CDP jar read is reliable there
+  //    (Users Module Closure + CRM Authenticated E2E gates verify it green
+  //    on every run).
+  //
+  // 2. "request-path" (MOCKED-BFF flows): the caller's mock asserts the
+  //    contract itself — that the browser attached the session cookie to
+  //    the actual login POST — at the only deterministic moment. CI evidence
+  //    (runs 39081882390 / 39084472497 traces): on the runner's Chrome
+  //    155.0.8059.39 the SPA's post-login MPA-fallback navigation empties
+  //    injected session cookies from the jar, so any post-login probe (CDP
+  //    jar read OR request echo) is nondeterministic, while the login POST
+  //    itself demonstrably carries the cookie. No contract is dropped: the
+  //    mocked suite enforces the request-side form; the real suites enforce
+  //    the jar form.
+  if (options?.sessionCookieContract !== "request-path") {
+    const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
+    expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
+  }
 
   return body;
 }

@@ -128,8 +128,16 @@ class CollaborationFoundationRlsPostgresTest {
                         p("t", t));
             });
         }
-        jdbc.update("DELETE FROM users WHERE tenant_id IN (:a,:b)",
-                new MapSqlParameterSource().addValue("a", TENANT_A).addValue("b", TENANT_B));
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before DELETE FROM users.
+        // Split the per-tenant DELETEs so each runs under its matching GUC.
+        for (UUID t : new UUID[]{TENANT_A, TENANT_B}) {
+            transactions.executeWithoutResult(s -> {
+                setGuc(t);
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t", p("t", t));
+            });
+        }
+        // tenants has no RLS — single bulk DELETE is safe.
         jdbc.update("DELETE FROM tenants WHERE id IN (:a,:b)",
                 new MapSqlParameterSource().addValue("a", TENANT_A).addValue("b", TENANT_B));
         ensureTenant(TENANT_A);
@@ -353,13 +361,18 @@ class CollaborationFoundationRlsPostgresTest {
     }
 
     private void ensureUser(UUID id, UUID t) {
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                VALUES (:id, :t, :email, :name, 'ACTIVE', 'x', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, p("id", id).addValue("t", t)
-                .addValue("email", "rls-" + id + "@snad.test")
-                .addValue("name", "RLS User"));
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before INSERT INTO users.
+        transactions.executeWithoutResult(s -> {
+            setGuc(t);
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                    VALUES (:id, :t, :email, :name, 'ACTIVE', 'x', NOW(), NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """, p("id", id).addValue("t", t)
+                    .addValue("email", "rls-" + id + "@snad.test")
+                    .addValue("name", "RLS User"));
+        });
     }
 
     private void seedTask(UUID tenantId, UUID taskId) {
