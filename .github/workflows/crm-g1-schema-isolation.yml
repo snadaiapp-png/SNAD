@@ -106,6 +106,39 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_g1;
           SQL
 
+          # G1: the restricted runtime policy role is required by
+          # V20261011_3/V20261011_4 (fail-closed guard). It is a restricted
+          # policy principal in the isolated runner cluster, not a migration
+          # owner. Mirrors the playwright-ci.yml provisioning contract.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_g1 WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_g1', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_g1'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
+
           PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 \
             -U "$DATABASE_USERNAME" \
