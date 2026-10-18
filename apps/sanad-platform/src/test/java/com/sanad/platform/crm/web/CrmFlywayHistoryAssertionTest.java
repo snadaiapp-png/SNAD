@@ -307,6 +307,10 @@ class CrmFlywayHistoryAssertionTest {
             , "20261008.1"   // Users module-local IAM provisioning metadata
             , "20261010.1"   // CRM accounts tenant RLS fail-closed policy
             , "20261010.99"  // HRM canonical owner payroll-view privilege
+            // Users module fail-closed RLS + pre-auth tenant discovery
+            // (G1 security chain — mirrors CrmPostgresMigrationTest tracking)
+            , "20261011.3"   // public users fail closed tenant rls
+            , "20261011.4"   // pre-auth tenant resolver
     );
 
 
