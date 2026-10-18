@@ -19,7 +19,6 @@ import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -116,8 +115,16 @@ public class UserService {
         }
         return userMapper.toResponse(saved);
     }
-    @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
-    @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public UserResponse getUser(UUID tenantId,UUID userId){return userMapper.toResponse(loadUser(tenantId,userId));}
+    // Read paths over public.users MUST run inside an explicit transaction:
+    // the table is FORCE-RLS fail-closed (V20261011_3) and the
+    // TenantRlsConnectionHandler only applies SET LOCAL app.tenant_id within
+    // a transaction. With SUPPORTS (no outer transaction) the read ran in
+    // autocommit, the GUC was never applied, and the policy returned zero
+    // rows for the caller's own tenant (fail-closed empty list).
+    @Transactional(readOnly=true)
+    public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
+    @Transactional(readOnly=true)
+    public UserResponse getUser(UUID tenantId,UUID userId){return userMapper.toResponse(loadUser(tenantId,userId));}
 
     @Transactional
     public UserResponse updateUser(UUID tenantId,UUID userId,UpdateUserRequest request){
