@@ -226,6 +226,20 @@ async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
   ]);
   await loginThroughUi(page, EMAIL, PASSWORD, { sessionCookieContract: "request-path" });
 
+  // The runner's Chrome 155.39 empties ALL injected cookies (session cookie
+  // AND session hint) during the SPA's post-login MPA-fallback navigation
+  // (traces: every request after the fallback leaves with no cookie header).
+  // The hint must exist when the app boots on /crm/integrations, or it never
+  // attempts the silent refresh that restores the authenticated session.
+  // Re-plant it here — outside any interception, after login settled.
+  const authenticatedOrigin = new URL(page.url()).origin;
+  await page.context().addCookies([{
+    name: SESSION_HINT_COOKIE,
+    value: "1",
+    url: authenticatedOrigin,
+    sameSite: "Lax",
+  }]);
+
   await page.evaluate((nextLocale) => window.localStorage.setItem("snad.locale", nextLocale), locale);
   await page.goto("/crm/integrations");
   await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
