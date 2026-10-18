@@ -11,8 +11,6 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -50,36 +48,25 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID first = address(fixture, accountId, "First Street", true);
         UUID second = address(fixture, accountId, "Second Street", true);
 
-        // The MockMvc calls above pin the test transaction to this fixture's
-        // tenant (TenantRlsConnectionHandler). Direct JDBC reads must present
-        // the SAME authenticated tenant context, otherwise the RLS guard
-        // correctly rejects the identity switch mid-transaction.
-        SecurityContext previous = SecurityContextHolder.getContext();
-        try {
-            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
-                    fixture.tenantId(), fixture.userId());
-            Map<String, Object> canonical = jdbc.queryForMap(
-                    "SELECT primary_address,version FROM crm_party_addresses WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
-            Map<String, Object> legacy = jdbc.queryForMap(
-                    "SELECT primary_address,version FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
-            Long history = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_party_address_history WHERE tenant_id=:tenantId AND address_id=:id " +
-                            "AND event_type='PRIMARY_REPLACED'",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
-            Boolean secondPrimary = jdbc.queryForObject(
-                    "SELECT primary_address FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Boolean.class);
+        Map<String, Object> canonical = jdbc.queryForMap(
+                "SELECT primary_address,version FROM crm_party_addresses WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
+        Map<String, Object> legacy = jdbc.queryForMap(
+                "SELECT primary_address,version FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
+        Long history = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_party_address_history WHERE tenant_id=:tenantId AND address_id=:id " +
+                        "AND event_type='PRIMARY_REPLACED'",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
+        Boolean secondPrimary = jdbc.queryForObject(
+                "SELECT primary_address FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Boolean.class);
 
-            assertThat(canonical.get("primary_address")).isEqualTo(false);
-            assertThat(((Number) canonical.get("version")).longValue()).isGreaterThan(0);
-            assertThat(legacy.get("primary_address")).isEqualTo(false);
-            assertThat(secondPrimary).isTrue();
-            assertThat(history).isOne();
-        } finally {
-            SecurityContextHolder.setContext(previous);
-        }
+        assertThat(canonical.get("primary_address")).isEqualTo(false);
+        assertThat(((Number) canonical.get("version")).longValue()).isGreaterThan(0);
+        assertThat(legacy.get("primary_address")).isEqualTo(false);
+        assertThat(secondPrimary).isTrue();
+        assertThat(history).isOne();
     }
 
     @Test
@@ -89,43 +76,36 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID first = communication(fixture, contactId, "first@example.test", true);
         UUID second = communication(fixture, contactId, "second@example.test", true);
 
-        // Same tenant-local context contract as the address lifecycle test:
-        // direct JDBC reads run under the fixture's authenticated tenant so
-        // the pinned transaction never observes an identity change.
-        SecurityContext previous = SecurityContextHolder.getContext();
-        try {
-            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
-                    fixture.tenantId(), fixture.userId());
-            Boolean firstPreferred = jdbc.queryForObject(
-                    "SELECT preferred FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Boolean.class);
-            Long replacedHistory = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM crm_communication_method_history WHERE tenant_id=:tenantId " +
-                            "AND communication_method_id=:id AND event_type='PREFERRED_REPLACED'",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
-            String projected = jdbc.queryForObject(
-                    "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
-            assertThat(firstPreferred).isFalse();
-            assertThat(replacedHistory).isOne();
-            assertThat(projected).isEqualTo("second@example.test");
+        Boolean firstPreferred = jdbc.queryForObject(
+                "SELECT preferred FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Boolean.class);
+        Long replacedHistory = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_communication_method_history WHERE tenant_id=:tenantId " +
+                        "AND communication_method_id=:id AND event_type='PREFERRED_REPLACED'",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
+        String projected = jdbc.queryForObject(
+                "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
+        assertThat(firstPreferred).isFalse();
+        assertThat(replacedHistory).isOne();
+        assertThat(projected).isEqualTo("second@example.test");
 
-            long version = jdbc.queryForObject(
-                    "SELECT version FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Long.class);
-            mockMvc.perform(patch("/api/v2/crm/communication-methods/{id}/archive", second)
-                            .with(authentication(auth(fixture)))
-                            .header("If-Match", etag("communication-method", second, version))
-                            .contentType("application/json").content("{}"))
-                    .andExpect(status().isOk());
+        long version = jdbc.queryForObject(
+                "SELECT version FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Long.class);
+        mockMvc.perform(patch("/api/v2/crm/communication-methods/{id}/archive", second)
+                        .with(authentication(auth(fixture)))
+                        .header("If-Match", etag("communication-method", second, version))
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isOk());
 
-            String afterArchive = jdbc.queryForObject(
-                    "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
-                    p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
-            assertThat(afterArchive).isNull();
-        } finally {
-            SecurityContextHolder.setContext(previous);
-        }
+        // Restore SecurityContext after MockMvc archive call.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
+
+        String afterArchive = jdbc.queryForObject(
+                "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
+        assertThat(afterArchive).isNull();
     }
 
     private UUID address(Fixture fixture, UUID accountId, String line1, boolean primary) throws Exception {
@@ -139,6 +119,7 @@ class AddressCommunicationLifecycleIntegrationTest {
                                 """.formatted(line1, primary)))
                 .andExpect(status().isCreated()).andReturn();
         JsonNode data = mapper.readTree(result.getResponse().getContentAsString()).path("data");
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         return UUID.fromString(data.path("id").asText());
     }
 
@@ -152,6 +133,7 @@ class AddressCommunicationLifecycleIntegrationTest {
                                  "privacyClassification":"INTERNAL","usagePurpose":"GENERAL"}
                                 """.formatted(value, preferred)))
                 .andExpect(status().isCreated()).andReturn();
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         return UUID.fromString(mapper.readTree(result.getResponse().getContentAsString())
                 .path("data").path("id").asText());
     }
