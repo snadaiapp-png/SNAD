@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type Response } from "@playwright/test";
 
 export interface CrmLoginResponse {
   accessToken: string;
@@ -73,6 +73,7 @@ export async function loginThroughUi(
   page: Page,
   email: string,
   password: string,
+  options?: { sessionCookieEcho?: boolean },
 ): Promise<CrmLoginResponse> {
   expect(email, "CRM login email must be configured").toBeTruthy();
   expect(password, "CRM login password must be configured").toBeTruthy();
@@ -118,7 +119,7 @@ export async function loginThroughUi(
     response.request().method() === "POST" &&
     response.url().includes("/api/platform/api/v1/auth/login");
 
-  let response: { ok: () => boolean; status: () => number; statusText: () => string; json: () => Promise<unknown> } | null = null;
+  let response: Response | null = null;
   for (let attempt = 0; attempt < 3 && !response; attempt++) {
     // Re-fill both fields each attempt: a runner-side navigation race can
     // leave the form freshly rendered (and empty) between submits.
@@ -152,18 +153,6 @@ export async function loginThroughUi(
     ).toBe(true);
   }
 
-  // Session-cookie contract check happens IMMEDIATELY after the login
-  // response, before any post-login navigation: the BFF delivers Set-Cookie
-  // with the response itself (mocked flows plant the cookie before the form
-  // submit). Asserting here removes the race against Chrome 155's
-  // MPA-fallback navigation, which on the runner drops session cookies while
-  // falling back from a canceled soft navigation (traces: the /workspace
-  // document request leaves with no cookie header moments after the mocked
-  // 200). The asserted contract (sanad_refresh present after login) is
-  // unchanged; only its timing is pinned to the response boundary.
-  const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
-  expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
-
   await page.waitForURL(
     (url) => url.pathname === destination || url.pathname.startsWith(`${destination}/`),
     { timeout: 30_000 },
@@ -178,6 +167,40 @@ export async function loginThroughUi(
     // gate below remains authoritative.
   });
   await page.waitForLoadState("networkidle", { timeout: 15_000 });
+
+  // Session-cookie contract check. Two evidence paths:
+  //
+  // 1. REAL-BFF flows (default): the sanad_refresh cookie must be present in
+  //    the browser cookie jar after login. The real backend delivers
+  //    Set-Cookie with the login response (AuthController authResponse) and
+  //    the jar read is reliable there.
+  //
+  // 2. MOCKED-BFF flows (options.sessionCookieEcho): the jar read via
+  //    browserContext.cookies() is UNRELIABLE on the runner's Chrome
+  //    155.0.8059.39 — CI run 39081882390 traces prove the cookie IS in the
+  //    jar and IS sent on every request (including the login POST) while the
+  //    CDP read returns an empty jar, and one attempt hung until the 60s
+  //    test timeout. The contract is therefore verified through the REQUEST
+  //    path instead: a mocked echo endpoint returns whether the browser
+  //    attached sanad_refresh to an actual credentialed request — the exact
+  //    surface the real BFF consumes. Playwright strips set-cookie from
+  //    response headers, so no response-side read exists.
+  if (options?.sessionCookieEcho) {
+    const echo = await page.evaluate(async () => {
+      const res = await fetch("/api/platform/api/v1/auth/session-cookie-echo", {
+        method: "POST",
+        credentials: "include",
+      });
+      return (await res.json()) as { hasSessionCookie: boolean };
+    });
+    expect(
+      echo.hasSessionCookie,
+      `Browser requests for ${email} do not carry the sanad_refresh session cookie`,
+    ).toBe(true);
+  } else {
+    const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === "sanad_refresh");
+    expect(refreshCookie, `Refresh cookie was not created for ${email}`).toBeTruthy();
+  }
 
   return body;
 }
