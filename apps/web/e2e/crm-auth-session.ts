@@ -136,14 +136,23 @@ export async function loginThroughUi(
           request.method() === "POST" && request.url().includes("/api/platform/api/v1/auth/login"),
         timeout: 15_000,
       })
-      .then(() => "aborted" as const)
+      .then((request) => ({
+        kind: "aborted" as const,
+        errorText: request.failure()?.errorText ?? "unknown request failure",
+      }))
       .catch(() => null);
     await page.locator('form button[type="submit"]').click();
     const outcome = await Promise.race([
-      responsePromise.then((res) => (res ? ({ response: res } as const) : null)),
+      responsePromise.then((res) => (res ? ({ kind: "response" as const, response: res }) : null)),
       abortPromise,
     ]);
-    response = outcome && "response" in outcome ? outcome.response : null;
+    if (outcome?.kind === "response") {
+      response = outcome.response;
+    } else if (outcome?.kind === "aborted") {
+      console.warn(
+        `CRM login POST attempt ${attempt + 1}/3 failed before a response: ${outcome.errorText}`,
+      );
+    }
   }
   expect(
     response,
