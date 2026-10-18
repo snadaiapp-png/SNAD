@@ -10,9 +10,16 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.transaction.AfterTransaction;
+import org.springframework.test.context.transaction.BeforeTransaction;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -33,6 +40,76 @@ class CustomerMasterSecurityIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ETagService etags;
+    @Autowired PlatformTransactionManager transactionManager;
+
+    // Tenant B must exist OUTSIDE the test-managed transaction: switching
+    // the authenticated tenant (or reading tenant B rows) inside the
+    // tenant-A-pinned transaction trips the
+    // TenantRlsConnectionHandler guard by design. Committed fixture +
+    // REQUIRES_NEW reads keep every transaction single-tenant.
+    private UUID isolatedTenantB;
+    private UUID isolatedOwnerB;
+    private UUID isolatedTargetAccount;
+
+    @BeforeTransaction
+    void prepareForeignTenantFixture() {
+        SecurityContext previous = SecurityContextHolder.getContext();
+        UUID tenant = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        UUID account = UUID.randomUUID();
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenant, owner);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Instant now = Instant.now();
+                jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
+                                "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
+                        p().addValue("id", tenant).addValue("name", "merge-b")
+                                .addValue("subdomain", "merge-b-" + tenant.toString().substring(0, 8))
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                                "VALUES (:id,:tenantId,:email,'CRM Security User','ACTIVE','dummy',:now,:now)",
+                        p().addValue("id", owner).addValue("tenantId", tenant)
+                                .addValue("email", "merge-b-" + owner.toString().substring(0, 8) + "@example.test")
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
+                                "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
+                                "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,'Foreign B','foreign b'," +
+                                "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_SECURITY_TEST',:owner,:owner,:owner,:now,:now)",
+                        p().addValue("id", account).addValue("tenantId", tenant)
+                                .addValue("owner", owner).addValue("now", java.sql.Timestamp.from(now)));
+            });
+            isolatedTenantB = tenant;
+            isolatedOwnerB = owner;
+            isolatedTargetAccount = account;
+        } finally {
+            SecurityContextHolder.setContext(previous);
+        }
+    }
+
+    @AfterTransaction
+    void removeForeignTenantFixture() {
+        if (isolatedTenantB == null) {
+            return;
+        }
+        SecurityContext previous = SecurityContextHolder.getContext();
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(isolatedTenantB, isolatedOwnerB);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                // Tenant B was created outside the rolled-back test transaction.
+                jdbc.update("DELETE FROM crm_accounts WHERE tenant_id = :t",
+                        p().addValue("t", isolatedTenantB));
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t",
+                        p().addValue("t", isolatedTenantB));
+                jdbc.update("DELETE FROM tenants WHERE id = :t",
+                        p().addValue("t", isolatedTenantB));
+            });
+        } finally {
+            SecurityContextHolder.setContext(previous);
+            isolatedTenantB = null;
+            isolatedOwnerB = null;
+            isolatedTargetAccount = null;
+        }
+    }
 
     @Test
     void unauthenticatedCustomerMasterRequestReturns401() throws Exception {
@@ -69,9 +146,9 @@ class CustomerMasterSecurityIntegrationTest {
     @Test
     void crossTenantMergeIsDeniedWithoutChangingEitherRecord() throws Exception {
         Fixture tenantA = fixture("merge-a", true);
-        Fixture tenantB = fixture("merge-b", true);
         UUID source = account(tenantA, "Source A");
-        UUID foreignTarget = account(tenantB, "Foreign B");
+        Fixture tenantB = new Fixture(isolatedTenantB, isolatedOwnerB);
+        UUID foreignTarget = isolatedTargetAccount;
 
         mockMvc.perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, foreignTarget)
                         .with(authentication(auth(tenantA)))
@@ -82,14 +159,34 @@ class CustomerMasterSecurityIntegrationTest {
                         .content("{\"reason\":\"Cross-tenant isolation proof\"}"))
                 .andExpect(status().isNotFound());
 
-        String sourceStatus = jdbc.queryForObject(
-                "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
-        String targetStatus = jdbc.queryForObject(
-                "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", tenantB.tenantId()).addValue("id", foreignTarget), String.class);
-        org.assertj.core.api.Assertions.assertThat(sourceStatus).isEqualTo("ACTIVE");
-        org.assertj.core.api.Assertions.assertThat(targetStatus).isEqualTo("ACTIVE");
+        // Tenant A state is asserted in the tenant-A transaction context.
+        SecurityContext previous = SecurityContextHolder.getContext();
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
+                    tenantA.tenantId(), tenantA.userId());
+            String sourceStatus = jdbc.queryForObject(
+                    "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
+                    p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
+            org.assertj.core.api.Assertions.assertThat(sourceStatus).isEqualTo("ACTIVE");
+        } finally {
+            SecurityContextHolder.setContext(previous);
+        }
+
+        // Tenant B state is asserted in its own tenant-B transaction: the
+        // test-managed transaction stays pinned to tenant A and must never
+        // switch identity (TenantRlsConnectionHandler contract).
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
+                    tenantB.tenantId(), tenantB.userId());
+            TransactionTemplate foreignTx = new TransactionTemplate(transactionManager);
+            foreignTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            String targetStatus = foreignTx.execute(status -> jdbc.queryForObject(
+                    "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
+                    p().addValue("tenantId", tenantB.tenantId()).addValue("id", foreignTarget), String.class));
+            org.assertj.core.api.Assertions.assertThat(targetStatus).isEqualTo("ACTIVE");
+        } finally {
+            SecurityContextHolder.setContext(previous);
+        }
     }
 
     private Fixture fixture(String key, boolean grantCapabilities) {
