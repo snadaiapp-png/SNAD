@@ -107,7 +107,7 @@ export async function loginThroughUi(
   await page.goto("/");
   await page.locator("#login-email").fill(email);
 
-  // Runner resilience (PR #1414 CI, runs 39069551098 / 39078138284): Chrome
+  // Runner resilience (PR 1414 CI, runs 39069551098 / 39078138284): Chrome
   // 155 on the ubuntu runner intermittently aborts the login fetch with
   // net::ERR_ABORTED (trace 0-trace.network shows the POST with status -1)
   // while the SPA's own post-submit router prefetch/replace traffic races the
