@@ -11,7 +11,6 @@ import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -84,7 +83,15 @@ public class OrganizationMembershipUserLinkService {
         return membershipMapper.toResponse(membershipRepository.save(membership));
     }
 
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    // The user-existence guard reads public.users, which is FORCE-RLS
+    // fail-closed since V20261011_3: TenantRlsConnectionHandler only applies
+    // SET LOCAL app.tenant_id inside an active transaction. With SUPPORTS and
+    // no outer transaction this read ran in autocommit, the GUC was never
+    // applied, and the caller's own user row was invisible (fail-closed
+    // "User not found"). REQUIRED keeps readOnly=true and the fail-closed
+    // contract (no context -> no GUC -> no rows) while binding the read to
+    // the authenticated tenant through the existing RLS handler.
+    @Transactional(readOnly = true)
     public List<OrganizationMembershipResponse> listMembershipsByUser(
             UUID tenantId, UUID userId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
