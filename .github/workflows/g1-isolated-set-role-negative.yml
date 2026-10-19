@@ -29,13 +29,13 @@ jobs:
           probe_password="$(openssl rand -hex 32)"
           echo "G1_PROBE_PASSWORD=$probe_password" >> "$GITHUB_ENV"
           sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --set=probe_password="$probe_password" <<'SQL'
-          DO $
+          DO $version_check$
           BEGIN
             IF current_setting('server_version_num')::integer < 160000 THEN
               RAISE EXCEPTION 'PostgreSQL 16+ required for explicit role membership SET option';
             END IF;
           END
-          $;
+          $version_check$;
           CREATE ROLE g1_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
           CREATE ROLE g1_restricted_probe LOGIN PASSWORD :'probe_password'
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
