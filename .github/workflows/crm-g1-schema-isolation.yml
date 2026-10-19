@@ -159,15 +159,16 @@ jobs:
             echo "::error::PostgreSQL 16+ required for explicit membership SET option"
             exit 1
           }
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          probe_password="$(openssl rand -hex 32)"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 --set=probe_password="$probe_password" <<'SQL'
           DROP ROLE IF EXISTS g1_setrole_restricted_probe;
           DROP ROLE IF EXISTS g1_setrole_elevated_probe;
           CREATE ROLE g1_setrole_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
-          CREATE ROLE g1_setrole_restricted_probe LOGIN PASSWORD 'ephemeral-g1-probe-only'
+          CREATE ROLE g1_setrole_restricted_probe LOGIN PASSWORD :'probe_password'
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
           GRANT g1_setrole_elevated_probe TO g1_setrole_restricted_probe WITH INHERIT FALSE, SET FALSE;
           SQL
-          PGPASSWORD='ephemeral-g1-probe-only' psql --no-psqlrc -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          PGPASSWORD="$probe_password" psql --no-psqlrc -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           DO $probe$
           DECLARE can_set boolean;
           BEGIN
