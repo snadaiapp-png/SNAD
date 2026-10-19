@@ -46,40 +46,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          psql --no-psqlrc --host 127.0.0.1 --username g1_restricted_probe --dbname postgres \
-            --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
-          DO $$
-          DECLARE
-            effective_role text := current_user;
-            can_set boolean;
-          BEGIN
-            IF effective_role <> 'g1_restricted_probe' THEN
-              RAISE EXCEPTION 'Unexpected effective identity: %', effective_role;
-            END IF;
-
-            SELECT set_option INTO can_set
-            FROM pg_auth_members
-            WHERE roleid = 'g1_elevated_probe'::regrole
-              AND member = 'g1_restricted_probe'::regrole;
-
-            IF can_set IS DISTINCT FROM FALSE THEN
-              RAISE EXCEPTION 'Fixture invalid: membership SET option is not FALSE';
-            END IF;
-
-            BEGIN
-              EXECUTE 'SET ROLE g1_elevated_probe';
-              RAISE EXCEPTION 'SECURITY FAILURE: restricted role assumed elevated role';
-            EXCEPTION
-              WHEN insufficient_privilege THEN
-                RAISE NOTICE 'PASS: SET ROLE denied with SQLSTATE 42501';
-            END;
-
-            IF current_user <> 'g1_restricted_probe' THEN
-              RAISE EXCEPTION 'SECURITY FAILURE: effective identity changed after denied SET ROLE';
-            END IF;
-          END
-          $$;
-          SQL
+          initial_role="$(PGPASSWORD="$G1_PROBE_PASSWORD" psql --no-psqlrc -h 127.0.0.1 -U g1_restricted_probe -d postgres -Atqc 'SELECT current_user')"
+          test "$initial_role" = 'g1_restricted_probe'
+          set_option="$(sudo -u postgres psql --no-psqlrc -Atqc "SELECT set_option::text FROM pg_auth_members WHERE roleid='g1_elevated_probe'::regrole AND member='g1_restricted_probe'::regrole")"
+          test "$set_option" = 'false'
+          if output="$(PGPASSWORD="$G1_PROBE_PASSWORD" psql --no-psqlrc -v VERBOSITY=verbose -h 127.0.0.1 -U g1_restricted_probe -d postgres -c 'SET ROLE g1_elevated_probe' 2>&1)"; then
+            echo "::error::SECURITY FAILURE: restricted role assumed elevated role"
+            exit 1
+          fi
+          printf '%s\n' "$output"
+          grep -q '42501' <<< "$output" || {
+            echo "::error::SET ROLE failed for an unexpected reason; SQLSTATE 42501 was not observed"
+            exit 1
+          }
+          final_role="$(PGPASSWORD="$G1_PROBE_PASSWORD" psql --no-psqlrc -h 127.0.0.1 -U g1_restricted_probe -d postgres -Atqc 'SELECT current_user')"
+          test "$final_role" = 'g1_restricted_probe'
           echo "ISOLATED_SET_ROLE_DENIAL_PASS"
 
       - name: Verify privileged attributes remain unavailable to restricted role
