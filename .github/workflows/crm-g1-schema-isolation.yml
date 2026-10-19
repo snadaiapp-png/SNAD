@@ -150,6 +150,57 @@ jobs:
           # Does not assert full G1 isolation certification: the CI application
           # session still uses its dedicated per-job acceptance database role.
 
+      - name: Prove isolated PostgreSQL SET ROLE denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_version="$(sudo -u postgres psql -Atqc "SHOW server_version_num")"
+          test "$server_version" -ge 160000 || {
+            echo "::error::PostgreSQL 16+ required for explicit membership SET option"
+            exit 1
+          }
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS g1_setrole_restricted_probe;
+          DROP ROLE IF EXISTS g1_setrole_elevated_probe;
+          CREATE ROLE g1_setrole_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE g1_setrole_restricted_probe LOGIN PASSWORD 'ephemeral-g1-probe-only'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          GRANT g1_setrole_elevated_probe TO g1_setrole_restricted_probe WITH INHERIT FALSE, SET FALSE;
+          SQL
+          PGPASSWORD='ephemeral-g1-probe-only' psql --no-psqlrc -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DO $probe$
+          DECLARE can_set boolean;
+          BEGIN
+            IF current_user <> 'g1_setrole_restricted_probe' THEN
+              RAISE EXCEPTION 'Unexpected initial identity: %', current_user;
+            END IF;
+            SELECT set_option INTO can_set FROM pg_auth_members
+              WHERE roleid='g1_setrole_elevated_probe'::regrole
+                AND member='g1_setrole_restricted_probe'::regrole;
+            IF can_set IS DISTINCT FROM FALSE THEN
+              RAISE EXCEPTION 'Fixture invalid: membership SET option is not FALSE';
+            END IF;
+            BEGIN
+              EXECUTE 'SET ROLE g1_setrole_elevated_probe';
+              RAISE EXCEPTION 'SECURITY FAILURE: restricted role assumed elevated role';
+            EXCEPTION
+              WHEN insufficient_privilege THEN
+                RAISE NOTICE 'PASS: SET ROLE denied with SQLSTATE 42501';
+            END;
+            IF current_user <> 'g1_setrole_restricted_probe' THEN
+              RAISE EXCEPTION 'SECURITY FAILURE: effective identity changed after denied SET ROLE';
+            END IF;
+          END
+          $probe$;
+          SELECT 'ISOLATED_SET_ROLE_DENIAL_PASS';
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='g1_setrole_restricted_probe'")"
+          test "$role_contract" = 'false|false|false'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE g1_setrole_restricted_probe;
+          DROP ROLE g1_setrole_elevated_probe;
+          SQL
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
