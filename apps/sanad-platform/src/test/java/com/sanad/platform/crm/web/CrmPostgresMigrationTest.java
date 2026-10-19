@@ -554,6 +554,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
+                        MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -791,6 +792,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
+                        MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
