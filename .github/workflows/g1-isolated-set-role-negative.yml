@@ -26,24 +26,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql postgresql-client
           sudo service postgresql start
-          sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
-          DO $$
+          probe_password="$(openssl rand -hex 32)"
+          echo "G1_PROBE_PASSWORD=$probe_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --set=probe_password="$probe_password" <<'SQL'
+          DO $
           BEGIN
             IF current_setting('server_version_num')::integer < 160000 THEN
               RAISE EXCEPTION 'PostgreSQL 16+ required for explicit role membership SET option';
             END IF;
           END
-          $$;
+          $;
           CREATE ROLE g1_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
-          CREATE ROLE g1_restricted_probe LOGIN PASSWORD 'ephemeral-g1-probe-only'
+          CREATE ROLE g1_restricted_probe LOGIN PASSWORD :'probe_password'
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
           GRANT g1_elevated_probe TO g1_restricted_probe WITH INHERIT FALSE, SET FALSE;
           SQL
 
       - name: Assert membership cannot be used to assume elevated identity
         shell: bash
-        env:
-          PGPASSWORD: ephemeral-g1-probe-only
         run: |
           set -euo pipefail
           psql --no-psqlrc --host 127.0.0.1 --username g1_restricted_probe --dbname postgres \
