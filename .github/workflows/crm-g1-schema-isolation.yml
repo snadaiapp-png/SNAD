@@ -150,6 +150,49 @@ jobs:
           # Does not assert full G1 isolation certification: the CI application
           # session still uses its dedicated per-job acceptance database role.
 
+      - name: Prove isolated PostgreSQL SET ROLE denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_version="$(sudo -u postgres psql -Atqc "SHOW server_version_num")"
+          test "$server_version" -ge 160000 || {
+            echo "::error::PostgreSQL 16+ required for explicit membership SET option"
+            exit 1
+          }
+          hba_file="$(sudo -u postgres psql --no-psqlrc -Atqc 'SHOW hba_file')"
+          sudo sed -i '1ihost postgres g1_setrole_restricted_probe 127.0.0.1/32 trust' "$hba_file"
+          sudo service postgresql reload
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS g1_setrole_restricted_probe;
+          DROP ROLE IF EXISTS g1_setrole_elevated_probe;
+          CREATE ROLE g1_setrole_elevated_probe NOLOGIN CREATEDB NOCREATEROLE NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE g1_setrole_restricted_probe LOGIN
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          GRANT g1_setrole_elevated_probe TO g1_setrole_restricted_probe WITH INHERIT FALSE, SET FALSE;
+          SQL
+          initial_role="$(psql --no-psqlrc -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -Atqc 'SELECT current_user')"
+          test "$initial_role" = 'g1_setrole_restricted_probe'
+          set_option="$(sudo -u postgres psql --no-psqlrc -Atqc "SELECT set_option::text FROM pg_auth_members WHERE roleid='g1_setrole_elevated_probe'::regrole AND member='g1_setrole_restricted_probe'::regrole")"
+          test "$set_option" = 'false'
+          if output="$(psql --no-psqlrc -v VERBOSITY=verbose -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -c 'SET ROLE g1_setrole_elevated_probe' 2>&1)"; then
+            echo "::error::SECURITY FAILURE: restricted role assumed elevated role"
+            exit 1
+          fi
+          printf '%s\n' "$output"
+          grep -q '42501' <<< "$output" || {
+            echo "::error::SET ROLE failed for an unexpected reason; SQLSTATE 42501 was not observed"
+            exit 1
+          }
+          final_role="$(psql --no-psqlrc -h 127.0.0.1 -U g1_setrole_restricted_probe -d postgres -Atqc 'SELECT current_user')"
+          test "$final_role" = 'g1_setrole_restricted_probe'
+          echo "ISOLATED_SET_ROLE_DENIAL_PASS"
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='g1_setrole_restricted_probe'")"
+          test "$role_contract" = 'false|false|false'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE g1_setrole_restricted_probe;
+          DROP ROLE g1_setrole_elevated_probe;
+          SQL
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
