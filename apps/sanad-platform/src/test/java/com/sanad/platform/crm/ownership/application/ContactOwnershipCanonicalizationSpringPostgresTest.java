@@ -396,58 +396,65 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
                 VALUES (:id, 'C6C R2 Tenant', 'c6cr2-tenant', 'ACTIVE', NOW(), NOW())
                 ON CONFLICT (id) DO NOTHING
                 """, new MapSqlParameterSource().addValue("id", TENANT_A));
-        for (UUID userId : new UUID[]{USER_A, USER_B, ACTOR_ID}) {
+        // RLS V20261011_3 (FORCE RLS on public.users) requires the GUC to be set
+        // on the same transaction-bound Connection before INSERT INTO users and
+        // other tenant-scoped RBAC tables. Wrap the entire RBAC seed in a single
+        // rawTxn with the tenant GUC set transaction-local.
+        rawTxn.executeWithoutResult(s -> {
+            setRawGuc(TENANT_A);
+            for (UUID userId : new UUID[]{USER_A, USER_B, ACTOR_ID}) {
+                rawJdbc.update("""
+                        INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                        VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
+                        ON CONFLICT (id) DO NOTHING
+                        """, new MapSqlParameterSource()
+                        .addValue("id", userId)
+                        .addValue("t", TENANT_A)
+                        .addValue("email", "c6cr2-" + userId + "@snad.test")
+                        .addValue("name", "C6C R2 User " + userId.toString().substring(0, 8)));
+            }
             rawJdbc.update("""
-                    INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-                    VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
+                    INSERT INTO roles (id, tenant_id, code, name, status, created_at, updated_at)
+                    VALUES (:id, :t, 'CONTACT_OWNER', 'Contact Owner', 'ACTIVE', NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                     """, new MapSqlParameterSource()
-                    .addValue("id", userId)
-                    .addValue("t", TENANT_A)
-                    .addValue("email", "c6cr2-" + userId + "@snad.test")
-                    .addValue("name", "C6C R2 User " + userId.toString().substring(0, 8)));
-        }
-        rawJdbc.update("""
-                INSERT INTO roles (id, tenant_id, code, name, status, created_at, updated_at)
-                VALUES (:id, :t, 'CONTACT_OWNER', 'Contact Owner', 'ACTIVE', NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING
-                """, new MapSqlParameterSource()
-                .addValue("id", ROLE_ID)
-                .addValue("t", TENANT_A));
-        // Assign role to USER_A and USER_B (ACTOR_ID not strictly required for RBAC
-        // in this scenario — only target owner USER_B and previous owner USER_A
-        // need CRM.CONTACT.READ eligibility).
-        for (UUID userId : new UUID[]{USER_A, USER_B}) {
+                    .addValue("id", ROLE_ID)
+                    .addValue("t", TENANT_A));
+            // Assign role to USER_A and USER_B (ACTOR_ID not strictly required for RBAC
+            // in this scenario — only target owner USER_B and previous owner USER_A
+            // need CRM.CONTACT.READ eligibility).
+            for (UUID userId : new UUID[]{USER_A, USER_B}) {
+                rawJdbc.update("""
+                        INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
+                        VALUES (gen_random_uuid(), :t, :u, :r, 'ACTIVE', NOW(), NOW())
+                        ON CONFLICT DO NOTHING
+                        """, new MapSqlParameterSource()
+                        .addValue("t", TENANT_A)
+                        .addValue("u", userId)
+                        .addValue("r", ROLE_ID));
+            }
+            // Grant CRM.CONTACT.READ to ROLE_ID — real production RBAC matrix.
+            // First ensure the capability exists in access_capabilities (may already exist
+            // from migration V20260702_1__create_unified_crm_core.sql).
             rawJdbc.update("""
-                    INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
-                    VALUES (gen_random_uuid(), :t, :u, :r, 'ACTIVE', NOW(), NOW())
-                    ON CONFLICT DO NOTHING
+                    INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+                    SELECT gen_random_uuid(), :code, :code, 'Test capability', 'ACTIVE', NOW(), NOW()
+                    WHERE NOT EXISTS (SELECT 1 FROM access_capabilities WHERE code = :code)
+                    """, new MapSqlParameterSource().addValue("code", "CRM.CONTACT.READ"));
+            rawJdbc.update("""
+                    INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                    SELECT gen_random_uuid(), :t, :r, ac.id, NOW()
+                    FROM access_capabilities ac
+                    WHERE ac.code = :code
+                    AND NOT EXISTS (
+                        SELECT 1 FROM role_capabilities rc
+                        WHERE rc.tenant_id = :t AND rc.role_id = :r AND rc.capability_id = ac.id
+                    )
                     """, new MapSqlParameterSource()
                     .addValue("t", TENANT_A)
-                    .addValue("u", userId)
-                    .addValue("r", ROLE_ID));
-        }
-        // Grant CRM.CONTACT.READ to ROLE_ID — real production RBAC matrix.
-        // First ensure the capability exists in access_capabilities (may already exist
-        // from migration V20260702_1__create_unified_crm_core.sql).
-        rawJdbc.update("""
-                INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
-                SELECT gen_random_uuid(), :code, :code, 'Test capability', 'ACTIVE', NOW(), NOW()
-                WHERE NOT EXISTS (SELECT 1 FROM access_capabilities WHERE code = :code)
-                """, new MapSqlParameterSource().addValue("code", "CRM.CONTACT.READ"));
-        rawJdbc.update("""
-                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                SELECT gen_random_uuid(), :t, :r, ac.id, NOW()
-                FROM access_capabilities ac
-                WHERE ac.code = :code
-                AND NOT EXISTS (
-                    SELECT 1 FROM role_capabilities rc
-                    WHERE rc.tenant_id = :t AND rc.role_id = :r AND rc.capability_id = ac.id
-                )
-                """, new MapSqlParameterSource()
-                .addValue("t", TENANT_A)
-                .addValue("r", ROLE_ID)
-                .addValue("code", "CRM.CONTACT.READ"));
+                    .addValue("r", ROLE_ID)
+                    .addValue("code", "CRM.CONTACT.READ"));
+        });
     }
 
     // ── Test 1: GENERIC_CONTACT_REASSIGN_CANONICAL ───────────────────────────

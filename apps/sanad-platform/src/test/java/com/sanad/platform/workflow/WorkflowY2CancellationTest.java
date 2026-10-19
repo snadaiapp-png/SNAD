@@ -129,10 +129,15 @@ class WorkflowY2CancellationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Y2 Cancellation', ?, 'ACTIVE', ?, ?)",
                 tenantId, "y2-cancel-" + tenantId.toString().substring(0, 8), now, now);
+
+        // G0 fail-closed RLS (V20260905_5): set_config MUST be set BEFORE the
+        // INSERT INTO users so that RLS sees the tenant context on the same
+        // connection within this @Transactional setUp().
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Y2 Cancel User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "y2-cancel-" + userId.toString().substring(0, 8) + "@test", now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
 
         // Adapter beans are shared across the Spring context: reset the
         // per-test invocation counters so assertions measure only this test.

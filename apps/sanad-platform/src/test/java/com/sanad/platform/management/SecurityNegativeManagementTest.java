@@ -15,6 +15,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -61,6 +63,8 @@ class SecurityNegativeManagementTest {
     @Autowired private com.sanad.platform.management.application.ExecutiveReportService executiveReportService;
     @Autowired private com.sanad.platform.management.application.ManagementGovernanceModuleRegistry moduleRegistry;
     @Autowired private com.sanad.platform.management.health.SystemHealthAggregationService systemHealthAggregationService;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -70,6 +74,9 @@ class SecurityNegativeManagementTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         jdbc.execute("TRUNCATE TABLE management_audit_trail, escalations, executive_alerts, "
                 + "executive_insights, executive_health_snapshots, "
                 + "decision_actions, decision_participants, executive_decisions, "
@@ -90,14 +97,30 @@ class SecurityNegativeManagementTest {
                     tid, "Tenant " + tid.toString().substring(0, 8),
                     "sec-" + tid.toString().substring(0, 8), now, now);
         }
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per jdbc.update() call.
+        // Wrap set_config + INSERT INTO users in ONE tx.executeWithoutResult block so
+        // both share the tx-bound physical connection. is_local=true scopes the GUC to
+        // this transaction only — no session-level leak when the connection is returned
+        // to HikariCP. Two users (userA + approverA) in tenantA; userB in tenantB.
         for (var uid : List.of(userA, approverA)) {
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                    uid, tenantA, "sec-" + uid.toString().substring(0, 8) + "@test", now, now);
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantA.toString());
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
+                        uid, tenantA, "sec-" + uid.toString().substring(0, 8) + "@test", now, now);
+            });
         }
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
-                userB, tenantB, "sec-" + userB.toString().substring(0, 8) + "@test", now, now);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantB.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                            + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
+                    userB, tenantB, "sec-" + userB.toString().substring(0, 8) + "@test", now, now);
+        });
 
         // Grant ALL capabilities to both tenants' ADMIN roles
         for (var tid : List.of(tenantA, tenantB)) {

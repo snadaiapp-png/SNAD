@@ -31,11 +31,18 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -73,6 +80,8 @@ class AuthApiIntegrationTest {
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId;
     private String testEmail;
@@ -81,6 +90,9 @@ class AuthApiIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         // Use tenant-unique fixtures instead of deleting shared platform seed data.
         // The Spring context is intentionally shared across integration suites.
         Tenant tenant = new Tenant(
@@ -92,9 +104,22 @@ class AuthApiIntegrationTest {
 
         testEmail = "testuser-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
+        // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
+        // so HikariCP returns a different physical connection per repository.save() call.
+        // Wrap the User save() in ONE tx.executeWithoutResult block and bind
+        // SecurityContextHolder to the tenant BEFORE the tx so TenantRlsConnectionHandler
+        // reads tenant_id from the context and applies SET LOCAL app.tenant_id on the
+        // tx-bound physical Connection (which is_local=true scopes to this tx).
         User user = new User(tenantId, testEmail, "Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
-        userId = userRepository.save(user).getId();
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> {
+                userId = userRepository.save(user).getId();
+            });
+        } finally {
+            clearTenantContext();
+        }
         seedLoginEligibleSubscription(tenantId);
 
         // Grant VIEWER role with USER.READ capability to test user
@@ -122,6 +147,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,6 +174,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — wrong password returns 401")
     void login_wrongPassword_returns401() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -161,6 +188,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — non-existent user returns 401")
     void login_nonExistentUser_returns401() throws Exception {
         LoginRequest request = new LoginRequest("nobody@example.com", testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -185,11 +213,14 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — suspended user returns 401")
     void login_suspendedUser_returns401() throws Exception {
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
-        user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        withTenantFixtureScope(tenantId, () -> {
+            User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+            user.setStatus(UserStatus.SUSPENDED);
+            userRepository.save(user);
+        });
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -207,9 +238,15 @@ class AuthApiIntegrationTest {
         // Mirrors the testuser-<uuid> pattern used by setUp().
         String nopassEmail = "nopass-" + UUID.randomUUID() + "@example.com";
         User nopassUser = new User(tenantId, nopassEmail, "No Pass User", UserStatus.ACTIVE);
-        userRepository.save(nopassUser);
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> userRepository.save(nopassUser));
+        } finally {
+            clearTenantContext();
+        }
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -232,6 +269,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -270,7 +308,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        withTenantFixtureScope(tenant2Id, () -> userRepository.save(user2));
 
         // Login without tenantId should return 409
         LoginRequest request = new LoginRequest(testEmail, testPassword);
@@ -295,7 +333,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        withTenantFixtureScope(tenant2Id, () -> userRepository.save(user2));
 
         // Login WITH explicit tenantId should succeed
         LoginRequest request = new LoginRequest(testEmail, testPassword);
@@ -368,10 +406,12 @@ class AuthApiIntegrationTest {
     void refresh_blockedForSuspendedUser() throws Exception {
         LoginResult loginResult = loginAndExtractCookie();
 
-        // Suspend the user
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
-        user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        // Suspend the user (FORCE RLS: the read must be tenant-scoped)
+        withTenantFixtureScope(tenantId, () -> {
+            User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+            user.setStatus(UserStatus.SUSPENDED);
+            userRepository.save(user);
+        });
 
         // Attempt refresh — should fail with 401
         RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
@@ -520,6 +560,7 @@ class AuthApiIntegrationTest {
 
     private LoginResult loginAndExtractCookie() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -578,5 +619,41 @@ class AuthApiIntegrationTest {
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
                 UUID.randomUUID(), tenantId, planId);
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside a tx.executeWithoutResult block.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
+        // spring-security-test replays TestSecurityContextHolder into every
+        // MockMvc request; a stale fixture identity would defeat the
+        // unauthenticated-request contract tests (401 expectations).
+        org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
+    }
+
+    /**
+     * Run a users-table operation inside a transaction whose GUC is bound to
+     * the fixture tenant. public.users is FORCE RLS (V20261011_3): bare
+     * repository calls outside a request run fail-closed (0 rows / rejected
+     * INSERTs), so fixture reads/writes must be explicitly scoped.
+     */
+    private void withTenantFixtureScope(UUID scopedTenantId, Runnable action) {
+        bindTenantContext(scopedTenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> action.run());
+        } finally {
+            clearTenantContext();
+        }
     }
 }

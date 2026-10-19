@@ -13,6 +13,7 @@ import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.security.dto.AdminInitializeCredentialRequest;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.ForgotPasswordRequest;
 import com.sanad.platform.security.dto.LoginRequest;
@@ -23,6 +24,7 @@ import com.sanad.platform.security.notification.PasswordRecoveryNotificationCoor
 import com.sanad.platform.security.ratelimit.LoginRateLimitKeys;
 import com.sanad.platform.security.service.AuthService;
 import com.sanad.platform.security.service.LoginDestinationResolver;
+import com.sanad.platform.user.access.UserApplicationAccessReadRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,11 +33,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -65,11 +69,18 @@ public class AuthController {
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
+    private final UserApplicationAccessReadRepository accessReadRepository;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
     private final LoginDestinationResolver destinationResolver;
     private final LoginRateLimitKeys rateLimitKeys;
+    private TenantRlsTransactionContext tenantRlsContext;
+
+    @Autowired(required = false)
+    void setTenantRlsContext(TenantRlsTransactionContext context) {
+        this.tenantRlsContext = context;
+    }
 
     public AuthController(
             AuthService authService,
@@ -78,6 +89,7 @@ public class AuthController {
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
             RoleCapabilityRepository roleCapabilityRepository,
+            UserApplicationAccessReadRepository accessReadRepository,
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications,
@@ -90,6 +102,7 @@ public class AuthController {
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
+        this.accessReadRepository = accessReadRepository;
         this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
@@ -98,6 +111,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @Transactional
     @Operation(summary = "Authenticate and return the complete post-login bootstrap")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         String normalizedIdentifier = request.getUsername() != null && !request.getUsername().isBlank()
@@ -108,6 +122,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
+    @Transactional
     @Operation(summary = "Rotate a BFF-held refresh token and return a complete session bootstrap")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request, @RequestBody(required = false) RefreshRequest body) {
         String refreshToken = request.getHeader(REFRESH_TOKEN_HEADER);
@@ -147,6 +162,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
+    @Transactional
     @Operation(summary = "Get the authenticated user's identity, memberships, and role grants")
     public ResponseEntity<MeResponse> me(Authentication authentication) {
         PrincipalIds principal = principal(authentication);
@@ -321,6 +337,12 @@ public class AuthController {
     }
 
     private MeResponse buildMeResponse(UUID tenantId, UUID userId) {
+        // Set trusted tenant scope for FORCE RLS before querying public.users.
+        // The caller must be @Transactional (login, refresh, me) so that
+        // applyForCurrentTransaction can issue SET LOCAL app.tenant_id.
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
 
@@ -352,16 +374,12 @@ public class AuthController {
                     grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
         }).collect(Collectors.toList()));
 
-        // Resolve all capabilities for the user's roles (batch query)
-        java.util.Set<UUID> roleIds = grants.stream()
-                .map(UserRoleGrant::getRoleId)
-                .collect(java.util.stream.Collectors.toSet());
-        if (!roleIds.isEmpty()) {
-            List<String> caps = roleCapabilityRepository.findCapabilityCodesByTenantIdAndRoleIds(tenantId, roleIds);
-            response.setCapabilities(caps);
-        } else {
-            response.setCapabilities(java.util.Collections.emptyList());
-        }
+        // Use the canonical tenant-scoped effective access projection, not only
+        // role grants: direct ALLOW overrides must be included and an active
+        // DENY must remain authoritative (including over role-based grants).
+        // This applies equally to /me and login/refresh bootstrap responses.
+        response.setCapabilities(accessReadRepository.effectiveCapabilityCodes(tenantId, userId)
+                .stream().sorted().toList());
 
         return response;
     }

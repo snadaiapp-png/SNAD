@@ -632,7 +632,12 @@ class HrApiV2PeopleContractTest {
 
     private UUID seedPlatformUser() {
         UUID userId = UUID.randomUUID();
-        executePlain("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) " +
+        // public.users is FORCE RLS (V20261011_3). executePlain opens a fresh
+        // Connection with no tenant GUC, so the RLS WITH CHECK clause rejects the
+        // INSERT. Use executeAsTenant so SET app.tenant_id fires on the SAME
+        // Connection as the INSERT (session-level GUC is fine — Connection is
+        // closed right after, no HikariCP reuse, no leak).
+        executeAsTenant(TENANT, "INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) " +
                         "VALUES (?, ?, ?, 'Platform User', 'ACTIVE', 'test-hash', NOW(), NOW())",
                 ps -> {
                     ps.setObject(1, userId);

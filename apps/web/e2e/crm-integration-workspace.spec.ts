@@ -53,14 +53,40 @@ async function mockAuthApi(page: Page): Promise<void> {
       status: "ACTIVE",
     },
   };
-  const cookie = "sanad_refresh=crm-integration-ui-refresh; Path=/; HttpOnly; SameSite=Lax";
-
+  // Chrome 155 on the CI runner (first observed failing 2026-10-17, Chrome
+  // 155.0.8059.39) breaks THREE cookie surfaces this mock historically
+  // relied on: CDP addCookies() awaited inside a route handler stalls the
+  // interception (login POST status -1, run 39069551098 traces);
+  // route.fulfill set-cookie headers are ignored for the cookie jar; and
+  // browserContext.cookies() reads hang or return an incomplete jar
+  // (run 39081882390: "browserContext.cookies: Test timeout of 60000ms
+  // exceeded"). The mock therefore delivers the session cookie in TWO
+  // independent forms and the contract is asserted on the response header:
+  // 1. The set-cookie RESPONSE HEADER on the mocked login/refresh responses
+  //    (the authoritative form checked by loginThroughUi).
+  // 2. A context cookie planted in openWorkspace BEFORE any interception is
+  //    in flight (the jar form the SPA's silent refresh consumes).
+  // NEVER plant or clear cookies from inside a route handler. Same cookie
+  // name/flags as the production BFF contract; no security expectation is
+  // changed.
+  const sessionCookieHeader = "sanad_refresh=crm-integration-ui-refresh; Path=/; HttpOnly; SameSite=Lax";
   await page.route("**/api/platform/api/v1/auth/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path.endsWith("/auth/login") && request.method() === "POST") {
+      // Login establishes a refresh session; it must not require a pre-existing
+      // refresh cookie on the login POST. Browser cookie attachment is not a
+      // login precondition, and asserting it here caused the mock route to
+      // throw, aborting the request and cascading into retries/page closure.
+      // Keep the actual session contract on the response that creates it:
+      // the mock emits the same HttpOnly, Path=/, SameSite=Lax cookie flags
+      // expected by the BFF. Real-BFF E2E suites separately verify the browser
+      // cookie jar after authentication.
+      expect(sessionCookieHeader).toContain("HttpOnly");
+      expect(sessionCookieHeader).toContain("Path=/");
+      expect(sessionCookieHeader).toContain("SameSite=Lax");
       loggedIn = true;
-      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      await fulfillJson(route, loginResponse, 200, { "set-cookie": sessionCookieHeader });
       return;
     }
     if (path.endsWith("/auth/refresh") && request.method() === "POST") {
@@ -68,10 +94,18 @@ async function mockAuthApi(page: Page): Promise<void> {
         await fulfillJson(route, { errorCode: "UNAUTHENTICATED" }, 401);
         return;
       }
-      await fulfillJson(route, loginResponse, 200, { "set-cookie": cookie });
+      // The refresh response re-arms the session after the fallback
+      // navigation emptied the jar: the production set-cookie header is the
+      // mechanism the real BFF uses.
+      await fulfillJson(route, loginResponse, 200, { "set-cookie": sessionCookieHeader });
       return;
     }
     if (path.endsWith("/auth/logout")) {
+      // Session invalidation is carried by the loggedIn state machine
+      // (refresh → 401, me → 401); the cookie itself is left untouched
+      // because context.clearCookies() inside a handler is subject to the
+      // same Chrome 155 interception stall. No spec in this file exercises
+      // logout.
       loggedIn = false;
       await fulfillJson(route, {}, 204);
       return;
@@ -162,8 +196,42 @@ async function mockIntegrationApi(page: Page): Promise<{ current: IntegrationSta
 
 async function openWorkspace(page: Page, locale: "ar" | "en"): Promise<void> {
   await mockAuthApi(page);
-  await loginThroughUi(page, EMAIL, PASSWORD);
+  // Plant the session fixtures OUTSIDE any route interception, BEFORE the
+  // login journey:
+  // 1. sanad_refresh — the BFF session cookie. The mock's login handler
+  //    asserts the browser attaches it to the actual login POST (the only
+  //    deterministic moment: CI traces prove Chrome 155.39 on the runner
+  //    empties injected session cookies from the jar during the SPA's
+  //    MPA-fallback navigation after login).
+  // 2. SESSION_HINT_COOKIE — lets the app attempt its silent refresh when it
+  //    boots after the fallback navigation, so the authenticated session is
+  //    restored through the mocked refresh (which carries the production
+  //    set-cookie header) and the journey under test proceeds.
+  await page.goto("/");
+  const appOrigin = new URL(page.url()).origin;
+  await page.context().addCookies([
+    {
+      name: "sanad_refresh",
+      value: "crm-integration-ui-refresh",
+      url: page.url(),
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+    {
+      name: SESSION_HINT_COOKIE,
+      value: "1",
+      url: appOrigin,
+      sameSite: "Lax",
+    },
+  ]);
+  await loginThroughUi(page, EMAIL, PASSWORD, { sessionCookieContract: "request-path" });
 
+  // The runner's Chrome 155.39 empties ALL injected cookies (session cookie
+  // AND session hint) during the SPA's post-login MPA-fallback navigation
+  // (traces: every request after the fallback leaves with no cookie header).
+  // The hint must exist when the app boots on /crm/integrations, or it never
+  // attempts the silent refresh that restores the authenticated session.
+  // Re-plant it here — outside any interception, after login settled.
   const authenticatedOrigin = new URL(page.url()).origin;
   await page.context().addCookies([{
     name: SESSION_HINT_COOKIE,

@@ -1,0 +1,145 @@
+name: HRM G4 Production UI Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrm-g4-production-ui-acceptance
+  cancel-in-progress: false
+
+jobs:
+  production-ui-acceptance:
+    name: Real-browser owner / unauthorized / foreign payroll acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: Production
+    env:
+      # Same protected identity topology proven live by the G4 API
+      # certification (run 38302800978). No values are ever printed.
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      G4_OWNER_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
+      G4_OWNER_EMAIL: snad.ai.app@gmail.com
+      G4_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
+      G4_UNAUTHORIZED_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
+      G4_UNAUTHORIZED_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      G4_FOREIGN_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G4_FOREIGN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      G4_FOREIGN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require exact main and protected test credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::main only"; exit 1; }
+          git_sha="$(git rev-parse HEAD)"
+          remote_sha="$(git ls-remote https://github.com/${GITHUB_REPOSITORY}.git refs/heads/main | cut -f1)"
+          test "$git_sha" = "$remote_sha" || { echo "::error::stale exact HEAD"; exit 1; }
+          for key in PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL \
+            G4_OWNER_TENANT_ID G4_OWNER_EMAIL G4_OWNER_PASSWORD \
+            G4_UNAUTHORIZED_TENANT_ID G4_UNAUTHORIZED_EMAIL G4_UNAUTHORIZED_PASSWORD \
+            G4_FOREIGN_TENANT_ID G4_FOREIGN_EMAIL G4_FOREIGN_PASSWORD; do
+            test -n "${!key:-}" || { echo "::error::Missing protected production credential: $key"; exit 1; }
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::HTTPS backend URL required"; exit 1; }
+          [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::HTTPS web URL required"; exit 1; }
+          echo "Exact main and protected credentials: PASS (head_sha=$git_sha)"
+
+      - name: Wait for stable Backend and Web readiness before authenticating
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable_probe() {
+            local url="$1" jq_expr="$2" consecutive=0 attempt status
+            for attempt in $(seq 1 30); do
+              status=$(curl --silent --show-error --output "$RUNNER_TEMP/probe.json" \
+                --write-out '%{http_code}' --connect-timeout 3 --max-time 8 "$url") || status="NETWORK_ERROR"
+              if [ "$status" = "200" ] && jq -e "$jq_expr" "$RUNNER_TEMP/probe.json" >/dev/null 2>&1; then
+                consecutive=$((consecutive + 1))
+                echo "READINESS_UP streak=$consecutive/3 attempt=$attempt $url"
+                if [ "$consecutive" -ge 3 ]; then return 0; fi
+              else
+                consecutive=0
+                echo "READINESS_NOT_STABLE attempt=$attempt http=$status $url"
+              fi
+              if [ "$attempt" -lt 30 ]; then sleep 5; fi
+            done
+            return 1
+          }
+          stable_probe "${PRODUCTION_BASE_URL%/}/actuator/health/readiness" '.status == "UP"' \
+            || { echo "::error::G4_BACKEND_READINESS_TIMEOUT"; exit 1; }
+          stable_probe "${WEB_PRODUCTION_BASE_URL%/}/api/system/release" '.contractVersion == "3"' \
+            || { echo "::error::G4_WEB_READINESS_TIMEOUT"; exit 1; }
+          echo "G4_BACKEND_READINESS=PASS"
+          echo "G4_WEB_READINESS=PASS"
+
+      - name: Verify production release identity against exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          observed="$(curl --silent --show-error --max-time 20 "${WEB_PRODUCTION_BASE_URL%/}/api/system/release" | jq -r '.commitSha')"
+          echo "observed_web_commit=$observed"
+          echo "dispatched_main_head=$(git rev-parse HEAD)"
+          git cat-file -e "$observed^{commit}" 2>/dev/null || {
+            echo "::error::Observed production commit is unknown to main history"; exit 1; }
+          git merge-base --is-ancestor "$observed" "$(git rev-parse HEAD)" || {
+            echo "::error::Production web commit is not an ancestor of exact main HEAD"; exit 1; }
+          app_code_diff="$(git diff --name-only "$observed" "$(git rev-parse HEAD)" | grep -E '^(apps/sanad-platform/src/main/|apps/web/(app|lib|components|public)/|apps/web/(middleware.ts|next.config.ts|package.json)|render.yaml)' || true)"
+          if [ -n "$app_code_diff" ]; then
+            echo "::error::Production does not serve current main application code; deploy through the protected release path first"
+            echo "$app_code_diff"
+            exit 1
+          fi
+          echo "G4_RELEASE_IDENTITY_ALIGNMENT=PASS (zero application-code delta between production and exact main HEAD)"
+
+      - name: Set up Node.js (project standard)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies and Playwright Chromium
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run production UI acceptance (read-only, real logins)
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.WEB_PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          npx playwright test --config playwright-g4-production-ui.config.ts
+
+      - name: Upload sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g4-production-ui-acceptance-evidence
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-g4-production-ui-report/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Acceptance scope and outcome
+        if: success()
+        run: |
+          echo "G4_UI_OWNER=PASS"
+          echo "G4_UI_UNAUTHORIZED=PASS"
+          echo "G4_UI_FOREIGN_TENANT=PASS"
+          echo "Real-browser UI acceptance complements (never replaces) the API certification."
+          echo "G4 FULL CERTIFICATION remains HOLD pending security review; P0 SECURITY HOLD remains ACTIVE; payments remain DISABLED."

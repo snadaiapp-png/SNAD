@@ -94,13 +94,44 @@ class WorkflowManagementE2ETest {
                     "e2e-" + tid.toString().substring(0, 8), now, now);
         }
         for (var uid : List.of(requesterA, approverA)) {
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                    uid, tenantA, "e2e-" + uid.toString().substring(0, 8) + "@test", now, now);
+            // FIXED: ConnectionCallback — set_config + INSERT on same physical connection.
+            // Without @Transactional, HikariCP returns a different connection for each
+            // jdbc.execute()/jdbc.update(), so a session-scoped GUC set on conn A is
+            // invisible to INSERT on conn B. Wrap both calls in one ConnectionCallback.
+            // Also corrected tenant mismatch: original code used tenantB in set_config
+            // but tenantA in the INSERT (RLS rejected the mismatch).
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+                var st = conn.createStatement();
+                st.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', false)");
+                try (var ps = conn.prepareStatement(
+                        "INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)")) {
+                    ps.setObject(1, uid);
+                    ps.setObject(2, tenantA);
+                    ps.setString(3, "e2e-" + uid.toString().substring(0, 8) + "@test");
+                    ps.setObject(4, now);
+                    ps.setObject(5, now);
+                    ps.executeUpdate();
+                }
+                return null;
+            });
         }
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
-                userB, tenantB, "e2e-" + userB.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: ConnectionCallback — set_config(tenantB) + INSERT userB on same connection.
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', false)");
+            try (var ps = conn.prepareStatement(
+                    "INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                            + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)")) {
+                ps.setObject(1, userB);
+                ps.setObject(2, tenantB);
+                ps.setString(3, "e2e-" + userB.toString().substring(0, 8) + "@test");
+                ps.setObject(4, now);
+                ps.setObject(5, now);
+                ps.executeUpdate();
+            }
+            return null;
+        });
 
         // Grant ALL capabilities to both tenants
         for (var tid : List.of(tenantA, tenantB)) {

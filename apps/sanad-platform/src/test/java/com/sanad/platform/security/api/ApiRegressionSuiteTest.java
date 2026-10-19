@@ -35,6 +35,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -69,6 +71,7 @@ class ApiRegressionSuiteTest {
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantId;
     private UUID orgId;
@@ -102,7 +105,7 @@ class ApiRegressionSuiteTest {
 
     @BeforeEach
     void setUp() {
-        // Use unique tenant-scoped fixtures; never delete shared platform seed data.
+        // Tenant itself is platform-scoped; create it before entering tenant RLS context.
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Regression Test Tenant",
                 "regression-" + UUID.randomUUID(),
@@ -111,37 +114,49 @@ class ApiRegressionSuiteTest {
 
         testEmail = "regression-" + UUID.randomUUID() + "@example.com";
         testPassword = UUID.randomUUID().toString();
-        User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
-        user.setPasswordHash(passwordEncoder.encode(testPassword));
-        userId = userRepository.save(user).getId();
 
-        // Canonical login-eligibility gate (fail-closed): seed the exactly-one
-        // effective subscription the authentication flow requires.
-        seedLoginEligibleSubscription(tenantId);
+        // All tenant-scoped fixture writes share one transaction/connection. SET LOCAL
+        // (via set_config(..., true)) therefore applies to the same connection used by
+        // the repositories and JDBC inserts, satisfying FORCE ROW LEVEL SECURITY.
+        TransactionTemplate tenantTransaction = new TransactionTemplate(transactionManager);
+        tenantTransaction.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class,
+                    tenantId.toString());
 
-        Organization org = organizationRepository.save(new Organization(
-                tenant, "Regression Org", "Test organization", OrganizationStatus.ACTIVE));
-        orgId = org.getId();
+            User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
+            user.setPasswordHash(passwordEncoder.encode(testPassword));
+            userId = userRepository.save(user).getId();
 
-        OrganizationMembership membership = new OrganizationMembership(
-                tenantId, orgId, testEmail, "Regression User", MembershipStatus.ACTIVE);
-        membership.setUserId(userId);
-        membershipRepository.save(membership);
+            // Canonical login-eligibility gate (fail-closed): seed the exactly-one
+            // effective subscription the authentication flow requires.
+            seedLoginEligibleSubscription(tenantId);
 
-        // Grant ADMIN role with all capabilities for regression testing
-        Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, "ADMIN")
-                .orElseGet(() -> roleRepository.save(new Role(
-                        tenantId, "ADMIN", "Administrator", "Full access")));
-        // Add all active capabilities to the admin role
-        for (AccessCapability cap : accessCapabilityRepository.findAll()) {
-            if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
-                    tenantId, adminRole.getId(), cap.getId())) {
-                roleCapabilityRepository.save(new RoleCapability(
-                        tenantId, adminRole.getId(), cap.getId()));
+            Organization org = organizationRepository.save(new Organization(
+                    tenant, "Regression Org", "Test organization", OrganizationStatus.ACTIVE));
+            orgId = org.getId();
+
+            OrganizationMembership membership = new OrganizationMembership(
+                    tenantId, orgId, testEmail, "Regression User", MembershipStatus.ACTIVE);
+            membership.setUserId(userId);
+            membershipRepository.save(membership);
+
+            // Grant ADMIN role with all capabilities for regression testing.
+            Role adminRole = roleRepository.findByTenantIdAndCode(tenantId, "ADMIN")
+                    .orElseGet(() -> roleRepository.save(new Role(
+                            tenantId, "ADMIN", "Administrator", "Full access")));
+            // Add all active capabilities to the admin role.
+            for (AccessCapability cap : accessCapabilityRepository.findAll()) {
+                if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
+                        tenantId, adminRole.getId(), cap.getId())) {
+                    roleCapabilityRepository.save(new RoleCapability(
+                            tenantId, adminRole.getId(), cap.getId()));
+                }
             }
-        }
-        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, adminRole.getId(), null);
-        userRoleGrantRepository.save(grant);
+            UserRoleGrant grant = new UserRoleGrant(tenantId, userId, adminRole.getId(), null);
+            userRoleGrantRepository.save(grant);
+        });
     }
 
     // ================================================================
@@ -197,6 +212,7 @@ class ApiRegressionSuiteTest {
 
             // Login with new password works
             LoginRequest newLogin = new LoginRequest(testEmail, newPassword);
+            newLogin.setTenantId(tenantId);
             MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(newLogin)))
@@ -214,6 +230,7 @@ class ApiRegressionSuiteTest {
         @DisplayName("Invalid credentials return 401")
         void invalidCredentials() throws Exception {
             LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+            request.setTenantId(tenantId);
             mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -301,16 +318,14 @@ class ApiRegressionSuiteTest {
         @Test
         @DisplayName("Session version increments on each logout")
         void sessionVersionIncrements() throws Exception {
-            User before = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
-            long initialVersion = before.getSessionVersion();
+            long initialVersion = readSessionVersionAsTenant();
 
             String token = loginAndGetToken();
             mockMvc.perform(post("/api/v1/auth/logout")
                             .header("Authorization", "Bearer " + token))
                     .andExpect(status().isNoContent());
 
-            User after = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
-            assertThat(after.getSessionVersion()).isEqualTo(initialVersion + 1);
+            assertThat(readSessionVersionAsTenant()).isEqualTo(initialVersion + 1);
         }
     }
 
@@ -318,8 +333,32 @@ class ApiRegressionSuiteTest {
     // Helpers
     // ================================================================
 
+    /**
+     * Direct reads of public.users are tenant-scoped under FORCE ROW LEVEL
+     * SECURITY (V20261011_3): with no app.tenant_id GUC the users_tenant_isolation
+     * policy returns no rows (fail closed), which is why the unscoped pre-login
+     * read in sessionVersionIncrements threw NoSuchElementException. Bind the
+     * tenant GUC on the same transaction-bound connection — the identical
+     * contract the seed block above and the production SessionVersionCache
+     * use. Test-only helper: orElseThrow strictness and every assertion are
+     * unchanged.
+     */
+    private long readSessionVersionAsTenant() {
+        Long version = new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class,
+                    tenantId.toString());
+            return userRepository.findByTenantIdAndId(tenantId, userId)
+                    .orElseThrow()
+                    .getSessionVersion();
+        });
+        return version == null ? 0L : version;
+    }
+
     private String loginAndGetToken() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

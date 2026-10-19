@@ -12,7 +12,14 @@ ARG RENDER_GIT_COMMIT=unknown
 WORKDIR /workspace
 
 COPY pom.xml ./
-RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
+# Resolve dependencies explicitly: do not mask transient Maven Central failures.
+# -U refreshes cached resolution failures; bounded retries remain fail-closed.
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      if mvn -B -ntp -U dependency:go-offline -DskipTests; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 5))"; \
+    done
 
 COPY src ./src
 # -Dmaven.test.skip=true skips test COMPILATION too (unlike -DskipTests), so a

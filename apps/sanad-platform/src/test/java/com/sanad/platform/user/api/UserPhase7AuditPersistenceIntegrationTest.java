@@ -14,6 +14,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -88,39 +91,49 @@ class UserPhase7AuditPersistenceIntegrationTest {
     void profileAndUsernameChangesAppendDistinctCanonicalRows() throws Exception {
         UUID userId = createUser(tenantId, "audit-update@example.com", "BeforeName");
 
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", tenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload("audit-update@example.com", "AfterName")))
-                .andExpect(status().isOk());
+        bindTenantContext(tenantId);
+        try {
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", tenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload("audit-update@example.com", "AfterName")))
+                    .andExpect(status().isOk());
 
-        List<Map<String, Object>> profileRows = auditRows("USER_PROFILE_UPDATED");
-        assertThat(profileRows).hasSize(1);
-        JsonNode after = objectMapper.readTree(String.valueOf(profileRows.get(0).get("after_state")));
-        assertThat(after.get("changedFields").toString()).contains("displayName");
-        assertThat(profileRows.get(0).get("result")).isEqualTo("SUCCESS");
+            List<Map<String, Object>> profileRows = auditRows("USER_PROFILE_UPDATED");
+            assertThat(profileRows).hasSize(1);
+            JsonNode after = objectMapper.readTree(String.valueOf(profileRows.get(0).get("after_state")));
+            assertThat(after.get("changedFields").toString()).contains("displayName");
+            assertThat(profileRows.get(0).get("result")).isEqualTo("SUCCESS");
 
-        // Username change on the same request appends the distinct identity fact.
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", tenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(updatePayload("audit-update@example.com", "renamed-id", "AfterName")))
-                .andExpect(status().isOk());
-        List<Map<String, Object>> usernameRows = auditRows("USER_USERNAME_CHANGED");
-        assertThat(usernameRows).hasSize(1);
-        JsonNode usernameAfter = objectMapper.readTree(String.valueOf(usernameRows.get(0).get("after_state")));
-        assertThat(usernameAfter.get("username").asText()).isEqualTo("renamed-id");
+            // Username change on the same request appends the distinct identity fact.
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", tenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(updatePayload("audit-update@example.com", "renamed-id", "AfterName")))
+                    .andExpect(status().isOk());
+            List<Map<String, Object>> usernameRows = auditRows("USER_USERNAME_CHANGED");
+            assertThat(usernameRows).hasSize(1);
+            JsonNode usernameAfter = objectMapper.readTree(String.valueOf(usernameRows.get(0).get("after_state")));
+            assertThat(usernameAfter.get("username").asText()).isEqualTo("renamed-id");
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
     void idempotentProfileUpdateAppendsNoAuditRow() throws Exception {
         UUID userId = createUser(tenantId, "idem@example.com", "IdemName");
 
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", tenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload("idem@example.com", "IdemName")))
-                .andExpect(status().isOk());
+        bindTenantContext(tenantId);
+        try {
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", tenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload("idem@example.com", "IdemName")))
+                    .andExpect(status().isOk());
+        } finally {
+            clearTenantContext();
+        }
 
         assertThat(auditRows("USER_PROFILE_UPDATED")).isEmpty();
     }
@@ -129,22 +142,27 @@ class UserPhase7AuditPersistenceIntegrationTest {
     void lifecycleTransitionsAppendExactCanonicalRows() throws Exception {
         UUID userId = createUser(tenantId, "lifecycle@example.com", "Lifecycle");
 
-        mockMvc.perform(patch("/api/v1/users/{userId}/suspend", userId)
-                        .param("tenantId", tenantId.toString()))
-                .andExpect(status().isOk());
-        List<Map<String, Object>> suspended = auditRows("USER_SUSPENDED");
-        assertThat(suspended).hasSize(1);
-        assertThat(suspended.get(0).get("result")).isEqualTo("SUCCESS");
+        bindTenantContext(tenantId);
+        try {
+            mockMvc.perform(patch("/api/v1/users/{userId}/suspend", userId)
+                            .param("tenantId", tenantId.toString()))
+                    .andExpect(status().isOk());
+            List<Map<String, Object>> suspended = auditRows("USER_SUSPENDED");
+            assertThat(suspended).hasSize(1);
+            assertThat(suspended.get(0).get("result")).isEqualTo("SUCCESS");
 
-        mockMvc.perform(patch("/api/v1/users/{userId}/activate", userId)
-                        .param("tenantId", tenantId.toString()))
-                .andExpect(status().isOk());
-        assertThat(auditRows("USER_ACTIVATED")).hasSize(1);
+            mockMvc.perform(patch("/api/v1/users/{userId}/activate", userId)
+                            .param("tenantId", tenantId.toString()))
+                    .andExpect(status().isOk());
+            assertThat(auditRows("USER_ACTIVATED")).hasSize(1);
 
-        mockMvc.perform(patch("/api/v1/users/{userId}/suspend", userId)
-                        .param("tenantId", tenantId.toString()))
-                .andExpect(status().isOk());
-        assertThat(auditRows("USER_SUSPENDED")).hasSize(2);
+            mockMvc.perform(patch("/api/v1/users/{userId}/suspend", userId)
+                            .param("tenantId", tenantId.toString()))
+                    .andExpect(status().isOk());
+            assertThat(auditRows("USER_SUSPENDED")).hasSize(2);
+        } finally {
+            clearTenantContext();
+        }
     }
 
     @Test
@@ -154,13 +172,18 @@ class UserPhase7AuditPersistenceIntegrationTest {
         assertThat(collidingUser).isNotNull();
         int before = auditRows("USER_PROFILE_UPDATED").size();
 
-        // Duplicate email across the same tenant is rejected (409) — no
-        // USER_PROFILE_UPDATED SUCCESS row may be appended.
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", tenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(duplicatePayload("taken@example.com")))
-                .andExpect(status().is4xxClientError());
+        bindTenantContext(tenantId);
+        try {
+            // Duplicate email across the same tenant is rejected (409) — no
+            // USER_PROFILE_UPDATED SUCCESS row may be appended.
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", tenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(duplicatePayload("taken@example.com")))
+                    .andExpect(status().is4xxClientError());
+        } finally {
+            clearTenantContext();
+        }
 
         assertThat(auditRows("USER_PROFILE_UPDATED")).hasSize(before);
     }
@@ -170,11 +193,18 @@ class UserPhase7AuditPersistenceIntegrationTest {
         UUID userId = createUser(tenantId, "isolation@example.com", "Isolation");
         int before = auditRows("USER_PROFILE_UPDATED").size();
 
-        mockMvc.perform(put("/api/v1/users/{userId}", userId)
-                        .param("tenantId", otherTenantId.toString())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload("isolation@example.com", "CrossTenant")))
-                .andExpect(status().isNotFound());
+        // Bind other-tenant context so the controller's SELECT on users uses RLS-
+        // visible rows for otherTenantId (the user is in tenantId, so 404).
+        bindTenantContext(otherTenantId);
+        try {
+            mockMvc.perform(put("/api/v1/users/{userId}", userId)
+                            .param("tenantId", otherTenantId.toString())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload("isolation@example.com", "CrossTenant")))
+                    .andExpect(status().isNotFound());
+        } finally {
+            clearTenantContext();
+        }
 
         assertThat(auditRows("USER_PROFILE_UPDATED")).hasSize(before);
     }
@@ -182,10 +212,16 @@ class UserPhase7AuditPersistenceIntegrationTest {
     // ------------------------------------------------------------------
 
     private List<Map<String, Object>> auditRows(String action) {
+        // Scope to THIS test's tenants: platform_audit_logs has no RLS, so an
+        // action-only filter would also match rows committed by other suites'
+        // runs on a reused database. The assertions are about the rows this
+        // test's own API calls produced.
         return jdbcTemplate.queryForList(
                 "SELECT actor_tenant_id, actor_user_id, target_tenant_id, action, resource_type, "
                 + "resource_id, reason, before_state, after_state, result, created_at "
-                + "FROM platform_audit_logs WHERE action = ? ORDER BY created_at, id", action);
+                + "FROM platform_audit_logs WHERE action = ? "
+                + "AND target_tenant_id IN (?, ?) ORDER BY created_at, id",
+                action, tenantId, otherTenantId);
     }
 
     private UUID saveTenant(String name) {
@@ -194,6 +230,12 @@ class UserPhase7AuditPersistenceIntegrationTest {
     }
 
     private UUID createUser(UUID scope, String email, String name) throws Exception {
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so the controller's @Transactional participates in the test's tx. Bind the
+        // SecurityContextHolder with the scope tenant_id BEFORE mockMvc.perform so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id on the tx-bound
+        // Connection before the controller's userRepository.save(user) INSERT.
+        bindTenantContext(scope);
         MvcResult result = mockMvc.perform(post("/api/v1/users")
                         .param("tenantId", scope.toString())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -216,5 +258,22 @@ class UserPhase7AuditPersistenceIntegrationTest {
     private String duplicatePayload(String email) throws Exception {
         return objectMapper.writeValueAsString(
                 Map.of("email", email, "displayName", "Dup"));
+    }
+
+    /**
+     * Bind tenant_id into SecurityContextHolder so TenantRlsConnectionHandler
+     * applies SET LOCAL app.tenant_id inside the @Transactional boundary.
+     * user_id is not needed for RLS — pass a placeholder.
+     */
+    private void bindTenantContext(UUID tenantId) {
+        var token = new UsernamePasswordAuthenticationToken(
+                "test-" + tenantId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        token.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    private void clearTenantContext() {
+        SecurityContextHolder.clearContext();
     }
 }

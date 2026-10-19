@@ -307,6 +307,11 @@ class CrmFlywayHistoryAssertionTest {
             , "20261008.1"   // Users module-local IAM provisioning metadata
             , "20261010.1"   // CRM accounts tenant RLS fail-closed policy
             , "20261010.99"  // HRM canonical owner payroll-view privilege
+            // G1 RLS hardening (PR #1413): public.users FORCE RLS + pre-auth tenant resolver
+            , "20261011.3"   // public.users fail-closed tenant RLS policy (sanad role)
+            , "20261011.4"   // pre-auth tenant resolver login_tenant_index + trigger
+            // G1 closure (PR #1417): fail-closed tenant policy for the production runtime/Flyway identity
+            , "20261019.1"   // public.users runtime-role tenant policy (fail-closed, dynamic target)
     );
 
 

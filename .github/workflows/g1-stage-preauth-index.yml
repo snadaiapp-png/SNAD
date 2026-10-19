@@ -1,0 +1,74 @@
+name: G1 Stage Pre-Auth Tenant Index
+
+# Applies the already-reviewed migration V20261011_4 (pre-auth tenant
+# resolver: login_tenant_index + sync trigger + g1_resolve_login_tenants)
+# to the production database and backfills the index from public.users,
+# BEFORE the RLS-enabling deploy. Staging the index first means login and
+# password reset work from the first request after Flyway enables users RLS
+# (no authentication outage window).
+#
+# Admin channel selection is fail-closed inside
+# scripts/security/g1_stage_preauth_index.py: SUPABASE_PAT (Management API)
+# first, then the production owner pairing. Secret values never reach logs
+# or evidence. Dispatch-only from main (production environment policy).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-stage-preauth-index
+  cancel-in-progress: false
+
+jobs:
+  stage-index:
+    name: Apply V20261011_4 + backfill login_tenant_index (value-free evidence)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      SUPABASE_PAT: ${{ secrets.SUPABASE_PAT }}
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      PRODUCTION_DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+      PRODUCTION_DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      G1_DATASOURCE_PASSWORD: ${{ secrets.G1_DATASOURCE_PASSWORD }}
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Mask every candidate value defensively
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_PAT PRODUCTION_DATABASE_URL \
+                     PRODUCTION_DATABASE_USERNAME PRODUCTION_DATABASE_PASSWORD \
+                     G1_DATASOURCE_PASSWORD; do
+            value="${!key:-}"
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
+          test -n "${SUPABASE_PAT:-}${PRODUCTION_DATABASE_PASSWORD:-}" \
+            || { echo "::error::No admin channel candidate present"; exit 1; }
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned PostgreSQL driver
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10'
+
+      - name: Stage pre-auth index (V20261011_4 + backfill)
+        shell: bash
+        run: python scripts/security/g1_stage_preauth_index.py
+
+      - name: Upload sanitized staging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-stage-index-${{ github.run_id }}-${{ github.run_attempt }}
+          path: g1-stage-index-evidence.json
+          if-no-files-found: warn

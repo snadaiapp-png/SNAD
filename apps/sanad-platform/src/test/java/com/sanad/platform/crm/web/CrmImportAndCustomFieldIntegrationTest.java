@@ -84,14 +84,16 @@ class CrmImportAndCustomFieldIntegrationTest {
                         "crm_custom_field_definitions")) {
                     jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenant);
                 }
+                // Delete users and related under RLS (app.tenant_id is set)
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenant);
             });
         }
         // Non-RLS tables can be cleaned in one statement without GUC.
         Object[] tenants = {tenantA, tenantB};
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM roles WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM users WHERE tenant_id IN (?,?)", tenants);
+        // Delete tenants (no RLS on tenants table — users already deleted above)
         jdbc.update("DELETE FROM tenants WHERE id IN (?,?)", tenants);
     }
 
@@ -216,19 +218,27 @@ class CrmImportAndCustomFieldIntegrationTest {
 
     private void seedIdentity(UUID tenantId, UUID userId, String suffix) {
         java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
-                tenantId, "crm-import-" + suffix + tenantId.toString().substring(0, 8), "CRM Import", now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
-                userId, tenantId, suffix + userId + "@example.test", "CRM Import User", now, now);
-        UUID roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM import role','ACTIVE',?,?)",
-                roleId, tenantId, now, now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
-                UUID.randomUUID(), tenantId, userId, roleId, now, now);
-        for (UUID capabilityId : jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class)) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
-                    UUID.randomUUID(), tenantId, roleId, capabilityId, now);
-        }
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on
+        // the same connection. Wrap seed in a TransactionTemplate.
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
+                    tenantId, "crm-import-" + suffix + tenantId.toString().substring(0, 8), "CRM Import", now, now);
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
+                    userId, tenantId, suffix + userId + "@example.test", "CRM Import User", now, now);
+            UUID roleId = UUID.randomUUID();
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM import role','ACTIVE',?,?)",
+                    roleId, tenantId, now, now);
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
+                    UUID.randomUUID(), tenantId, userId, roleId, now, now);
+            for (UUID capabilityId : jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class)) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
+                        UUID.randomUUID(), tenantId, roleId, capabilityId, now);
+            }
+        });
     }
 }

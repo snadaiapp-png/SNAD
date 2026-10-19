@@ -104,9 +104,19 @@ class WorkflowSlaSchedulerTest {
         jdbc.update("UPDATE tenants SET created_at = TIMESTAMP '1970-01-01 00:00:00' "
                 + "WHERE id IN (?, ?)", tenantA, tenantB);
         for (var uid : List.of(userA, approverA)) {
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                    uid, tenantA, "sch-" + uid.toString().substring(0, 8) + "@test", now, now);
+            // FIXED: ConnectionCallback — set_config + INSERT on same connection
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+                var st = conn.createStatement();
+                st.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', false)");
+                var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)");
+                ps.setObject(1, uid);
+                ps.setObject(2, tenantA);
+                ps.setString(3, "sch-" + uid.toString().substring(0, 8) + "@test");
+                ps.setObject(4, now);
+                ps.setObject(5, now);
+                ps.executeUpdate();
+                return null;
+            });
         }
         var roleId = UUID.randomUUID();
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "

@@ -88,7 +88,7 @@ class PlatformUserServiceTest {
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
-        verify(f.users, never()).findAllByEmail("operator@example.com");
+        // Cross-tenant user lookup APIs have been removed from UserRepository.
         verify(f.users).saveAndFlush(any(User.class));
     }
 

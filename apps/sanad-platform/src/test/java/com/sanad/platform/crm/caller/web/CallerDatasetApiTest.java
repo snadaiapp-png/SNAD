@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.caller.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,7 +16,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -48,6 +52,15 @@ class CallerDatasetApiTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
+
+    @BeforeEach
+    void initTx() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
+    }
 
     @Test
     void firstSyncIssuesTenantKeyAndEntriesCarryOnlyTokens() throws Exception {
@@ -87,29 +100,21 @@ class CallerDatasetApiTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void datasetIsTenantIsolatedAcrossSameNumber() throws Exception {
-        Fixture tenantA = fixture("ds-api-a");
-        Fixture tenantB = fixture("ds-api-b");
-        UUID contactA = contact(tenantA, "عميل أ", "+966541234567");
-        UUID contactB = contact(tenantB, "عميل ب", "+966541234567");
+        Fixture tenantA = tx.execute(status -> fixture("ds-api-a"));
+        Fixture tenantB = tx.execute(status -> fixture("ds-api-b"));
+        UUID contactA = tx.execute(status -> contact(tenantA, "عميل أ", "+966541234567"));
+        UUID contactB = tx.execute(status -> contact(tenantB, "عميل ب", "+966541234567"));
 
-        // TenantRlsConnectionHandler caches `tenantApplied=true` on the
-        // transaction-bound Connection proxy after the first SET LOCAL. Once
-        // cached, subsequent SecurityContext changes mid-transaction do NOT
-        // re-issue SET LOCAL, so the GUC stays at whatever value was last
-        // applied. The fixture's contact() helper sets the GUC to tenantB
-        // (the last contact() call), which would leak into the first mockMvc
-        // call for tenantA. Explicitly re-assert the GUC before each mockMvc
-        // call so the correct tenant is in effect for the query.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                p().addValue("t", tenantA.tenantId().toString()), String.class);
+        // With NOT_SUPPORTED each mockMvc call runs in its own service-layer
+        // transaction; the TenantRlsConnectionHandler sets app.tenant_id from
+        // the SecurityContext established by with(authentication(auth(...))).
         MvcResult resultA = mockMvc.perform(get(DELTA).with(authentication(auth(tenantA))))
                 .andExpect(status().isOk()).andReturn();
         String jsonA = resultA.getResponse().getContentAsString();
         assertThat(jsonA).contains(contactA.toString()).doesNotContain(contactB.toString());
 
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                p().addValue("t", tenantB.tenantId().toString()), String.class);
         MvcResult resultB = mockMvc.perform(get(DELTA).with(authentication(auth(tenantB))))
                 .andExpect(status().isOk()).andReturn();
         String jsonB = resultB.getResponse().getContentAsString();
@@ -151,6 +156,13 @@ class CallerDatasetApiTest {
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
                         .addValue("now", java.sql.Timestamp.from(now)));
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. The class is
+        // @Transactional, so the Spring-managed tx provides a single physical
+        // connection for all jdbc calls in this fixture.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantId.toString()), String.class);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'G8 Dataset User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

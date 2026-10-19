@@ -65,9 +65,19 @@ class AiSecurityNegativeTest {
                     tid, "Tenant " + tid.toString().substring(0, 8),
                     "ais-" + tid.toString().substring(0, 8), now, now);
         }
+        // public.users is FORCE RLS (V20261011_3). This test class is @Transactional,
+        // so all jdbc.update() calls share the tx-bound physical Connection. Calling
+        // set_config('app.tenant_id', ..., true) once before each INSERT INTO users
+        // makes the GUC active for the rest of this transaction.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User A', 'ACTIVE', 'dummy', ?, ?)",
                 userA, tenantA, "ais-" + userA.toString().substring(0, 8) + "@test", now, now);
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantB.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
                 userB, tenantB, "ais-" + userB.toString().substring(0, 8) + "@test", now, now);

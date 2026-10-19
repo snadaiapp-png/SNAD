@@ -36,6 +36,7 @@ class WorkflowSystemHealthIntegrationTest {
         var now = java.sql.Timestamp.from(java.time.Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)", tenantId, "wsh-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)", UUID.randomUUID(), tenantId, "wsh@test", now, now);
     }

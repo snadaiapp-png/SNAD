@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.time.OffsetDateTime;
@@ -166,14 +168,28 @@ class CrmAddressCommunicationMigrationUpgradeTest {
                 tenantId, "Tenant " + suffix,
                 "tenant-" + suffix + "-" + tenantId.toString().substring(0, 8),
                 "ACTIVE", now, now);
-        jdbc.update(
-                """
-                INSERT INTO users
-                    (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?)
-                """,
-                userId, tenantId, suffix + "-crm007@example.test", "User " + suffix,
-                "ACTIVE", "dummy", now, now);
+        // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
+        // INSERT INTO users unless set_config('app.tenant_id', tenant, true)
+        // is set on the same transaction-bound Connection. The JdbcTemplate
+        // uses a DriverManagerDataSource that returns a fresh Connection per
+        // call, so set_config(is_local=true) is reset immediately unless
+        // wrapped in an explicit TransactionTemplate — the
+        // DataSourceTransactionManager binds a Connection to the thread, and
+        // JdbcTemplate reuses it for both calls.
+        TransactionTemplate tx = new TransactionTemplate(
+                new DataSourceTransactionManager(jdbc.getDataSource()));
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update(
+                    """
+                    INSERT INTO users
+                        (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    """,
+                    userId, tenantId, suffix + "-crm007@example.test", "User " + suffix,
+                    "ACTIVE", "dummy", now, now);
+        });
     }
 
     private Flyway flyway(MigrationVersion target) {

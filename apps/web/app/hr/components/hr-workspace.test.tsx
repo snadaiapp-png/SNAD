@@ -267,7 +267,8 @@ describe("HrWorkspace navigation", () => {
       </HrWorkspace>,
     );
 
-    await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("hr"));
+    await Promise.resolve();
+    expect(usersApiMock.moduleContext).not.toHaveBeenCalled();
     const action = await screen.findByTestId("module-user-provisioning-menu-item");
     expect(action).toHaveAccessibleName("إضافة مستخدم");
     const launcher = screen.getByTestId("global-user-provisioning");

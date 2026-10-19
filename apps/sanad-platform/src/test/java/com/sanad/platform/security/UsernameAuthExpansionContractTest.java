@@ -43,10 +43,12 @@ class UsernameAuthExpansionContractTest {
     }
 
     @Test
-    void repositoryMustProvideTenantScopedAndCrossTenantUsernameLookups() {
+    void repositoryMustProvideTenantScopedUsernameLookupsWithoutCrossTenantUserQueries() {
         assertMethod(UserRepository.class, "findByTenantIdAndUsername", UUID.class, String.class);
         assertMethod(UserRepository.class, "existsByTenantIdAndUsername", UUID.class, String.class);
-        assertMethod(UserRepository.class, "findAllByUsername", String.class);
+        assertThat(UserRepository.class.getDeclaredMethods())
+                .noneMatch(method -> method.getName().equals("findAllByUsername")
+                        || method.getName().equals("findAllByEmail"));
     }
 
     @Test
@@ -110,11 +112,12 @@ class UsernameAuthExpansionContractTest {
         String text = Files.readString(source);
 
         assertThat(text).contains("findByTenantIdAndUsername");
-        assertThat(text).contains("findAllByUsername");
+        assertThat(text).contains("requirePreAuthTenantResolver");
+        assertThat(text).doesNotContain("userRepository.findAllByUsername");
 
         // Existing email path is deliberately retained.
         assertThat(text).contains("findByTenantIdAndEmail");
-        assertThat(text).contains("findAllByEmail");
+        assertThat(text).doesNotContain("userRepository.findAllByEmail");
     }
 
     private static void assertUsernameAccessors(Class<?> type) {

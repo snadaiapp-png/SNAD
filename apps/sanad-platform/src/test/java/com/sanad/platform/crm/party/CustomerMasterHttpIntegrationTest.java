@@ -68,13 +68,23 @@ class CustomerMasterHttpIntegrationTest {
                     "crm_account_merge_history", "crm_activities",
                     "crm_opportunities", "crm_opportunity_stage_history",
                     "crm_contacts", "crm_leads", "crm_accounts"));
+            // Users, roles, assignments have FORCE RLS — delete inside
+            // a transaction with app.tenant_id set (same pattern as
+            // RlsTestSupport.deleteTenantRows but for non-CRM tables).
+            transactions.executeWithoutResult(txStatus -> {
+                jdbc.getJdbcTemplate().queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
+            });
+            // Non-RLS tables can be cleaned without GUC.
             MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = :t", p);
-            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM tenants WHERE id = :t", p);
         }
         tenantIds.clear();
@@ -363,10 +373,17 @@ class CustomerMasterHttpIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:email,'CRM Master User','ACTIVE','dummy',:now,:now)",
-                p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
+        // same transaction-bound connection. Wrap in TransactionTemplate.
+        transactions.executeWithoutResult(status -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:email,'CRM Master User','ACTIVE','dummy',:now,:now)",
+                    p().addValue("id", userId).addValue("tenantId", tenantId)
+                            .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+        });
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'CRM Master Role','CRM-005 tests','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)

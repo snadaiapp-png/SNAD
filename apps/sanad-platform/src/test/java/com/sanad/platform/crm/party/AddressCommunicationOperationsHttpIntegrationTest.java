@@ -47,6 +47,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @Test
     void searchesAndExportsArabicAddressesWithinTenant() throws Exception {
@@ -99,10 +100,39 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     }
 
     @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NEVER)
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
-        Fixture fixture = fixture("crm007-import");
-        UUID accountId = account(fixture, "Import Customer");
+        // Keep tenant, user, roles, role grants, account and their FK parents
+        // inside one committed REQUIRES_NEW transaction. fixture()'s nested
+        // TransactionTemplate uses REQUIRED and therefore joins this transaction.
+        Fixture[] fixtureHolder = new Fixture[1];
+        UUID[] accountHolder = new UUID[1];
+        var savedAuth = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+                setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            }}.executeWithoutResult(txStatus -> {
+                Fixture fixture = fixture("crm007-import");
+                com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
+                        fixture.tenantId(), fixture.userId());
+                UUID accountId = account(fixture, "Import Customer");
+                fixtureHolder[0] = fixture;
+                accountHolder[0] = accountId;
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder
+                    .getContext().setAuthentication(savedAuth);
+        }
+        Fixture fixture = fixtureHolder[0];
+        UUID accountId = accountHolder[0];
+        if (fixture == null || accountId == null) {
+            throw new IllegalStateException("REQUIRES_NEW fixture transaction did not produce fixture/account");
+        }
+        // The fixture transaction has committed; restore tenant context for
+        // subsequent JDBC assertions while MockMvc authenticates the request itself.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
+
         String payload = """
                 {"rows":[
                   {"ownerType":"ACCOUNT","ownerId":"%s","address":{
@@ -168,10 +198,21 @@ class AddressCommunicationOperationsHttpIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:email,'CRM-007 Ops User','ACTIVE','dummy',:now,:now)",
-                p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
+        // same connection. This test has @Transactional(NOT_SUPPORTED), so
+        // the set_config(..., true) won't work without an active transaction.
+        // Use a TransactionTemplate to ensure set_config and INSERT share
+        // the same connection within a transaction.
+        new org.springframework.transaction.support.TransactionTemplate(txManager)
+                .executeWithoutResult(txStatus -> {
+                    jdbc.getJdbcTemplate().queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:email,'CRM-007 Ops User','ACTIVE','dummy',:now,:now)",
+                    p().addValue("id", userId).addValue("tenantId", tenantId)
+                            .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+                });
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'CRM-007 Ops','CRM-007 ops tests','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)

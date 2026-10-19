@@ -71,6 +71,7 @@ class TokenRevocationIntegrationTest {
     @Autowired private PasswordResetTokenRepository passwordResetTokenRepository;
     @Autowired private RoleRepository roleRepository;
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
 
@@ -93,7 +94,25 @@ class TokenRevocationIntegrationTest {
         testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Revocation Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
-        userId = userRepository.save(user).getId();
+        // public.users is FORCE RLS (V20261011_3): the fixture save must run
+        // inside a transaction scoped to the fixture tenant. A bare save relied
+        // on leftover SecurityContext state from other test classes, which made
+        // this suite order-dependent and fail-closed when run standalone.
+        org.springframework.security.authentication.UsernamePasswordAuthenticationToken fixtureAuth =
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        "fixture-" + tenantId, null,
+                        java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")));
+        fixtureAuth.setDetails(java.util.Map.of(
+                "tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(fixtureAuth);
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                    .executeWithoutResult(txStatus -> userId = userRepository.save(user).getId());
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
+        }
         seedLoginEligibleSubscription(tenantId);
 
         // Grant VIEWER role with USER.READ capability for protected endpoint tests
@@ -110,6 +129,30 @@ class TokenRevocationIntegrationTest {
         }
         UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
         userRoleGrantRepository.save(grant);
+    }
+
+
+    /** Tenant-scoped user read: bare repository reads fail closed under
+     *  public.users FORCE RLS (V20261011_3) when no request context exists. */
+    private User loadUserScoped() {
+        final User[] holder = new User[1];
+        org.springframework.security.authentication.UsernamePasswordAuthenticationToken fixtureAuth =
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        "fixture-" + tenantId, null,
+                        java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")));
+        fixtureAuth.setDetails(java.util.Map.of(
+                "tenant_id", tenantId.toString(),
+                "user_id", userId.toString()));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(fixtureAuth);
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                    .executeWithoutResult(txStatus -> holder[0] =
+                            userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow());
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
+        }
+        return holder[0];
     }
 
     // ================================================================
@@ -254,6 +297,7 @@ class TokenRevocationIntegrationTest {
 
             // Login with new password
             LoginRequest loginRequest = new LoginRequest(testEmail, newPassword);
+            loginRequest.setTenantId(tenantId);
             MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(loginRequest)))
@@ -282,7 +326,7 @@ class TokenRevocationIntegrationTest {
         @DisplayName("Session version increments on each logout")
         void sessionVersion_incrementsOnLogout() throws Exception {
             // Initial session version should be 0
-            User userBefore = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userBefore = loadUserScoped();
             long initialVersion = userBefore.getSessionVersion();
 
             // Login and logout
@@ -292,14 +336,14 @@ class TokenRevocationIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Session version should have incremented
-            User userAfter = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userAfter = loadUserScoped();
             assertThat(userAfter.getSessionVersion()).isEqualTo(initialVersion + 1);
         }
 
         @Test
         @DisplayName("Session version increments on password change")
         void sessionVersion_incrementsOnPasswordChange() throws Exception {
-            User userBefore = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userBefore = loadUserScoped();
             long initialVersion = userBefore.getSessionVersion();
 
             String accessToken = loginAndGetAccessToken();
@@ -313,14 +357,14 @@ class TokenRevocationIntegrationTest {
                             .content(objectMapper.writeValueAsString(changeRequest)))
                     .andExpect(status().isNoContent());
 
-            User userAfter = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userAfter = loadUserScoped();
             assertThat(userAfter.getSessionVersion()).isEqualTo(initialVersion + 1);
         }
 
         @Test
         @DisplayName("Multiple logouts increment session version cumulatively")
         void sessionVersion_cumulativeIncrements() throws Exception {
-            User userBefore = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userBefore = loadUserScoped();
             long initialVersion = userBefore.getSessionVersion();
 
             // Login and logout 3 times
@@ -331,7 +375,7 @@ class TokenRevocationIntegrationTest {
                         .andExpect(status().isNoContent());
             }
 
-            User userAfter = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User userAfter = loadUserScoped();
             assertThat(userAfter.getSessionVersion()).isEqualTo(initialVersion + 3);
         }
     }
@@ -348,11 +392,12 @@ class TokenRevocationIntegrationTest {
         @DisplayName("Login response JWT includes session_version matching DB")
         void jwt_includesSessionVersionClaim() throws Exception {
             // Session version should be 0 for new user
-            User user = userRepository.findByTenantIdAndId(tenantId, userId).orElseThrow();
+            User user = loadUserScoped();
             assertThat(user.getSessionVersion()).isEqualTo(0L);
 
             // Login
             LoginRequest loginRequest = new LoginRequest(testEmail, testPassword);
+            loginRequest.setTenantId(tenantId);
             MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(loginRequest)))
@@ -404,6 +449,7 @@ class TokenRevocationIntegrationTest {
 
     private LoginResult loginAndExtractTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

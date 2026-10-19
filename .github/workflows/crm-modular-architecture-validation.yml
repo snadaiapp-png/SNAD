@@ -53,6 +53,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Provision G1 restricted sanad runtime policy role
+        shell: bash
+        env:
+          PGUSER: ${{ env.SPRING_DATASOURCE_USERNAME }}
+          PGPASSWORD: ${{ env.SPRING_DATASOURCE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_arch >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_arch
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
+            -h 127.0.0.1 -p 5432 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_arch \
+            -v ON_ERROR_STOP=1 <<'SQL'
+          -- G1: provision the restricted policy role BEFORE Flyway runs
+          -- (via Spring Boot startup). The Docker POSTGRES_USER 'sanad_arch'
+          -- is a superuser by default in the postgres:16-alpine image; the
+          -- application's connection still inherits the sanad role so the
+          -- users_tenant_isolation policy applies. RLS bypass is not granted
+          -- to the application runtime.
+          SELECT 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')
+          \gexec
+          ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT sanad TO sanad_arch;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
+                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin
+            ) OR NOT pg_has_role('sanad_arch', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_arch';
+            END IF;
+          END $$;
+          SQL
+          role_flags="$(PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_arch -Atc "SELECT rolsuper || '|' || rolbypassrls || '|' || rolcanlogin FROM pg_roles WHERE rolname='sanad'")"
+          echo "G1_SANAD_ROLE_CONTRACT=$role_flags"
+          test "$role_flags" = "false|false|false"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

@@ -234,7 +234,25 @@ jobs:
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
-        run: mvn test -B -ntp -Dsurefire.useFile=false
+        run: |
+          set +e
+          log_file="${RUNNER_TEMP}/maven-test-console.log"
+          mvn test -B -ntp -Dsurefire.useFile=false > "$log_file" 2>&1
+          maven_status=$?
+          echo "MAVEN_TEST_EXIT_CODE=$maven_status"
+          echo "MAVEN_TEST_LOG_BYTES=$(wc -c < "$log_file")"
+          echo "---- Maven output tail (last 250 lines) ----"
+          tail -n 250 "$log_file"
+          exit "$maven_status"
+
+      - name: Upload Maven execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-test-console-log
+          path: ${{ runner.temp }}/maven-test-console.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Forensic Surefire failure summary
         if: failure()

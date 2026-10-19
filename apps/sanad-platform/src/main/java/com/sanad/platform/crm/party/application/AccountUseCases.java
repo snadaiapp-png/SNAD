@@ -55,10 +55,12 @@ public class AccountUseCases {
         return created;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public AccountRecord getById(UUID tenantId, UUID accountId) {
         return repo.findById(tenantId, accountId);
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<AccountRecord> list(UUID tenantId, int limit, String search) {
         return repo.findAll(tenantId, limit, search);
     }
