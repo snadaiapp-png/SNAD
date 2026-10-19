@@ -79,6 +79,22 @@ jobs:
             END IF;
           END $sanad_perf$;
           ALTER ROLE sanad_perf NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          -- G1: create the NOLOGIN policy role in this job's isolated PostgreSQL cluster.
+          DO $sanad_policy_role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              EXECUTE 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
+            END IF;
+          END $sanad_policy_role$;
+          ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT sanad TO sanad_perf;
+          DO $sanad_policy_contract$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad' AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin)
+               OR NOT pg_has_role('sanad_perf', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_perf';
+            END IF;
+          END $sanad_policy_contract$;
           SELECT 'CREATE DATABASE sanad_perf OWNER sanad_perf'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_perf')\gexec
           ALTER DATABASE sanad_perf OWNER TO sanad_perf;
@@ -230,6 +246,22 @@ jobs:
             END IF;
           END $sanad_health$;
           ALTER ROLE sanad_health NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          -- G1: create the NOLOGIN policy role in this job's isolated PostgreSQL cluster.
+          DO $sanad_policy_role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              EXECUTE 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
+            END IF;
+          END $sanad_policy_role$;
+          ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT sanad TO sanad_health;
+          DO $sanad_policy_contract$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad' AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin)
+               OR NOT pg_has_role('sanad_health', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_health';
+            END IF;
+          END $sanad_policy_contract$;
           SELECT 'CREATE DATABASE sanad_health OWNER sanad_health'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_health')\gexec
           ALTER DATABASE sanad_health OWNER TO sanad_health;
