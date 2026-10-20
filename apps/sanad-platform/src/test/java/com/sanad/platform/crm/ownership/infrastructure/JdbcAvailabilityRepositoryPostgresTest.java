@@ -40,7 +40,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void create_persistsAllFields() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability saved = inTransaction(() -> repo.create(
+        StaffAvailability saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.AVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         LocalTime.of(9, 0), LocalTime.of(17, 0), "Working from office", actorId)));
@@ -60,7 +60,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void create_persistsNullOptionalFields() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability saved = inTransaction(() -> repo.create(
+        StaffAvailability saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.UNAVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 10),
                         null, null, null, actorId)));
@@ -73,7 +73,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void createfindById_roundTrip() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability saved = inTransaction(() -> repo.create(
+        StaffAvailability saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.ON_LEAVE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 20),
                         null, null, "Vacation", actorId)));
@@ -95,12 +95,12 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
         UUID staffId = UUID.randomUUID();
 
         // availability in August
-        inTransaction(() -> repo.create(new CreateAvailabilityCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateAvailabilityCommand(
                 tenantId, staffId, AvailabilityType.AVAILABLE,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                 null, null, null, actorId)));
         // availability in September
-        inTransaction(() -> repo.create(new CreateAvailabilityCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateAvailabilityCommand(
                 tenantId, staffId, AvailabilityType.ON_LEAVE,
                 LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5),
                 null, null, "Holiday", actorId)));
@@ -121,12 +121,12 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void update_bumpsVersionAndAppliesChanges() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability created = inTransaction(() -> repo.create(
+        StaffAvailability created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.AVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         LocalTime.of(9, 0), LocalTime.of(17, 0), null, actorId)));
 
-        Optional<StaffAvailability> updated = inTransaction(() -> repo.update(
+        Optional<StaffAvailability> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateAvailabilityCommand(
                         AvailabilityType.ON_LEAVE, LocalDate.of(2026, 8, 12),
                         LocalDate.of(2026, 8, 16), null, null,
@@ -141,18 +141,18 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void update_returnsEmpty_whenVersionConflict() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability created = inTransaction(() -> repo.create(
+        StaffAvailability created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.AVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         null, null, null, actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(), new UpdateAvailabilityCommand(
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(), new UpdateAvailabilityCommand(
                 AvailabilityType.UNAVAILABLE, LocalDate.of(2026, 8, 10),
                 LocalDate.of(2026, 8, 14), null, null, "Busy", actorId, 1)));
 
         // stale version
-        Optional<StaffAvailability> conflict = inTransaction(() -> repo.update(
+        Optional<StaffAvailability> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateAvailabilityCommand(
                         AvailabilityType.ON_LEAVE, LocalDate.of(2026, 8, 12),
                         LocalDate.of(2026, 8, 16), null, null, "Gone", actorId, 0)));
@@ -164,19 +164,19 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     @Test
     void delete_removesRecord() {
         UUID staffId = UUID.randomUUID();
-        StaffAvailability created = inTransaction(() -> repo.create(
+        StaffAvailability created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.AVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         null, null, null, actorId)));
 
-        boolean deleted = inTransaction(() -> repo.delete(tenantId, created.id()));
+        boolean deleted = inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()));
         assertThat(deleted).isTrue();
         assertThat(repo.findById(tenantId, created.id())).isEmpty();
     }
 
     @Test
     void delete_returnsFalse_whenAbsent() {
-        assertThat(inTransaction(() -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
     }
 
     // ── TENANT ISOLATION ───────────────────────────────────────────────────
@@ -185,7 +185,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
     void findById_isolatedByTenant() {
         UUID staffId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        StaffAvailability saved = inTransaction(() -> repo.create(
+        StaffAvailability saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateAvailabilityCommand(tenantId, staffId, AvailabilityType.AVAILABLE,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         null, null, null, actorId)));
