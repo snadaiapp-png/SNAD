@@ -77,7 +77,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
-        Optional<ShiftAssignment> found = repo.findById(tenantId, saved.id());
+        Optional<ShiftAssignment> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -86,7 +86,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -102,8 +102,8 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                 tenantId, teamB, UUID.randomUUID(), templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
-        assertThat(repo.findByTeamId(tenantId, teamA, 50, 0)).hasSize(1);
-        assertThat(repo.findByTeamId(tenantId, teamB, 50, 0)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamA, 50, 0))).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamB, 50, 0))).hasSize(1);
     }
 
     @Test
@@ -121,14 +121,14 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                 LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5), actorId)));
 
         // query Aug 1-31: only first assignment
-        List<ShiftAssignment> aug = repo.findByStaffId(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        List<ShiftAssignment> aug = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(aug).hasSize(1);
         assertThat(aug.get(0).startDate()).isEqualTo(LocalDate.of(2026, 8, 10));
 
         // query Sep 1-30: only second assignment
-        List<ShiftAssignment> sep = repo.findByStaffId(tenantId, staffId,
-                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+        List<ShiftAssignment> sep = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId,
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
         assertThat(sep).hasSize(1);
     }
 
@@ -249,8 +249,8 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
