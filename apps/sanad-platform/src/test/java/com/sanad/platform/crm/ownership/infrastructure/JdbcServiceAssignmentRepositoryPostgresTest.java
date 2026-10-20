@@ -40,7 +40,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
 
-        ServiceAssignment saved = inTransaction(() -> repo.create(
+        ServiceAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
         assertThat(saved.id()).isNotNull();
@@ -55,7 +55,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void createfindById_roundTrip() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        ServiceAssignment saved = inTransaction(() -> repo.create(
+        ServiceAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
         Optional<ServiceAssignment> found = repo.findById(tenantId, saved.id());
@@ -76,9 +76,9 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         UUID teamB = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamA, serviceId, actorId)));
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamB, UUID.randomUUID(), actorId)));
 
         assertThat(repo.findByTeamId(tenantId, teamA)).hasSize(1);
@@ -91,9 +91,9 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         UUID serviceA = UUID.randomUUID();
         UUID serviceB = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamId, serviceA, actorId)));
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, UUID.randomUUID(), serviceB, actorId)));
 
         assertThat(repo.findByServiceId(tenantId, serviceA)).hasSize(1);
@@ -106,10 +106,10 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void update_bumpsVersionAndAppliesChanges() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        ServiceAssignment created = inTransaction(() -> repo.create(
+        ServiceAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
-        Optional<ServiceAssignment> updated = inTransaction(() -> repo.update(
+        Optional<ServiceAssignment> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateServiceAssignmentCommand(
                         ServiceAssignmentStatus.INACTIVE, actorId, 1)));
 
@@ -122,15 +122,15 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void update_returnsEmpty_whenVersionConflict() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        ServiceAssignment created = inTransaction(() -> repo.create(
+        ServiceAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(),
                 new UpdateServiceAssignmentCommand(ServiceAssignmentStatus.INACTIVE, actorId, 1)));
 
         // stale version
-        Optional<ServiceAssignment> conflict = inTransaction(() -> repo.update(
+        Optional<ServiceAssignment> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(),
                 new UpdateServiceAssignmentCommand(ServiceAssignmentStatus.ACTIVE, actorId, 0)));
         assertThat(conflict).isEmpty();
@@ -142,16 +142,16 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void delete_removesRecord() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        ServiceAssignment created = inTransaction(() -> repo.create(
+        ServiceAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
-        assertThat(inTransaction(() -> repo.delete(tenantId, created.id()))).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
         assertThat(repo.findById(tenantId, created.id())).isEmpty();
     }
 
     @Test
     void delete_returnsFalse_whenAbsent() {
-        assertThat(inTransaction(() -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
     }
 
     // ── EXISTS BY TEAM AND SERVICE ─────────────────────────────────────────
@@ -160,7 +160,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void existsByTeamAndService_trueWhenPresent() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamId, serviceId, actorId)));
         assertThat(repo.existsByTeamAndService(tenantId, teamId, serviceId, null)).isTrue();
     }
@@ -175,7 +175,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void existsByTeamAndService_excludesSpecifiedId() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        ServiceAssignment created = inTransaction(() -> repo.create(
+        ServiceAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
         // excludes itself -> false
         assertThat(repo.existsByTeamAndService(tenantId, teamId, serviceId, created.id())).isFalse();
@@ -188,7 +188,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        ServiceAssignment saved = inTransaction(() -> repo.create(
+        ServiceAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
         assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
@@ -199,7 +199,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
     void existsByTeamAndService_isolatedByTenant() {
         UUID teamId = UUID.randomUUID();
         UUID serviceId = UUID.randomUUID();
-        inTransaction(() -> repo.create(new CreateServiceAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamId, serviceId, actorId)));
         UUID otherTenant = newTenant();
         assertThat(repo.existsByTeamAndService(otherTenant, teamId, serviceId, null)).isFalse();
