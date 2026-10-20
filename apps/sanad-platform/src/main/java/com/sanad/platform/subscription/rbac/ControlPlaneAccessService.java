@@ -3,6 +3,8 @@ package com.sanad.platform.subscription.rbac;
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import com.sanad.platform.security.SecurityContextUtils;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -55,11 +57,17 @@ public class ControlPlaneAccessService {
             "PLATFORM.SECURITY.READ", "PLATFORM.SECURITY.MANAGE");
     private final CapabilityEvaluationService evaluationService;
     private final JdbcTemplate jdbc;
+    private TenantRlsTransactionContext tenantRlsTransactionContext;
 
     public ControlPlaneAccessService(CapabilityEvaluationService evaluationService,
                                      JdbcTemplate jdbc) {
         this.evaluationService = evaluationService;
         this.jdbc = jdbc;
+    }
+
+    @Autowired(required = false)
+    void setTenantRlsTransactionContext(TenantRlsTransactionContext context) {
+        this.tenantRlsTransactionContext = context;
     }
 
     public record AccessCheckV2(boolean authenticated, Map<String, Boolean> capabilities) {}
@@ -78,6 +86,16 @@ public class ControlPlaneAccessService {
             }
         }
         if (tenantId == null || userId == null) return new AccessCheckV2(false, Map.of());
+
+        // Authentication is already validated upstream. Bind its tenant to
+        // this read-only transaction explicitly: RLS must not depend solely
+        // on a thread-local SecurityContext being present in every caller
+        // (e.g. service-level invocation, async handoff, or acceptance tests).
+        // The tenant claim scopes data access; capability evaluation remains
+        // the authorization decision and this does not grant cross-tenant access.
+        if (tenantRlsTransactionContext != null) {
+            tenantRlsTransactionContext.applyForCurrentTransaction(tenantId);
+        }
 
         Map<String, Boolean> capabilities = new LinkedHashMap<>();
         for (String code : CONTROL_PLANE_CAPABILITIES) {
