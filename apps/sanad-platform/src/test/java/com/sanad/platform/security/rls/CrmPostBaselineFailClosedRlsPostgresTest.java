@@ -52,13 +52,16 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
 
     @BeforeEach
     void migrateIsolatedSchema() {
-        Flyway.configure()
+        Flyway flyway = Flyway.configure()
                 .dataSource(JDBC_URL, USER, PASSWORD)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
-                .load()
-                .migrate();
+                .load();
+        // JDBC_URL is the disposable isolated migration-test database, never the base URL.
+        flyway.clean();
+        flyway.migrate();
+        flyway.validate();
         jdbc = new JdbcTemplate(new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, true));
     }
 
