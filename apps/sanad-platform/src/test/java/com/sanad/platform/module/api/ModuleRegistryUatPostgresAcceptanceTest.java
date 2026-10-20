@@ -245,19 +245,38 @@ class ModuleRegistryUatPostgresAcceptanceTest {
             jdbc.update("DELETE FROM module_capabilities WHERE module_id = ?", id);
             jdbc.update("DELETE FROM modules WHERE id = ?", id);
         }
-        for (UUID userId : createdUsers) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
+        // Delete user rows only inside a transaction carrying the same tenant
+        // GUC on the JdbcTemplate-bound connection. Include the fixed control
+        // tenant for this suite's disposable users, but never delete that tenant.
+        org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        List<UUID> cleanupTenantIds = new ArrayList<>(createdTenants);
+        if (!createdUsers.isEmpty() && !cleanupTenantIds.contains(UUID.fromString(CONTROL_TENANT_ID))) {
+            cleanupTenantIds.add(UUID.fromString(CONTROL_TENANT_ID));
         }
-        for (UUID roleId : createdRoles) {
-            jdbc.update("DELETE FROM role_capabilities WHERE role_id = ?", roleId);
-            jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", roleId);
-            jdbc.update("DELETE FROM roles WHERE id = ?", roleId);
+        for (UUID tenantId : cleanupTenantIds) {
+            tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ? AND user_id = ?",
+                            tenantId, userId);
+                }
+                for (UUID roleId : createdRoles) {
+                    jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ? AND role_id = ?",
+                            tenantId, roleId);
+                    jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ? AND role_id = ?",
+                            tenantId, roleId);
+                    jdbc.update("DELETE FROM roles WHERE tenant_id = ? AND id = ?", tenantId, roleId);
+                }
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM users WHERE tenant_id = ? AND id = ?", tenantId, userId);
+                }
+            });
         }
+        // Tenant deletion is deliberately last and applies only to disposable
+        // tenants created by this test; FK constraints remain enabled.
         for (UUID tenantId : createdTenants) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
         createdAuditRows.clear();
