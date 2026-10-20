@@ -58,7 +58,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateSkillCommand(tenantId, staffId, "Spring",
                         SkillLevel.INTERMEDIATE, 60, actorId)));
 
-        Optional<StaffSkill> found = repo.findById(tenantId, saved.id());
+        Optional<StaffSkill> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -67,7 +67,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -82,10 +82,10 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffB, "Java", SkillLevel.BEGINNER, 30, actorId)));
 
-        List<StaffSkill> skillsA = repo.findByStaffId(tenantId, staffA);
+        List<StaffSkill> skillsA = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffA));
         assertThat(skillsA).hasSize(2);
 
-        List<StaffSkill> skillsB = repo.findByStaffId(tenantId, staffB);
+        List<StaffSkill> skillsB = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffB));
         assertThat(skillsB).hasSize(1);
     }
 
@@ -101,7 +101,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffA, "Python", SkillLevel.ADVANCED, 70, actorId)));
 
-        List<StaffSkill> javaSkills = repo.findBySkillName(tenantId, "Java");
+        List<StaffSkill> javaSkills = inTenantTransaction(tenantId, () -> repo.findBySkillName(tenantId, "Java"));
         assertThat(javaSkills).hasSize(2);
         assertThat(javaSkills.get(0).proficiency()).isEqualTo(95);
         assertThat(javaSkills.get(1).proficiency()).isEqualTo(30);
@@ -154,7 +154,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         SkillLevel.BEGINNER, 30, actorId)));
 
         assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
@@ -196,8 +196,8 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
