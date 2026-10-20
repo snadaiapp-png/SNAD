@@ -8,7 +8,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.util.List;
 import java.util.UUID;
@@ -59,7 +59,7 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
                 .validateOnMigrate(true)
                 .load()
                 .migrate();
-        jdbc = new JdbcTemplate(new DriverManagerDataSource(JDBC_URL, USER, PASSWORD));
+        jdbc = new JdbcTemplate(new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, true));
     }
 
     @Test
