@@ -39,7 +39,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void create_persistsAllFields() {
-        ShiftTemplate saved = inTransaction(() -> repo.create(
+        ShiftTemplate saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftTemplateCommand(tenantId, "Morning Shift",
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY, DayOfWeek.TUESDAY), actorId)));
@@ -60,7 +60,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void createfindById_roundTrip() {
-        ShiftTemplate saved = inTransaction(() -> repo.create(
+        ShiftTemplate saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftTemplateCommand(tenantId, "Evening Shift",
                         LocalTime.of(16, 0), LocalTime.of(0, 0),
                         List.of(DayOfWeek.WEDNESDAY), actorId)));
@@ -79,10 +79,10 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void findAll_returnsOrderedByName() {
-        inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Zebra Shift", LocalTime.of(8, 0), LocalTime.of(16, 0),
                 List.of(DayOfWeek.MONDAY), actorId)));
-        inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Alpha Shift", LocalTime.of(9, 0), LocalTime.of(17, 0),
                 List.of(DayOfWeek.TUESDAY), actorId)));
 
@@ -96,7 +96,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
     void findAll_respectsLimitAndOffset() {
         for (int i = 0; i < 5; i++) {
             final int idx = i;
-            inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+            inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                     tenantId, "Shift-" + idx, LocalTime.of(8, 0), LocalTime.of(16, 0),
                     List.of(DayOfWeek.MONDAY), actorId)));
         }
@@ -111,12 +111,12 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void update_bumpsVersionAndAppliesChanges() {
-        ShiftTemplate created = inTransaction(() -> repo.create(
+        ShiftTemplate created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftTemplateCommand(tenantId, "Morning",
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId)));
 
-        Optional<ShiftTemplate> updated = inTransaction(() -> repo.update(
+        Optional<ShiftTemplate> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateShiftTemplateCommand(
                         "Afternoon", LocalTime.of(12, 0), LocalTime.of(20, 0),
                         List.of(DayOfWeek.FRIDAY), ShiftTemplateStatus.INACTIVE,
@@ -133,19 +133,19 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void update_returnsEmpty_whenVersionConflict() {
-        ShiftTemplate created = inTransaction(() -> repo.create(
+        ShiftTemplate created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftTemplateCommand(tenantId, "Morning",
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId)));
 
         // first update succeeds (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(), new UpdateShiftTemplateCommand(
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(), new UpdateShiftTemplateCommand(
                 "Afternoon", LocalTime.of(12, 0), LocalTime.of(20, 0),
                 List.of(DayOfWeek.FRIDAY), ShiftTemplateStatus.INACTIVE,
                 actorId, 1)));
 
         // stale version returns Optional.empty()
-        Optional<ShiftTemplate> conflict = inTransaction(() -> repo.update(
+        Optional<ShiftTemplate> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateShiftTemplateCommand(
                         "Night", LocalTime.of(22, 0), LocalTime.of(6, 0),
                         List.of(DayOfWeek.SATURDAY), ShiftTemplateStatus.ACTIVE,
@@ -157,7 +157,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void existsByName_trueWhenPresent() {
-        inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Morning", LocalTime.of(8, 0), LocalTime.of(16, 0),
                 List.of(DayOfWeek.MONDAY), actorId)));
         assertThat(repo.existsByName(tenantId, "Morning", null)).isTrue();
@@ -170,7 +170,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void existsByName_excludesSpecifiedId() {
-        ShiftTemplate created = inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+        ShiftTemplate created = inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Morning", LocalTime.of(8, 0), LocalTime.of(16, 0),
                 List.of(DayOfWeek.MONDAY), actorId)));
         // excludes itself -> false
@@ -182,7 +182,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
     @Test
     void findById_isolatedByTenant() {
         UUID otherTenant = newTenant();
-        ShiftTemplate saved = inTransaction(() -> repo.create(
+        ShiftTemplate saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftTemplateCommand(tenantId, "Morning",
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId)));
@@ -193,7 +193,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void existsByName_isolatedByTenant() {
-        inTransaction(() -> repo.create(new CreateShiftTemplateCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Morning", LocalTime.of(8, 0), LocalTime.of(16, 0),
                 List.of(DayOfWeek.MONDAY), actorId)));
         UUID otherTenant = newTenant();
