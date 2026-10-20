@@ -78,7 +78,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 20),
                         null, null, "Vacation", actorId)));
 
-        Optional<StaffAvailability> found = repo.findById(tenantId, saved.id());
+        Optional<StaffAvailability> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -87,7 +87,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -105,13 +105,13 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
                 LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5),
                 null, null, "Holiday", actorId)));
 
-        List<StaffAvailability> aug = repo.findByStaffId(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        List<StaffAvailability> aug = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(aug).hasSize(1);
         assertThat(aug.get(0).type()).isEqualTo(AvailabilityType.AVAILABLE);
 
-        List<StaffAvailability> sep = repo.findByStaffId(tenantId, staffId,
-                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+        List<StaffAvailability> sep = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId,
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
         assertThat(sep).hasSize(1);
         assertThat(sep.get(0).type()).isEqualTo(AvailabilityType.ON_LEAVE);
     }
@@ -171,7 +171,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
 
         boolean deleted = inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()));
         assertThat(deleted).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
@@ -190,7 +190,7 @@ class JdbcAvailabilityRepositoryPostgresTest extends CrmRepositoryPostgresTestBa
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         null, null, null, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 }
