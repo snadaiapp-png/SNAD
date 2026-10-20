@@ -560,6 +560,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
+                        MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -798,6 +800,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
+                        MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
