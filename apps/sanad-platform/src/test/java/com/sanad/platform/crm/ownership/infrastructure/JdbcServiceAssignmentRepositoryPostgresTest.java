@@ -58,7 +58,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         ServiceAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
-        Optional<ServiceAssignment> found = repo.findById(tenantId, saved.id());
+        Optional<ServiceAssignment> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -67,7 +67,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -81,8 +81,8 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamB, UUID.randomUUID(), actorId)));
 
-        assertThat(repo.findByTeamId(tenantId, teamA)).hasSize(1);
-        assertThat(repo.findByTeamId(tenantId, teamB)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamA))).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamB))).hasSize(1);
     }
 
     @Test
@@ -96,8 +96,8 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, UUID.randomUUID(), serviceB, actorId)));
 
-        assertThat(repo.findByServiceId(tenantId, serviceA)).hasSize(1);
-        assertThat(repo.findByServiceId(tenantId, serviceB)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceA))).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceB))).hasSize(1);
     }
 
     // ── UPDATE ─────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
         assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
@@ -191,8 +191,8 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         ServiceAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
