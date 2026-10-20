@@ -63,7 +63,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        Optional<CapacityPlan> found = repo.findById(tenantId, saved.id());
+        Optional<CapacityPlan> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -72,7 +72,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -86,7 +86,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, teamId, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                 100, actorId)));
 
-        List<CapacityPlan> plans = repo.findByTeamId(tenantId, teamId);
+        List<CapacityPlan> plans = inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamId));
         assertThat(plans).hasSize(2);
         // ordered by period_start DESC
         assertThat(plans.get(0).periodStart()).isEqualTo(LocalDate.of(2026, 8, 1));
@@ -106,8 +106,8 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query mid-August -> should find it
-        Optional<CapacityPlan> found = repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 8, 15));
+        Optional<CapacityPlan> found = inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 8, 15)));
         assertThat(found).isPresent();
         assertThat(found.get().id()).isEqualTo(draft.id());
     }
@@ -121,8 +121,8 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         100, actorId)));
 
         // still DRAFT, not ACTIVE
-        assertThat(repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 8, 15))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 8, 15)))).isEmpty();
     }
 
     @Test
@@ -136,8 +136,8 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query September -> no match
-        assertThat(repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 9, 15))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 9, 15)))).isEmpty();
     }
 
     // ── UPDATE ─────────────────────────────────────────────────────────────
@@ -191,8 +191,8 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
@@ -203,7 +203,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, teamId, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                 100, actorId)));
 
-        assertThat(repo.findByTeamId(otherTenant, teamId)).isEmpty();
-        assertThat(repo.findByTeamId(tenantId, teamId)).hasSize(1);
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findByTeamId(otherTenant, teamId))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamId))).hasSize(1);
     }
 }
