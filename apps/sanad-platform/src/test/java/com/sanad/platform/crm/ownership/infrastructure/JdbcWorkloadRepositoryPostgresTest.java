@@ -80,7 +80,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         40, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        Optional<WorkloadAssignment> found = repo.findById(tenantId, saved.id());
+        Optional<WorkloadAssignment> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -89,7 +89,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -106,11 +106,11 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         inTenantTransaction(tenantId, () -> repo.update(tenantId, w2.id(),
                 new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
-        List<WorkloadAssignment> planned = repo.findByStaffId(tenantId, staffId, WorkloadStatus.PLANNED);
+        List<WorkloadAssignment> planned = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId, WorkloadStatus.PLANNED));
         assertThat(planned).hasSize(1);
         assertThat(planned.get(0).estimatedHours()).isEqualTo(20);
 
-        List<WorkloadAssignment> inProgress = repo.findByStaffId(tenantId, staffId, WorkloadStatus.IN_PROGRESS);
+        List<WorkloadAssignment> inProgress = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId, WorkloadStatus.IN_PROGRESS));
         assertThat(inProgress).hasSize(1);
         assertThat(inProgress.get(0).estimatedHours()).isEqualTo(30);
     }
@@ -128,8 +128,8 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, serviceB, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
 
-        assertThat(repo.findByServiceId(tenantId, serviceA)).hasSize(1);
-        assertThat(repo.findByServiceId(tenantId, serviceB)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceA))).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceB))).hasSize(1);
     }
 
     // ── UPDATE ─────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         20, LocalDate.of(2026, 8, 10), null, actorId)));
 
         assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
@@ -266,8 +266,8 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         20, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
