@@ -65,7 +65,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                         LocalTime.of(16, 0), LocalTime.of(0, 0),
                         List.of(DayOfWeek.WEDNESDAY), actorId)));
 
-        Optional<ShiftTemplate> found = repo.findById(tenantId, saved.id());
+        Optional<ShiftTemplate> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -74,7 +74,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -86,7 +86,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                 tenantId, "Alpha Shift", LocalTime.of(9, 0), LocalTime.of(17, 0),
                 List.of(DayOfWeek.TUESDAY), actorId)));
 
-        List<ShiftTemplate> all = repo.findAll(tenantId, 50, 0);
+        List<ShiftTemplate> all = inTenantTransaction(tenantId, () -> repo.findAll(tenantId, 50, 0));
         assertThat(all).hasSize(2);
         assertThat(all.get(0).name()).isEqualTo("Alpha Shift");
         assertThat(all.get(1).name()).isEqualTo("Zebra Shift");
@@ -101,7 +101,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                     List.of(DayOfWeek.MONDAY), actorId)));
         }
 
-        List<ShiftTemplate> page = repo.findAll(tenantId, 2, 1);
+        List<ShiftTemplate> page = inTenantTransaction(tenantId, () -> repo.findAll(tenantId, 2, 1));
         assertThat(page).hasSize(2);
         assertThat(page.get(0).name()).isEqualTo("Shift-1");
         assertThat(page.get(1).name()).isEqualTo("Shift-2");
@@ -187,8 +187,8 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
