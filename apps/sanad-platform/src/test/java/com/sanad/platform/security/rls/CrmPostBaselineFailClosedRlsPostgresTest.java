@@ -114,14 +114,16 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
     void validAndSwitchedTenantContextsNeverExposeAnotherTenant() {
         for (String table : TABLES) {
             jdbc.execute("RESET app.tenant_id");
+            // Discover candidate tenant identities from the tenant registry, not
+            // from the protected table (which correctly returns no rows without context).
             List<String> tenants = jdbc.query(
-                    "SELECT DISTINCT tenant_id::text FROM public." + table
-                            + " WHERE tenant_id IS NOT NULL LIMIT 2",
+                    "SELECT id::text FROM public.tenants ORDER BY id LIMIT 2",
                     (rs, row) -> rs.getString(1));
             if (tenants.isEmpty()) {
-                // Policy metadata and the fail-closed empty-context contract are
-                // still checked for empty tables by the companion tests.
-                continue;
+                // No tenant fixture exists in this database. Still exercise two
+                // valid UUID-shaped contexts; metadata assertions separately prove
+                // the actual policies are attached to all nine target tables.
+                tenants = List.of(UUID.randomUUID().toString(), UUID.randomUUID().toString());
             }
 
             String tenantA = tenants.get(0);
