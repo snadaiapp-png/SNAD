@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -75,6 +76,17 @@ class HrG3AuthorizationScopeTest {
                         || "sanad".equals(System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "")),
                 "PostgreSQL Direct tests require SPRING_DATASOURCE_URL"
         );
+        // Ensure the schema exists regardless of test-class execution order: this class is a
+        // plain-JDBC fixture without a Spring context, so it cannot rely on another class
+        // having migrated first (Surefire filesystem order is not stable across builds).
+        Flyway.configure()
+                .dataSource(
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .load()
+                .migrate();
         dataSource = new TenantContextDataSource();
         scopeResolver = new HrEmploymentScopeResolver(new JdbcTemplate(dataSource));
         repository = new PerformanceReviewRepository(dataSource);

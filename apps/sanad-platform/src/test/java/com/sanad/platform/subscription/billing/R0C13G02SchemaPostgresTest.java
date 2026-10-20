@@ -118,7 +118,9 @@ class R0C13G02SchemaPostgresTest {
             // V20261011_3 (PR #1413) adds FORCE RLS on public.users with fail-closed sanad-role policy.
             // V20261011_4 (PR #1413) adds the pre-auth login_tenant_index resolver table + trigger.
             // V20261019_1 (PR #1417) adds the fail-closed tenant policy for the production runtime/Flyway identity.
-            assertThat(rs.getString(1)).isEqualTo("20261019.1");
+            // V20261020_1/_2 (PR #1420, transfer of #1050/#1044) add the Supabase Data API default-deny pass
+            // and post-baseline CRM RLS at the sequence tail (order-of-execution requirement).
+            assertThat(rs.getString(1)).isEqualTo("20261020.2");
         }
     }
 

@@ -255,7 +255,12 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: G1 closure (PR #1417) adds the fail-closed tenant policy for the
     // production runtime/Flyway identity so FORCE RLS on public.users does not default-deny it.
     private static final String USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION = "20261019.1";
-    private static final String LATEST_MIGRATION_VERSION = USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION;
+    // TEST_ALIGNMENT_REASON: Supabase Data API default-deny + post-baseline CRM RLS (transfer of
+    // #1050/#1044 via PR #1420) sit at the sequence tail so the deny-by-default pass runs after
+    // every function-creating migration above.
+    private static final String SUPABASE_DATA_API_DEFAULT_DENY_VERSION = "20261020.1";
+    private static final String POST_BASELINE_CRM_RLS_VERSION = "20261020.2";
+    private static final String LATEST_MIGRATION_VERSION = POST_BASELINE_CRM_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -555,6 +560,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
+                        MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -793,6 +800,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
                         MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
+                        MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

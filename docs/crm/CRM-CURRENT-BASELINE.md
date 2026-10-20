@@ -516,6 +516,8 @@ production data are modified by this reconciliation.
 | `20260822.4` | `V20260822_4__crm_event_outbox_contract_alignment.sql` | CRM event outbox contract alignment | CURRENT CHAIN |
 | `20260823.1` | `V20260823_1__crm_contacts_force_rls.sql` | CRM contacts FORCE RLS + fail-closed | CURRENT CHAIN |
 | `20260823.2` | `V20260823_2__crm_participant_role_exclusivity.sql` | CRM participant role exclusivity + W2 invariant | CURRENT CHAIN |
+| `20261020.1` | `V20261020_1__supabase_data_api_default_deny.sql` | Supabase Data API default-deny pass (transfer of #1050/#1044 via #1420) | CURRENT CHAIN |
+| `20261020.2` | `V20261020_2__enable_post_baseline_crm_rls.sql` | Enable RLS on post-baseline CRM tables (transfer of #1050/#1044 via #1420) | CURRENT CHAIN |
 
 This section exists specifically so the governance drift gate can reconcile the
 current on-disk CRM migration inventory without weakening the gate or editing
