@@ -215,26 +215,37 @@ class RbacAccessCheckPostgresAcceptanceTest {
 
     @AfterEach
     void cleanup() {
-        // Reverse dependency order, scoped to THIS run's records only.
-        for (UUID userId : createdUsers) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
-        }
-        for (UUID roleId : createdRoles) {
-            jdbc.update("DELETE FROM role_capabilities WHERE role_id = ?", roleId);
-        }
-        for (UUID roleId : createdRoles) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", roleId);
-            jdbc.update("DELETE FROM roles WHERE id = ?", roleId);
-        }
-        for (UUID userId : createdUsers) {
-            jdbc.update("DELETE FROM users WHERE id = ?", userId);
-        }
+        // RLS on public.users is fail-closed. Every user-table delete must run
+        // in a transaction that sets app.tenant_id on the same connection.
+        // Delete only rows created by this test; never sweep a whole tenant.
+        org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
         for (UUID tenantId : createdTenants) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
+            tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ? AND user_id = ?",
+                            tenantId, userId);
+                }
+                for (UUID roleId : createdRoles) {
+                    jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ? AND role_id = ?",
+                            tenantId, roleId);
+                    jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ? AND role_id = ?",
+                            tenantId, roleId);
+                    jdbc.update("DELETE FROM roles WHERE tenant_id = ? AND id = ?", tenantId, roleId);
+                }
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM users WHERE tenant_id = ? AND id = ?", tenantId, userId);
+                }
+            });
+        }
+        // Only remove tenants inserted by this test. seedTenantWithId may refer
+        // to a pre-existing control-plane tenant and must not register it for deletion.
+        for (UUID tenantId : createdTenants) {
+            if (!CONTROL_TENANT_ID.equals(tenantId.toString())) {
+                jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
+            }
         }
         // Defensive restore of any capability status touched by RB-12.
         jdbc.update("""
@@ -641,12 +652,14 @@ class RbacAccessCheckPostgresAcceptanceTest {
 
     private void seedTenantWithId(UUID id, String subdomain) {
         Instant now = Instant.now();
-        jdbc.update("""
+        int inserted = jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (?, ?, ?, 'ACTIVE', ?, ?)
                 ON CONFLICT (id) DO NOTHING
                 """, id, "RBAC-ACC Control Plane", subdomain,
                 Timestamp.from(now), Timestamp.from(now));
-        createdTenants.add(id);
+        if (inserted == 1) {
+            createdTenants.add(id);
+        }
     }
 }
