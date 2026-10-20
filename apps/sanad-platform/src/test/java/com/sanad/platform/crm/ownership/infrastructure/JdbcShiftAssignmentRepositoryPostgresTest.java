@@ -54,7 +54,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID teamId = UUID.randomUUID();
         UUID staffId = UUID.randomUUID();
 
-        ShiftAssignment saved = inTransaction(() -> repo.create(
+        ShiftAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, teamId, staffId, templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
@@ -72,7 +72,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
     @Test
     void createfindById_roundTrip() {
         UUID templateId = createTemplate();
-        ShiftAssignment saved = inTransaction(() -> repo.create(
+        ShiftAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(),
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
@@ -95,10 +95,10 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID teamA = UUID.randomUUID();
         UUID teamB = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, teamA, UUID.randomUUID(), templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, teamB, UUID.randomUUID(), templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
@@ -112,11 +112,11 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID staffId = UUID.randomUUID();
 
         // assignment starts Aug 10
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, UUID.randomUUID(), staffId, templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
         // assignment starts Sep 1
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, UUID.randomUUID(), staffId, templateId,
                 LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5), actorId)));
 
@@ -137,7 +137,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
     @Test
     void update_bumpsVersionAndAppliesChanges() {
         UUID templateId = createTemplate();
-        ShiftAssignment created = inTransaction(() -> repo.create(
+        ShiftAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(),
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
@@ -147,7 +147,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         LocalTime.of(22, 0), LocalTime.of(6, 0),
                         List.of(DayOfWeek.WEDNESDAY), actorId))).id();
 
-        Optional<ShiftAssignment> updated = inTransaction(() -> repo.update(
+        Optional<ShiftAssignment> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateShiftAssignmentCommand(
                         newTemplateId, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 15),
                         ShiftAssignmentStatus.ACTIVE, actorId, 1)));
@@ -162,18 +162,18 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
     @Test
     void update_returnsEmpty_whenVersionConflict() {
         UUID templateId = createTemplate();
-        ShiftAssignment created = inTransaction(() -> repo.create(
+        ShiftAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(),
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(), new UpdateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(), new UpdateShiftAssignmentCommand(
                 templateId, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 15),
                 ShiftAssignmentStatus.ACTIVE, actorId, 1)));
 
         // stale version returns Optional.empty()
-        Optional<ShiftAssignment> conflict = inTransaction(() -> repo.update(
+        Optional<ShiftAssignment> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateShiftAssignmentCommand(
                         templateId, LocalDate.of(2026, 8, 12), LocalDate.of(2026, 8, 16),
                         ShiftAssignmentStatus.COMPLETED, actorId, 0)));
@@ -187,7 +187,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID templateId = createTemplate();
         UUID staffId = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, UUID.randomUUID(), staffId, templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
@@ -209,12 +209,12 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID templateId = createTemplate();
         UUID staffId = UUID.randomUUID();
 
-        ShiftAssignment cancelled = inTransaction(() -> repo.create(
+        ShiftAssignment cancelled = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(), staffId, templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
         // cancel it
-        inTransaction(() -> repo.update(tenantId, cancelled.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, cancelled.id(),
                 new UpdateShiftAssignmentCommand(templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
                         ShiftAssignmentStatus.CANCELLED, actorId, 1)));
@@ -229,7 +229,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID templateId = createTemplate();
         UUID staffId = UUID.randomUUID();
 
-        ShiftAssignment existing = inTransaction(() -> repo.create(
+        ShiftAssignment existing = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(), staffId, templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
@@ -244,7 +244,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
     void findById_isolatedByTenant() {
         UUID templateId = createTemplate();
         UUID otherTenant = newTenant();
-        ShiftAssignment saved = inTransaction(() -> repo.create(
+        ShiftAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateShiftAssignmentCommand(tenantId, UUID.randomUUID(),
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
@@ -259,7 +259,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         UUID staffId = UUID.randomUUID();
         UUID otherTenant = newTenant();
 
-        inTransaction(() -> repo.create(new CreateShiftAssignmentCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateShiftAssignmentCommand(
                 tenantId, UUID.randomUUID(), staffId, templateId,
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
