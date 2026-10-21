@@ -39,7 +39,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void create_persistsAllFields() {
         UUID teamId = UUID.randomUUID();
-        CapacityPlan saved = inTransaction(() -> repo.create(
+        CapacityPlan saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
@@ -58,12 +58,12 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void createfindById_roundTrip() {
         UUID teamId = UUID.randomUUID();
-        CapacityPlan saved = inTransaction(() -> repo.create(
+        CapacityPlan saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        Optional<CapacityPlan> found = repo.findById(tenantId, saved.id());
+        Optional<CapacityPlan> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -72,21 +72,21 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
     void findByTeamId_returnsOrderedByPeriodStartDesc() {
         UUID teamId = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateCapacityPlanCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateCapacityPlanCommand(
                 tenantId, teamId, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31),
                 50, actorId)));
-        inTransaction(() -> repo.create(new CreateCapacityPlanCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateCapacityPlanCommand(
                 tenantId, teamId, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                 100, actorId)));
 
-        List<CapacityPlan> plans = repo.findByTeamId(tenantId, teamId);
+        List<CapacityPlan> plans = inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamId));
         assertThat(plans).hasSize(2);
         // ordered by period_start DESC
         assertThat(plans.get(0).periodStart()).isEqualTo(LocalDate.of(2026, 8, 1));
@@ -98,16 +98,16 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID teamId = UUID.randomUUID();
 
         // create and activate a plan for August
-        CapacityPlan draft = inTransaction(() -> repo.create(
+        CapacityPlan draft = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
-        inTransaction(() -> repo.update(tenantId, draft.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, draft.id(),
                 new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query mid-August -> should find it
-        Optional<CapacityPlan> found = repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 8, 15));
+        Optional<CapacityPlan> found = inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 8, 15)));
         assertThat(found).isPresent();
         assertThat(found.get().id()).isEqualTo(draft.id());
     }
@@ -115,29 +115,29 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void findActiveByTeamAndPeriod_returnsEmpty_whenNoActivePlan() {
         UUID teamId = UUID.randomUUID();
-        inTransaction(() -> repo.create(
+        inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
         // still DRAFT, not ACTIVE
-        assertThat(repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 8, 15))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 8, 15)))).isEmpty();
     }
 
     @Test
     void findActiveByTeamAndPeriod_returnsEmpty_whenDateOutsideRange() {
         UUID teamId = UUID.randomUUID();
-        CapacityPlan draft = inTransaction(() -> repo.create(
+        CapacityPlan draft = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
-        inTransaction(() -> repo.update(tenantId, draft.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, draft.id(),
                 new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query September -> no match
-        assertThat(repo.findActiveByTeamAndPeriod(
-                tenantId, teamId, LocalDate.of(2026, 9, 15))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findActiveByTeamAndPeriod(
+                tenantId, teamId, LocalDate.of(2026, 9, 15)))).isEmpty();
     }
 
     // ── UPDATE ─────────────────────────────────────────────────────────────
@@ -145,12 +145,12 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_bumpsVersionAndAppliesChanges() {
         UUID teamId = UUID.randomUUID();
-        CapacityPlan created = inTransaction(() -> repo.create(
+        CapacityPlan created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        Optional<CapacityPlan> updated = inTransaction(() -> repo.update(
+        Optional<CapacityPlan> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateCapacityPlanCommand(
                         200, 50, CapacityStatus.ACTIVE, actorId, 1)));
 
@@ -164,17 +164,17 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_returnsEmpty_whenVersionConflict() {
         UUID teamId = UUID.randomUUID();
-        CapacityPlan created = inTransaction(() -> repo.create(
+        CapacityPlan created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(),
                 new UpdateCapacityPlanCommand(150, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // stale version
-        Optional<CapacityPlan> conflict = inTransaction(() -> repo.update(
+        Optional<CapacityPlan> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(),
                 new UpdateCapacityPlanCommand(200, 0, CapacityStatus.COMPLETED, actorId, 0)));
         assertThat(conflict).isEmpty();
@@ -186,24 +186,24 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void findById_isolatedByTenant() {
         UUID teamId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        CapacityPlan saved = inTransaction(() -> repo.create(
+        CapacityPlan saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateCapacityPlanCommand(tenantId, teamId,
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
     void findByTeamId_isolatedByTenant() {
         UUID teamId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        inTransaction(() -> repo.create(new CreateCapacityPlanCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateCapacityPlanCommand(
                 tenantId, teamId, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                 100, actorId)));
 
-        assertThat(repo.findByTeamId(otherTenant, teamId)).isEmpty();
-        assertThat(repo.findByTeamId(tenantId, teamId)).hasSize(1);
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findByTeamId(otherTenant, teamId))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByTeamId(tenantId, teamId))).hasSize(1);
     }
 }

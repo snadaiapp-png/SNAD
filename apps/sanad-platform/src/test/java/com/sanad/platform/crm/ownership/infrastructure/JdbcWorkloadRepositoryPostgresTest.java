@@ -43,7 +43,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID serviceId = UUID.randomUUID();
         UUID jobId = UUID.randomUUID();
 
-        WorkloadAssignment saved = inTransaction(() -> repo.create(
+        WorkloadAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, serviceId, jobId,
                         40, LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
@@ -64,7 +64,7 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void create_persistsNullOptionalFields() {
         UUID staffId = UUID.randomUUID();
 
-        WorkloadAssignment saved = inTransaction(() -> repo.create(
+        WorkloadAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         20, LocalDate.of(2026, 8, 10), null, actorId)));
 
@@ -76,11 +76,11 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void createfindById_roundTrip() {
         UUID staffId = UUID.randomUUID();
-        WorkloadAssignment saved = inTransaction(() -> repo.create(
+        WorkloadAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         40, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        Optional<WorkloadAssignment> found = repo.findById(tenantId, saved.id());
+        Optional<WorkloadAssignment> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -89,28 +89,28 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
     void findByStaffId_filtersByStatus() {
         UUID staffId = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, null, null, 20,
                 LocalDate.of(2026, 8, 10), null, actorId)));
         // create another and update to IN_PROGRESS
-        WorkloadAssignment w2 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        WorkloadAssignment w2 = inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, null, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
-        inTransaction(() -> repo.update(tenantId, w2.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, w2.id(),
                 new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
-        List<WorkloadAssignment> planned = repo.findByStaffId(tenantId, staffId, WorkloadStatus.PLANNED);
+        List<WorkloadAssignment> planned = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId, WorkloadStatus.PLANNED));
         assertThat(planned).hasSize(1);
         assertThat(planned.get(0).estimatedHours()).isEqualTo(20);
 
-        List<WorkloadAssignment> inProgress = repo.findByStaffId(tenantId, staffId, WorkloadStatus.IN_PROGRESS);
+        List<WorkloadAssignment> inProgress = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffId, WorkloadStatus.IN_PROGRESS));
         assertThat(inProgress).hasSize(1);
         assertThat(inProgress.get(0).estimatedHours()).isEqualTo(30);
     }
@@ -121,15 +121,15 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID serviceA = UUID.randomUUID();
         UUID serviceB = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceA, null, 20,
                 LocalDate.of(2026, 8, 10), null, actorId)));
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceB, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
 
-        assertThat(repo.findByServiceId(tenantId, serviceA)).hasSize(1);
-        assertThat(repo.findByServiceId(tenantId, serviceB)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceA))).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () -> repo.findByServiceId(tenantId, serviceB))).hasSize(1);
     }
 
     // ── UPDATE ─────────────────────────────────────────────────────────────
@@ -137,11 +137,11 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_bumpsVersionAndAppliesChanges() {
         UUID staffId = UUID.randomUUID();
-        WorkloadAssignment created = inTransaction(() -> repo.create(
+        WorkloadAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         40, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        Optional<WorkloadAssignment> updated = inTransaction(() -> repo.update(
+        Optional<WorkloadAssignment> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateWorkloadCommand(
                         35, WorkloadStatus.COMPLETED, LocalDate.of(2026, 8, 14), actorId, 1)));
 
@@ -155,16 +155,16 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_returnsEmpty_whenVersionConflict() {
         UUID staffId = UUID.randomUUID();
-        WorkloadAssignment created = inTransaction(() -> repo.create(
+        WorkloadAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         40, LocalDate.of(2026, 8, 10), null, actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(),
                 new UpdateWorkloadCommand(20, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // stale version
-        Optional<WorkloadAssignment> conflict = inTransaction(() -> repo.update(
+        Optional<WorkloadAssignment> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(),
                 new UpdateWorkloadCommand(40, WorkloadStatus.COMPLETED, null, actorId, 0)));
         assertThat(conflict).isEmpty();
@@ -175,17 +175,17 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void delete_removesRecord() {
         UUID staffId = UUID.randomUUID();
-        WorkloadAssignment created = inTransaction(() -> repo.create(
+        WorkloadAssignment created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         20, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        assertThat(inTransaction(() -> repo.delete(tenantId, created.id()))).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
     void delete_returnsFalse_whenAbsent() {
-        assertThat(inTransaction(() -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
     }
 
     // ── AGGREGATE QUERIES ──────────────────────────────────────────────────
@@ -196,27 +196,27 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID serviceId = UUID.randomUUID();
 
         // PLANNED: 20h
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 20,
                 LocalDate.of(2026, 8, 10), null, actorId)));
 
         // IN_PROGRESS: 30h
-        WorkloadAssignment w2 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        WorkloadAssignment w2 = inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
-        inTransaction(() -> repo.update(tenantId, w2.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, w2.id(),
                 new UpdateWorkloadCommand(null, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // COMPLETED: 40h (should not be counted)
-        WorkloadAssignment w3 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        WorkloadAssignment w3 = inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 40,
                 LocalDate.of(2026, 8, 12), null, actorId)));
-        inTransaction(() -> repo.update(tenantId, w3.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, w3.id(),
                 new UpdateWorkloadCommand(40, WorkloadStatus.COMPLETED,
                         LocalDate.of(2026, 8, 14), actorId, 1)));
 
-        int sum = repo.sumEstimatedHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        int sum = inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(sum).isEqualTo(50); // 20 + 30
     }
 
@@ -226,34 +226,34 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID serviceId = UUID.randomUUID();
 
         // IN_PROGRESS with actualHours=25
-        WorkloadAssignment w1 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        WorkloadAssignment w1 = inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 20,
                 LocalDate.of(2026, 8, 10), null, actorId)));
-        inTransaction(() -> repo.update(tenantId, w1.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, w1.id(),
                 new UpdateWorkloadCommand(25, WorkloadStatus.IN_PROGRESS, null, actorId, 1)));
 
         // COMPLETED with actualHours=35
-        WorkloadAssignment w2 = inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        WorkloadAssignment w2 = inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 30,
                 LocalDate.of(2026, 8, 11), null, actorId)));
-        inTransaction(() -> repo.update(tenantId, w2.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, w2.id(),
                 new UpdateWorkloadCommand(35, WorkloadStatus.COMPLETED,
                         LocalDate.of(2026, 8, 14), actorId, 1)));
 
         // PLANNED (should not be counted)
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, serviceId, null, 40,
                 LocalDate.of(2026, 8, 12), null, actorId)));
 
-        int sum = repo.sumActualHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        int sum = inTenantTransaction(tenantId, () -> repo.sumActualHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(sum).isEqualTo(60); // 25 + 35
     }
 
     @Test
     void sumEstimatedHoursByStaff_returnsZero_whenNoData() {
-        assertThat(repo.sumEstimatedHoursByStaff(tenantId, UUID.randomUUID(),
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isZero();
+        assertThat(inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, UUID.randomUUID(),
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isZero();
     }
 
     // ── TENANT ISOLATION ───────────────────────────────────────────────────
@@ -262,25 +262,25 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void findById_isolatedByTenant() {
         UUID staffId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        WorkloadAssignment saved = inTransaction(() -> repo.create(
+        WorkloadAssignment saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateWorkloadCommand(tenantId, staffId, null, null,
                         20, LocalDate.of(2026, 8, 10), null, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
     void sumEstimatedHoursByStaff_isolatedByTenant() {
         UUID staffId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        inTransaction(() -> repo.create(new CreateWorkloadCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateWorkloadCommand(
                 tenantId, staffId, null, null, 40,
                 LocalDate.of(2026, 8, 10), null, actorId)));
 
-        assertThat(repo.sumEstimatedHoursByStaff(otherTenant, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isZero();
-        assertThat(repo.sumEstimatedHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isEqualTo(40);
+        assertThat(inTenantTransaction(otherTenant, () -> repo.sumEstimatedHoursByStaff(otherTenant, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isZero();
+        assertThat(inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isEqualTo(40);
     }
 }

@@ -260,7 +260,10 @@ class CrmPostgresMigrationTest {
     // every function-creating migration above.
     private static final String SUPABASE_DATA_API_DEFAULT_DENY_VERSION = "20261020.1";
     private static final String POST_BASELINE_CRM_RLS_VERSION = "20261020.2";
-    private static final String LATEST_MIGRATION_VERSION = POST_BASELINE_CRM_RLS_VERSION;
+    // TEST_ALIGNMENT_REASON: PR #1422 adds the forward-only fail-closed RLS hardening for the
+    // nine post-baseline CRM tables (missing/empty tenant context must deny) at the sequence tail.
+    private static final String POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION = "20261021.1";
+    private static final String LATEST_MIGRATION_VERSION = POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -562,6 +565,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
                         MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
+                        MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -802,6 +806,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PRE_AUTH_TENANT_RESOLVER_VERSION),
                         MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
+                        MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

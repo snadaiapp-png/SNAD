@@ -317,6 +317,9 @@ class CrmFlywayHistoryAssertionTest {
             // migration above (order-of-execution requirement proven by SupabaseDataApiDefaultDenyPostgresTest).
             , "20261020.1"   // supabase data api default-deny (public schema, anon/authenticated roles)
             , "20261020.2"   // enable RLS on post-baseline CRM tables
+            // PR #1422: forward-only fail-closed RLS hardening for the nine post-baseline CRM
+            // tables (missing/empty app.tenant_id must deny) at the sequence tail.
+            , "20261021.1"   // fail-closed RLS on post-baseline CRM tables
     );
 
 

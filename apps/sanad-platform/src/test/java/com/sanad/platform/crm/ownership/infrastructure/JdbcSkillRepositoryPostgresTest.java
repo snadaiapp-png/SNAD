@@ -38,7 +38,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void create_persistsAllFields() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill saved = inTransaction(() -> repo.create(
+        StaffSkill saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.ADVANCED, 80, actorId)));
 
@@ -54,11 +54,11 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void createfindById_roundTrip() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill saved = inTransaction(() -> repo.create(
+        StaffSkill saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Spring",
                         SkillLevel.INTERMEDIATE, 60, actorId)));
 
-        Optional<StaffSkill> found = repo.findById(tenantId, saved.id());
+        Optional<StaffSkill> found = inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()));
         assertThat(found).isPresent();
         assertThat(found.get()).isEqualTo(saved);
     }
@@ -67,7 +67,7 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_returnsEmpty_whenMissing() {
-        assertThat(repo.findById(tenantId, UUID.randomUUID())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, UUID.randomUUID()))).isEmpty();
     }
 
     @Test
@@ -75,17 +75,17 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID staffA = UUID.randomUUID();
         UUID staffB = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffA, "Java", SkillLevel.ADVANCED, 80, actorId)));
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffA, "Spring", SkillLevel.INTERMEDIATE, 60, actorId)));
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffB, "Java", SkillLevel.BEGINNER, 30, actorId)));
 
-        List<StaffSkill> skillsA = repo.findByStaffId(tenantId, staffA);
+        List<StaffSkill> skillsA = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffA));
         assertThat(skillsA).hasSize(2);
 
-        List<StaffSkill> skillsB = repo.findByStaffId(tenantId, staffB);
+        List<StaffSkill> skillsB = inTenantTransaction(tenantId, () -> repo.findByStaffId(tenantId, staffB));
         assertThat(skillsB).hasSize(1);
     }
 
@@ -94,14 +94,14 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID staffA = UUID.randomUUID();
         UUID staffB = UUID.randomUUID();
 
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffA, "Java", SkillLevel.BEGINNER, 30, actorId)));
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffB, "Java", SkillLevel.EXPERT, 95, actorId)));
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffA, "Python", SkillLevel.ADVANCED, 70, actorId)));
 
-        List<StaffSkill> javaSkills = repo.findBySkillName(tenantId, "Java");
+        List<StaffSkill> javaSkills = inTenantTransaction(tenantId, () -> repo.findBySkillName(tenantId, "Java"));
         assertThat(javaSkills).hasSize(2);
         assertThat(javaSkills.get(0).proficiency()).isEqualTo(95);
         assertThat(javaSkills.get(1).proficiency()).isEqualTo(30);
@@ -112,11 +112,11 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_bumpsVersionAndAppliesChanges() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill created = inTransaction(() -> repo.create(
+        StaffSkill created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
-        Optional<StaffSkill> updated = inTransaction(() -> repo.update(
+        Optional<StaffSkill> updated = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(), new UpdateSkillCommand(
                         SkillLevel.ADVANCED, 80, actorId, 1)));
 
@@ -129,16 +129,16 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void update_returnsEmpty_whenVersionConflict() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill created = inTransaction(() -> repo.create(
+        StaffSkill created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
         // first update (v1 -> v2)
-        inTransaction(() -> repo.update(tenantId, created.id(),
+        inTenantTransaction(tenantId, () -> repo.update(tenantId, created.id(),
                 new UpdateSkillCommand(SkillLevel.INTERMEDIATE, 50, actorId, 1)));
 
         // stale version
-        Optional<StaffSkill> conflict = inTransaction(() -> repo.update(
+        Optional<StaffSkill> conflict = inTenantTransaction(tenantId, () -> repo.update(
                 tenantId, created.id(),
                 new UpdateSkillCommand(SkillLevel.EXPERT, 90, actorId, 0)));
         assertThat(conflict).isEmpty();
@@ -149,17 +149,17 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void delete_removesRecord() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill created = inTransaction(() -> repo.create(
+        StaffSkill created = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
-        assertThat(inTransaction(() -> repo.delete(tenantId, created.id()))).isTrue();
-        assertThat(repo.findById(tenantId, created.id())).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, created.id()))).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, created.id()))).isEmpty();
     }
 
     @Test
     void delete_returnsFalse_whenAbsent() {
-        assertThat(inTransaction(() -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.delete(tenantId, UUID.randomUUID()))).isFalse();
     }
 
     // ── EXISTS BY STAFF AND SKILL ──────────────────────────────────────────
@@ -167,20 +167,20 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     @Test
     void existsByStaffAndSkill_trueWhenPresent() {
         UUID staffId = UUID.randomUUID();
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffId, "Java", SkillLevel.BEGINNER, 30, actorId)));
-        assertThat(repo.existsByStaffAndSkill(tenantId, staffId, "Java", null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByStaffAndSkill(tenantId, staffId, "Java", null))).isTrue();
     }
 
     @Test
     void existsByStaffAndSkill_falseWhenAbsent() {
-        assertThat(repo.existsByStaffAndSkill(tenantId, UUID.randomUUID(), "Java", null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByStaffAndSkill(tenantId, UUID.randomUUID(), "Java", null))).isFalse();
     }
 
     @Test
     void existsByStaffAndSkill_excludesSpecifiedId() {
         UUID staffId = UUID.randomUUID();
-        StaffSkill created = inTransaction(() -> repo.create(new CreateSkillCommand(
+        StaffSkill created = inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffId, "Java", SkillLevel.BEGINNER, 30, actorId)));
         // excludes itself -> false
         assertThat(repo.existsByStaffAndSkill(tenantId, staffId, "Java", created.id())).isFalse();
@@ -192,18 +192,18 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void findById_isolatedByTenant() {
         UUID staffId = UUID.randomUUID();
         UUID otherTenant = newTenant();
-        StaffSkill saved = inTransaction(() -> repo.create(
+        StaffSkill saved = inTenantTransaction(tenantId, () -> repo.create(
                 new CreateSkillCommand(tenantId, staffId, "Java",
                         SkillLevel.BEGINNER, 30, actorId)));
 
-        assertThat(repo.findById(otherTenant, saved.id())).isEmpty();
-        assertThat(repo.findById(tenantId, saved.id())).isPresent();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.findById(otherTenant, saved.id()))).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> repo.findById(tenantId, saved.id()))).isPresent();
     }
 
     @Test
     void existsByStaffAndSkill_isolatedByTenant() {
         UUID staffId = UUID.randomUUID();
-        inTransaction(() -> repo.create(new CreateSkillCommand(
+        inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffId, "Java", SkillLevel.BEGINNER, 30, actorId)));
         UUID otherTenant = newTenant();
         assertThat(repo.existsByStaffAndSkill(otherTenant, staffId, "Java", null)).isFalse();
