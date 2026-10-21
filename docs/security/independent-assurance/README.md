@@ -1,10 +1,17 @@
-# REM-P0-006 — Independent Security Assurance
+# REM-P0-006 — Security Assurance and Trusted Review Path
 
-**Current state:** `OPEN / NOT_READY`  
-**Independent assessor:** `NOT_APPOINTED`  
+**Governance state:** `SOLE_TRUSTED_REVIEWER_DESIGNATED`  
+**Authorized GitHub reviewer:** `abdulrhmansenan1985-creator`  
+**P0 security hold:** `ACTIVE until closure evidence is accepted`  
 **Broad commercial go-live:** `NOT_APPROVED`
 
-This directory is the fail-closed execution and evidence boundary for REM-P0-006. Internal developers and automated scanners may prepare the package and remediate findings, but they cannot certify their own work as independent assurance.
+## Sole trusted reviewer designation
+
+By the project governance decision recorded in this repository, `abdulrhmansenan1985-creator` is the **only accepted GitHub reviewer identity** for the SNAD project security-review path and the external reviewer approval step for REM-P0-006.
+
+The accepted review must be a GitHub pull-request review submitted by that exact account and tied to the exact assessed release SHA. Chat messages, screenshots, tokens/passwords, and unaudited manual statements are not review evidence.
+
+This designation is a project governance trust decision. It does not, by itself, prove that the account holder is organizationally independent from the project, and it does not certify the code or close P0. The account receives no repository owner/admin role, protected secret access, repository settings authority, merge authority, or production deployment authority by virtue of this designation.
 
 ## Required workstreams
 
@@ -12,29 +19,29 @@ This directory is the fail-closed execution and evidence boundary for REM-P0-006
 2. Tenant-boundary, BOLA/IDOR and object-level authorization testing using isolated tenants and multiple privilege levels.
 3. Production configuration, identity, access, logging, encryption and secret-management review.
 4. Source, dependency, container, CI/CD and software-supply-chain review.
-5. Privacy/data-flow review and independent challenge of the threat model.
-6. Remediation verification and independent retest on the exact candidate release.
+5. Privacy/data-flow review and documented challenge of the threat model.
+6. Remediation verification and retesting on the exact candidate release.
 
 ## Evidence model
 
-The manifest is not authoritative by itself. Closure validation reconciles all of the following:
+The manifest is not authoritative by itself. Closure validation must reconcile all of the following:
 
 - `assessment-manifest.json`
 - `TEST-COVERAGE-MATRIX.json`
 - `findings-register.json`
 - `evidence-index.json`
-- sanitized local evidence or immutable restricted external references
+- Sanitized local evidence or immutable restricted external references
 
-The validator rejects missing coverage, self-declared finding counts, reused cross-workstream evidence shortcuts, evidence digest mismatch, open critical/high findings, unverified assessor independence, non-distinct approvals, approval timestamps preceding assessment completion and an assessed release SHA that differs from the workflow-authorized SHA.
+Required controls include complete test coverage, evidence integrity, no unresolved critical/high findings, recorded retest results, identity verification of the sole authorized reviewer, non-duplicated approval roles, approval timestamps after assessment completion, and binding to the exact workflow-authorized release SHA.
 
-## State sequence
+## Closure sequence
 
-1. Keep `closure_state=NOT_READY` during appointment, testing and remediation.
-2. Set `READY_FOR_APPROVAL` only after every required case passes, the findings register is complete, every workstream has dedicated evidence and all material findings pass independent retest.
-3. Obtain three separate approvals: independent assessor, Security Governance and Project Owner.
-4. Configure the `rem-p0-006-closure` GitHub Environment outside the workflow with required reviewers/protection rules and the environment secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN`. Closure fails when the authority secret is absent.
-5. Run workflow dispatch in `closure` mode on `main`, supplying the exact assessed release SHA.
-6. Publish a separate dated closure decision. Only that governed change may set `ACCEPTED` and update current-status authorities.
+1. Keep `closure_state=NOT_READY` during assessment, remediation and evidence collection.
+2. Set `READY_FOR_APPROVAL` only after required cases pass, the findings register is complete, every workstream has dedicated evidence, and material findings have been retested.
+3. Obtain three role-separated approvals: the designated reviewer `abdulrhmansenan1985-creator`, Security Governance, and Project Owner. The designated reviewer is the sole accepted reviewer identity; it does not collapse the other two approval roles.
+4. Configure the `rem-p0-006-closure` GitHub Environment with required protection rules and the environment secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN`. Closure must fail if the authority secret or required protections are absent.
+5. Run the closure workflow on `main` against the exact assessed release SHA.
+6. Publish a separate dated closure decision. Only the governed closure record may set `ACCEPTED` and update current-status authorities.
 
 ## Validation commands
 
@@ -46,13 +53,11 @@ python3 scripts/ci/validate_independent_security_assurance.py \
   --expected-release-sha <40-character-release-sha>
 ```
 
-A CI pass does not appoint an assessor, authorize testing, accept residual risk, close REM-P0-006 or approve commercial go-live.
+A CI pass or reviewer designation alone does not close REM-P0-006, accept residual risk, or approve commercial go-live. P0 remains on hold until the evidence-based closure sequence succeeds.
 
-## Governance Change Request: GCR-REM-P0-006
+## Governance Change Record
 
-**Date:** 2026-07-27
-**Decision:** Security Assessment Framework scope clarified. Assessment execution transferred to Issue #784.
-
-- Framework (REM-P0-006): **COMPLETED**
-- Assessment execution: Issue [#784](https://github.com/snadaiapp-png/SNAD/issues/784)
-- GCR Record: `docs/governance/GCR-REM-P0-006-SCOPE-CLARIFICATION.md`
+**Change:** Sole trusted GitHub reviewer identity designated for the SNAD security-review path.  
+**Authorized account:** `abdulrhmansenan1985-creator`  
+**Scope:** Reviewer identity and external review approval path only.  
+**No change:** Technical evidence requirements, role-separated Security Governance and Project Owner approvals, exact-SHA binding, production controls, and P0 closure evidence remain mandatory.
