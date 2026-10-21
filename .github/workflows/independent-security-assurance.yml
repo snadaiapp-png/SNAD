@@ -171,6 +171,8 @@ jobs:
           "
 
       - name: Validate trust policy
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
         run: >-
           python3 scripts/ci/validate_trust_policy.py
           --mode closure
