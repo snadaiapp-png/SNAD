@@ -179,7 +179,7 @@ jobs:
           --repository-owner "${{ github.repository_owner }}"
           --repository-name "${{ github.event.repository.name }}"
           --head-sha "${{ github.sha }}"
-          --assessed-release-sha "${{ github.sha }}"
+          --assessed-release-sha "${RELEASE_SHA}"
           --environment-name "rem-p0-006-closure"
           --is-protected-environment
           --authority-token-present
@@ -219,8 +219,8 @@ jobs:
             echo '## REM-P0-006 Environment-Gated Closure Validation'
             echo ''
             echo "- Package SHA: ${{ github.sha }}"
-            echo "- Assessed release SHA: ${{ steps.promote.outputs.assessed_release_sha }}"
-            echo "- Governance package: persisted at ${{ steps.persist.outputs.commit_sha }}"
+            echo "- Assessed release SHA input: ${{ inputs.release_sha }}"
+            echo "- Canonical evidence package: validated in place; no runtime package was generated"
             echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
             echo '- This workflow validates existing evidence only; it does not manufacture evidence, approve findings, set ACCEPTED, persist a runtime package, merge with admin override, or close governance issues.'
             echo '- A successful validation run is not itself the formal closure decision.'
