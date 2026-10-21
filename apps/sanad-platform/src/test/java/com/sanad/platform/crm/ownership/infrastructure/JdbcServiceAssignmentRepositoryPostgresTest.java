@@ -162,13 +162,13 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         UUID serviceId = UUID.randomUUID();
         inTenantTransaction(tenantId, () -> repo.create(new CreateServiceAssignmentCommand(
                 tenantId, teamId, serviceId, actorId)));
-        assertThat(repo.existsByTeamAndService(tenantId, teamId, serviceId, null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByTeamAndService(tenantId, teamId, serviceId, null))).isTrue();
     }
 
     @Test
     void existsByTeamAndService_falseWhenAbsent() {
-        assertThat(repo.existsByTeamAndService(tenantId, UUID.randomUUID(),
-                UUID.randomUUID(), null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByTeamAndService(tenantId, UUID.randomUUID(),
+                UUID.randomUUID(), null))).isFalse();
     }
 
     @Test

@@ -160,12 +160,12 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
         inTenantTransaction(tenantId, () -> repo.create(new CreateShiftTemplateCommand(
                 tenantId, "Morning", LocalTime.of(8, 0), LocalTime.of(16, 0),
                 List.of(DayOfWeek.MONDAY), actorId)));
-        assertThat(repo.existsByName(tenantId, "Morning", null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByName(tenantId, "Morning", null))).isTrue();
     }
 
     @Test
     void existsByName_falseWhenAbsent() {
-        assertThat(repo.existsByName(tenantId, "Nonexistent", null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByName(tenantId, "Nonexistent", null))).isFalse();
     }
 
     @Test

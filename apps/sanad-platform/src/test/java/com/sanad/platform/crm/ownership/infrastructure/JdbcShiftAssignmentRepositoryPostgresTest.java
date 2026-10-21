@@ -40,7 +40,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
     }
 
     private UUID createTemplate() {
-        return inTransaction(() -> templateRepo.create(
+        return inTenantTransaction(tenantId, () -> templateRepo.create(
                 new CreateShiftTemplateCommand(tenantId, "Standard",
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId))).id();
@@ -142,7 +142,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
-        UUID newTemplateId = inTransaction(() -> templateRepo.create(
+        UUID newTemplateId = inTenantTransaction(tenantId, () -> templateRepo.create(
                 new CreateShiftTemplateCommand(tenantId, "Night",
                         LocalTime.of(22, 0), LocalTime.of(6, 0),
                         List.of(DayOfWeek.WEDNESDAY), actorId))).id();
@@ -192,16 +192,16 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
         // fully contained overlap
-        assertThat(repo.hasOverlap(tenantId, staffId,
-                LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 13), null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 13), null))).isTrue();
 
         // partial overlap (starts before, ends within)
-        assertThat(repo.hasOverlap(tenantId, staffId,
-                LocalDate.of(2026, 8, 8), LocalDate.of(2026, 8, 11), null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 8), LocalDate.of(2026, 8, 11), null))).isTrue();
 
         // no overlap (adjacent ranges)
-        assertThat(repo.hasOverlap(tenantId, staffId,
-                LocalDate.of(2026, 8, 15), LocalDate.of(2026, 8, 20), null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 15), LocalDate.of(2026, 8, 20), null))).isFalse();
     }
 
     @Test
@@ -220,8 +220,8 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         ShiftAssignmentStatus.CANCELLED, actorId, 1)));
 
         // cancelled assignment should not be detected as overlapping
-        assertThat(repo.hasOverlap(tenantId, staffId,
-                LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 13), null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 13), null))).isFalse();
     }
 
     @Test
@@ -234,8 +234,8 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
         // excluding its own id -> no overlap
-        assertThat(repo.hasOverlap(tenantId, staffId,
-                LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), existing.id())).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), existing.id()))).isFalse();
     }
 
     // ── TENANT ISOLATION ───────────────────────────────────────────────────
@@ -264,7 +264,10 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                 LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
         // same staffId in different tenant -> no overlap
-        assertThat(repo.hasOverlap(otherTenant, staffId,
-                LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), null)).isFalse();
+        assertThat(inTenantTransaction(otherTenant, () -> repo.hasOverlap(otherTenant, staffId,
+                LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), null))).isFalse();
+        // same staffId within the owning tenant -> overlap detected
+        assertThat(inTenantTransaction(tenantId, () -> repo.hasOverlap(tenantId, staffId,
+                LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), null))).isTrue();
     }
 }

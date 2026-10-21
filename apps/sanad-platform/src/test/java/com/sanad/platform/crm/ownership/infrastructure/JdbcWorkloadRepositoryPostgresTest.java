@@ -215,8 +215,8 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new UpdateWorkloadCommand(40, WorkloadStatus.COMPLETED,
                         LocalDate.of(2026, 8, 14), actorId, 1)));
 
-        int sum = repo.sumEstimatedHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        int sum = inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(sum).isEqualTo(50); // 20 + 30
     }
 
@@ -245,15 +245,15 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, serviceId, null, 40,
                 LocalDate.of(2026, 8, 12), null, actorId)));
 
-        int sum = repo.sumActualHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+        int sum = inTenantTransaction(tenantId, () -> repo.sumActualHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertThat(sum).isEqualTo(60); // 25 + 35
     }
 
     @Test
     void sumEstimatedHoursByStaff_returnsZero_whenNoData() {
-        assertThat(repo.sumEstimatedHoursByStaff(tenantId, UUID.randomUUID(),
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isZero();
+        assertThat(inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, UUID.randomUUID(),
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isZero();
     }
 
     // ── TENANT ISOLATION ───────────────────────────────────────────────────
@@ -278,9 +278,9 @@ class JdbcWorkloadRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 tenantId, staffId, null, null, 40,
                 LocalDate.of(2026, 8, 10), null, actorId)));
 
-        assertThat(repo.sumEstimatedHoursByStaff(otherTenant, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isZero();
-        assertThat(repo.sumEstimatedHoursByStaff(tenantId, staffId,
-                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31))).isEqualTo(40);
+        assertThat(inTenantTransaction(otherTenant, () -> repo.sumEstimatedHoursByStaff(otherTenant, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isZero();
+        assertThat(inTenantTransaction(tenantId, () -> repo.sumEstimatedHoursByStaff(tenantId, staffId,
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)))).isEqualTo(40);
     }
 }

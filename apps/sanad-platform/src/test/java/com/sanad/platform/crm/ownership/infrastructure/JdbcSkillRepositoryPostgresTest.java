@@ -169,12 +169,12 @@ class JdbcSkillRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID staffId = UUID.randomUUID();
         inTenantTransaction(tenantId, () -> repo.create(new CreateSkillCommand(
                 tenantId, staffId, "Java", SkillLevel.BEGINNER, 30, actorId)));
-        assertThat(repo.existsByStaffAndSkill(tenantId, staffId, "Java", null)).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByStaffAndSkill(tenantId, staffId, "Java", null))).isTrue();
     }
 
     @Test
     void existsByStaffAndSkill_falseWhenAbsent() {
-        assertThat(repo.existsByStaffAndSkill(tenantId, UUID.randomUUID(), "Java", null)).isFalse();
+        assertThat(inTenantTransaction(tenantId, () -> repo.existsByStaffAndSkill(tenantId, UUID.randomUUID(), "Java", null))).isFalse();
     }
 
     @Test
