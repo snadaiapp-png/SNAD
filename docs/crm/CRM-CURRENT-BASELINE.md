@@ -518,8 +518,6 @@ production data are modified by this reconciliation.
 | `20260823.2` | `V20260823_2__crm_participant_role_exclusivity.sql` | CRM participant role exclusivity + W2 invariant | CURRENT CHAIN |
 | `20261020.1` | `V20261020_1__supabase_data_api_default_deny.sql` | Supabase Data API default-deny pass (transfer of #1050/#1044 via #1420) | CURRENT CHAIN |
 | `20261020.2` | `V20261020_2__enable_post_baseline_crm_rls.sql` | Enable RLS on post-baseline CRM tables (transfer of #1050/#1044 via #1420) | CURRENT CHAIN |
-
-
 | `20261021.1` | `V20261021_1__crm_post_baseline_fail_closed_rls.sql` | Post-baseline CRM tenant RLS fail-closed hardening; missing/empty context denied; FORCE RLS enabled; no cross-tenant background bypass | PROPOSED IN PR |
 
 This section exists specifically so the governance drift gate can reconcile the
