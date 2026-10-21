@@ -49,6 +49,9 @@ jobs:
       - name: Test fail-closed validator
         run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
 
+      - name: Test closure workflow integrity
+        run: python3 -m unittest tests/ci/test_rem_p0_006_workflow_integrity.py -v
+
       - name: Validate readiness package and assessed release reference
         shell: bash
         run: |
@@ -116,6 +119,9 @@ jobs:
 
       - name: Test fail-closed validator
         run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
+
+      - name: Test closure workflow integrity
+        run: python3 -m unittest tests/ci/test_rem_p0_006_workflow_integrity.py -v
 
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
