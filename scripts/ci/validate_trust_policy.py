@@ -168,9 +168,8 @@ def _verify_release_sha_authorization(ctx: TrustContext) -> str | None:
         return "Workflow HEAD SHA must be an exact 40-character lowercase commit SHA"
     if ctx.ref != "refs/heads/main":
         return "Closure is authorized only from refs/heads/main"
-    # The workflow separately verifies that the release commit exists and is an ancestor of HEAD.
-    if ctx.head_sha != ctx.assessed_release_sha and not ctx.commit_signatures:
-        return "Assessed release ancestry has not been backed by per-commit verification evidence"
+    # Cryptographic ancestry and per-commit signature verification are enforced by
+    # _verify_git_signatures; do not infer them from caller-supplied JSON booleans.
     return None
 
 
@@ -257,7 +256,7 @@ def main() -> int:
     parser.add_argument("--head-sha", default="")
     parser.add_argument("--assessed-release-sha", default="")
     parser.add_argument("--commit-signatures-json", default="{}",
-                        help="JSON mapping commit SHA to cryptographically verified signature status")
+                        help="Deprecated compatibility field; non-empty JSON is rejected because booleans are not cryptographic evidence")
     parser.add_argument("--environment-name", default="")
     parser.add_argument("--is-protected-environment", action="store_true")
     parser.add_argument("--authority-token-present", action="store_true")
