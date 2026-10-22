@@ -240,7 +240,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
-        self.assertIn("not signed", sig["error"])
+        self.assertIn("unsigned", sig["error"])
 
     def test_git_status_B_fails(self):
         """Git status B (bad signature) → FAIL."""
@@ -253,7 +253,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
-        self.assertIn("not signed", sig["error"])
+        self.assertIn("bad signature", sig["error"])
 
     def test_unknown_control_type_fails(self):
         """A control type not registered in the validator must be rejected (fail closed)."""
