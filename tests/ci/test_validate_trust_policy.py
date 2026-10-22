@@ -30,7 +30,6 @@ def make_context(**overrides) -> trust_validator.TrustContext:
         repository_name="SNAD",
         head_sha="a" * 40,
         assessed_release_sha="b" * 40,
-        commit_signatures={"a" * 40: True, "b" * 40: True},
         environment_name="rem-p0-006-closure",
         is_protected_environment=True,
         authority_token_present=True,
@@ -51,9 +50,23 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertEqual(len(policy["controls"]), 5)
         self.assertEqual(len(policy["rules"]), 2)
 
+    def setUp(self):
+        self.oidc_token = patch.object(trust_validator, "obtain_oidc_token", return_value="test.jwt.token")
+        self.oidc_verify = patch.object(trust_validator, "verify_oidc_token", return_value={
+            "sub": "repo:SNADA/SNAD:environment:rem-p0-006-closure"
+        })
+        self.git_verify = patch.object(trust_validator, "verify_commit_range", return_value=["a" * 40])
+        self.oidc_token.start()
+        self.oidc_verify.start()
+        self.git_verify.start()
+        self.addCleanup(self.oidc_token.stop)
+        self.addCleanup(self.oidc_verify.stop)
+        self.addCleanup(self.git_verify.stop)
+
     def test_all_controls_pass_closure(self):
         ctx = make_context()
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        with patch.dict("os.environ", {"GITHUB_REPOSITORY": "SNADA/SNAD"}):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertTrue(result["all_passed"])
         self.assertEqual(len(result["controls"]), 5)
         self.assertTrue(all(c["passed"] for c in result["controls"]))
@@ -65,7 +78,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
 
     def test_oidc_issuer_mismatch_fails(self):
         ctx = make_context(oidc_issuer="https://evil.com")
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        result = trust_validator.validate_trust_policy(POLICY_PATH, "readiness", ctx)
         self.assertFalse(result["all_passed"])
         oidc = [c for c in result["controls"] if c["control_id"] == "OIDC-IDENTITY"][0]
         self.assertFalse(oidc["passed"])
@@ -85,15 +98,16 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertFalse(result["all_passed"])
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
-        self.assertIn("Unsigned or unverified commits", sig["error"])
+        self.assertIn("Cryptographic Git signature verification failed", sig["error"])
 
     def test_unprotected_environment_fails(self):
         ctx = make_context(is_protected_environment=False)
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        with patch.object(trust_validator, "verify_oidc_token", side_effect=trust_validator.VerificationError("environment subject mismatch")):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
         env = [c for c in result["controls"] if c["control_id"] == "ENVIRONMENT-PROTECTION"][0]
         self.assertFalse(env["passed"])
-        self.assertIn("not running in a protected environment", env["error"])
+        self.assertTrue(env["error"])
 
     def test_assessor_same_org_fails(self):
         ctx = make_context(assessor_organization="SNADA", project_organization="SNADA")
@@ -105,11 +119,12 @@ class TrustPolicyValidatorTest(unittest.TestCase):
 
     def test_missing_oidc_issuer_fails(self):
         ctx = make_context(oidc_issuer="")
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        with patch.object(trust_validator, "obtain_oidc_token", side_effect=trust_validator.VerificationError("OIDC unavailable")):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
 
     def test_missing_commit_signatures_fails(self):
-        ctx = make_context(commit_signatures={})
+        ctx = make_context()
         result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
@@ -136,7 +151,6 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         """Readiness mode only requires OIDC-IDENTITY; other failures are ignored."""
         ctx = make_context(
             is_protected_environment=False,
-            commit_signatures={"a" * 40: False},
             assessor_organization="SNADA",
         )
         result = trust_validator.validate_trust_policy(POLICY_PATH, "readiness", ctx)
@@ -163,97 +177,13 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertEqual(len(result["rules"]), 1)
         self.assertEqual(result["rules"][0]["rule_id"], "RULE-002")
 
-    def test_zero_range_diff_sha_uses_commit_signatures(self):
-        """Case A: release_sha != head_sha with commit_signatures dict works as before."""
-        sha_a = "a" * 40
-        sha_b = "b" * 40
-        ctx = make_context(
-            head_sha=sha_a,
-            assessed_release_sha=sha_b,
-            commit_signatures={sha_b: True},
-        )
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-        self.assertTrue(sig["passed"])
-
-    def test_git_status_G_passes(self):
-        """Git status G (good signature) → PASS."""
-        sha = "c" * 40
-        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        mock = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="G\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock):
-            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-        self.assertTrue(sig["passed"])
-
-    def test_git_status_U_fails_closed(self):
-        """Git status U (signature trust unknown) must not satisfy closure."""
-        sha = "u" * 40
-        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        mock = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="U\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock):
+    def test_caller_boolean_signature_assertions_are_not_accepted(self):
+        ctx = make_context()
+        with patch.object(trust_validator, "verify_commit_range", side_effect=trust_validator.VerificationError("unsigned")):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
-        self.assertIn("not trusted", sig["error"])
-
-    def test_git_status_E_fails_closed(self):
-        """Git status E (signer key unavailable) cannot prove signature validity."""
-        sha = "e" * 40
-        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        mock = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="E\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock):
-            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-        self.assertFalse(sig["passed"])
-        self.assertIn("cannot be verified", sig["error"])
-
-    def test_git_status_X_Y_R_fail_closed(self):
-        """Expired or revoked signer states must not satisfy closure."""
-        for status in ("X", "Y", "R"):
-            with self.subTest(status=status):
-                sha = status.lower() * 40
-                ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-                mock = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout=f"{status}\n", stderr="",
-                )
-                with patch("trust_policy_validator.subprocess.run", return_value=mock):
-                    result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-                sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-                self.assertFalse(sig["passed"])
-                self.assertTrue(sig["error"])
-
-    def test_git_status_N_fails(self):
-        """Git status N (no signature) → FAIL."""
-        sha = "n" * 40
-        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        mock = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="N\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock):
-            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-        self.assertFalse(sig["passed"])
-        self.assertIn("unsigned", sig["error"])
-
-    def test_git_status_B_fails(self):
-        """Git status B (bad signature) → FAIL."""
-        sha = "b" * 40
-        ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        mock = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="B\n", stderr="",
-        )
-        with patch("trust_policy_validator.subprocess.run", return_value=mock):
-            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-        sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
-        self.assertFalse(sig["passed"])
-        self.assertIn("bad signature", sig["error"])
+        self.assertIn("Cryptographic Git signature verification failed", sig["error"])
 
     def test_unknown_control_type_fails(self):
         """A control type not registered in the validator must be rejected (fail closed)."""
