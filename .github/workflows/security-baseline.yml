@@ -184,7 +184,30 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Fail on high or critical production vulnerabilities
-        run: npm audit --omit=dev --audit-level=high
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # npm audit is a required security gate. Retry transient registry/network
+          # failures, but never convert an audit failure into a pass.
+          for attempt in 1 2 3; do
+            echo "Production dependency audit attempt ${attempt}/3"
+            if npm audit --omit=dev --audit-level=high --fetch-retries=3 --fetch-timeout=120000; then
+              echo "Production dependency audit passed."
+              exit 0
+            else
+              status=$?
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "npm audit failed (exit ${status}); retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+
+          echo "::error::Production dependency audit failed after 3 attempts; gate remains failed."
+          exit "${status}"
 
   backend-container-hardening:
     name: Backend Container Hardening
