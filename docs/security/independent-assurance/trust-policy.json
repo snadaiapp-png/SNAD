@@ -2,59 +2,89 @@
   "policy_id": "REM-P0-006-TRUST-POLICY-001",
   "schema_version": "1.0",
   "finding_id": "REM-P0-006",
-  "description": "Automated trust-based governance policy replacing manual approval gates for REM-P0-006 closure",
-  "version": "1.0.0",
-  "effective_date": "2026-07-27",
+  "description": "Owner-authorized single-account trust policy for the project's security review and REM-P0-006 evidence-approval path",
+  "version": "1.1.0",
+  "effective_date": "2026-10-21",
+  "authorized_security_reviewer": {
+    "github_account": "abdulrhmansenan1985-creator",
+    "mode": "SOLE_TRUSTED_GITHUB_REVIEWER",
+    "scope": "SNAD project security review and the external reviewer approval step for REM-P0-006",
+    "identity_evidence": "A GitHub pull-request review submitted by this exact account",
+    "prohibited_substitutes": [
+      "chat messages",
+      "screenshots",
+      "tokens or passwords",
+      "unaudited manual statements"
+    ],
+    "privileges_not_granted": [
+      "repository owner or admin",
+      "protected secret access",
+      "repository settings changes",
+      "merge authority",
+      "production deployment authority"
+    ]
+  },
   "controls": [
     {
       "id": "OIDC-IDENTITY",
       "type": "OIDC_IDENTITY_VERIFICATION",
-      "description": "Workflow must authenticate via GitHub Actions OIDC token from the expected repository",
+      "description": "Workflow must authenticate via GitHub Actions OIDC token from the expected repository.",
       "severity": "critical",
       "required": true
     },
     {
       "id": "GIT-SIGNATURES",
       "type": "GIT_SIGNATURE_VERIFICATION",
-      "description": "All commits in the assessed release range must be signed (GPG, SSH, or S/MIME)",
+      "description": "All commits in the assessed release range must be signed (GPG, SSH, or S/MIME).",
       "severity": "critical",
       "required": true
     },
     {
       "id": "ENVIRONMENT-PROTECTION",
       "type": "ENVIRONMENT_PROTECTION",
-      "description": "Closure workflow must execute in a GitHub Environment with required reviewers",
+      "description": "Closure workflow must execute in a GitHub Environment with required protection rules; the sole trusted reviewer identity must be configured where GitHub environment review rules support it.",
       "severity": "critical",
       "required": true
     },
     {
       "id": "RELEASE-SHA-AUTH",
       "type": "RELEASE_SHA_AUTHORIZATION",
-      "description": "The assessed release SHA must be a direct ancestor of the workflow HEAD",
+      "description": "The assessed release SHA must be a direct ancestor of the workflow HEAD and match the explicitly authorized release SHA.",
       "severity": "critical",
       "required": true
     },
     {
       "id": "ASSESSOR-TRUST",
       "type": "ASSESSOR_INDEPENDENCE",
-      "description": "Assessor organization must differ from project organization; independence verified by workflow context",
+      "description": "Assessor organization must differ from the project organization; independence is verified from workflow context and documented evidence. Additionally, the only accepted external GitHub reviewer identity for this project security-review path is abdulrhmansenan1985-creator, whose review must be recorded against the exact assessed release SHA. This account allowlist is an additional constraint only: it does not by itself prove organizational independence and does not replace required technical evidence, retesting, Security Governance review, or Project Owner approval.",
       "severity": "critical",
-      "required": true
+      "required": true,
+      "allowed_github_accounts": [
+        "abdulrhmansenan1985-creator"
+      ]
     }
   ],
   "rules": [
     {
       "id": "RULE-001",
-      "description": "All critical controls must pass for closure",
+      "description": "All critical controls must pass for REM-P0-006 closure. The sole trusted reviewer identity is fixed to the account allowlist above; required evidence, retesting, Security Governance approval, Project Owner approval, and exact-release-SHA binding remain mandatory.",
       "trigger": "CLOSURE",
-      "control_ids": ["OIDC-IDENTITY", "GIT-SIGNATURES", "ENVIRONMENT-PROTECTION", "RELEASE-SHA-AUTH", "ASSESSOR-TRUST"],
+      "control_ids": [
+        "OIDC-IDENTITY",
+        "GIT-SIGNATURES",
+        "ENVIRONMENT-PROTECTION",
+        "RELEASE-SHA-AUTH",
+        "ASSESSOR-TRUST"
+      ],
       "effect": "ALL_MUST_PASS"
     },
     {
       "id": "RULE-002",
-      "description": "Readiness mode requires OIDC identity verification only",
+      "description": "Readiness mode requires OIDC identity verification only.",
       "trigger": "READINESS",
-      "control_ids": ["OIDC-IDENTITY"],
+      "control_ids": [
+        "OIDC-IDENTITY"
+      ],
       "effect": "ALL_MUST_PASS"
     }
   ]
