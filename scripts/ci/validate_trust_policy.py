@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_rem_p0_006_crypto import VerificationError, obtain_oidc_token, verify_oidc_token, verify_commit_range
 
 ROOT = Path(__file__).resolve().parents[2]
