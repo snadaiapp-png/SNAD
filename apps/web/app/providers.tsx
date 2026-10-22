@@ -1,12 +1,23 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth/auth-provider";
 import { TenantContextProvider } from "@/lib/auth/tenant-context";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
-import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
+// Deferred via dynamic() so the launcher subtree (modal + provisioning form)
+// stays out of every route's initial JS budget; it renders null until a
+// privileged user triggers it. Same fail-closed budget pattern as the
+// SubscriptionOperatingGovernance lazy import.
+const GlobalUserProvisioningLauncher = dynamic(
+  () =>
+    import("@/components/users/GlobalUserProvisioningLauncher").then(
+      (m) => m.GlobalUserProvisioningLauncher,
+    ),
+  { ssr: false },
+);
 import { ModuleAccessNavigation } from "@/components/users/ModuleAccessNavigation";
 import { CRM_ROOT_ENTRY_COOKIE } from "../proxy";
 
