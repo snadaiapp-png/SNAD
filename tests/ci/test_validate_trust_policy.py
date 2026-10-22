@@ -126,7 +126,8 @@ class TrustPolicyValidatorTest(unittest.TestCase):
 
     def test_missing_commit_signatures_fails(self):
         ctx = make_context()
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        with patch.object(trust_validator, "verify_commit_range", side_effect=trust_validator.VerificationError("no verifiable commit range")):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
