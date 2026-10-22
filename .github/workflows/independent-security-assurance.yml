@@ -11,6 +11,7 @@ on:
       - 'scripts/ci/verify_rem_p0_006_runtime_trust.py'
       - 'tests/ci/test_validate_independent_security_assurance.py'
       - 'tests/ci/test_validate_trust_policy.py'
+      - 'tests/ci/test_verify_rem_p0_006_runtime_trust.py'
       - '.github/workflows/independent-security-assurance.yml'
   workflow_dispatch:
     inputs:
