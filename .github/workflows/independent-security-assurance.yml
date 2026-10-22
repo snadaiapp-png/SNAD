@@ -159,16 +159,15 @@ jobs:
             --head-sha "$GITHUB_SHA" \
             --environment rem-p0-006-closure
 
-      - name: Fail closed until validator consumes verified trust evidence
+      - name: Run canonical trust policy validator with cryptographic evidence
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          # The independent cryptographic preflight above is necessary but not sufficient.
-          # The canonical policy validator still has no verified-evidence handoff contract;
-          # until that contract is implemented, closure must fail closed rather than accept
-          # caller-supplied claim strings or boolean signature assertions.
+          # The canonical validator independently obtains and verifies the live OIDC JWT,
+          # binds the protected environment, and verifies every commit in the assessed range.
+          # No caller-supplied claims or boolean signature map are accepted as proof.
           python3 scripts/ci/validate_trust_policy.py \
             --mode closure \
             --head-sha "$GITHUB_SHA" \
