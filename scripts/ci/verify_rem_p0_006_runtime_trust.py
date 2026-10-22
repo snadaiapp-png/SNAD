@@ -15,6 +15,7 @@ from pathlib import Path
 ISSUER = "https://token.actions.githubusercontent.com"
 AUDIENCE = "https://github.com"
 ENVIRONMENT = "rem-p0-006-closure"
+TRUSTED_REVIEWER_LOGIN = "abdulrhmansenan1985-creator"
 API = "https://api.github.com"
 
 
@@ -77,6 +78,16 @@ def verify_oidc() -> dict:
     return claims
 
 
+def verify_main_branch_protection(token: str, owner: str, repo: str) -> None:
+    """Require repository-level main-branch PR review protection; environment rules alone are insufficient."""
+    url = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/branches/main/protection"
+    protection = api_get(url, token)
+    reviews = protection.get("required_pull_request_reviews")
+    require(isinstance(reviews, dict), "main branch lacks required pull-request review protection")
+    count = reviews.get("required_approving_review_count")
+    require(isinstance(count, int) and count >= 1, "main branch must require at least one approving review")
+
+
 def verify_environment(token: str, owner: str, repo: str) -> None:
     require(token, "GITHUB_TOKEN unavailable; cannot verify environment protection rules")
     url = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/environments/{urllib.parse.quote(ENVIRONMENT)}"
@@ -85,7 +96,16 @@ def verify_environment(token: str, owner: str, repo: str) -> None:
     require(isinstance(rules, list) and rules, "Protected environment has no configured protection rules")
     reviewer_rules = [r for r in rules if r.get("type") == "required_reviewers"]
     require(reviewer_rules, "Protected environment lacks required-reviewer protection")
-    require(any(r.get("reviewers") for r in reviewer_rules), "Required-reviewer rule has no configured reviewers")
+    configured_reviewers = []
+    for rule in reviewer_rules:
+        for entry in rule.get("reviewers") or []:
+            reviewer = entry.get("reviewer") or {}
+            login = reviewer.get("login") or reviewer.get("slug")
+            if login:
+                configured_reviewers.append(login.casefold())
+    require(TRUSTED_REVIEWER_LOGIN.casefold() in configured_reviewers,
+            "Protected environment does not require the policy-allowlisted reviewer identity")
+    verify_main_branch_protection(token, owner, repo)
     require(os.environ.get("CLOSURE_AUTHORITY_TOKEN", ""), "Closure authority secret is not configured")
     # Never print or persist the authority secret.
 
