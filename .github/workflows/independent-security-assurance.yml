@@ -59,6 +59,9 @@ jobs:
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
+      - name: Test runtime trust verifier
+        run: python3 -m unittest tests/ci/test_verify_rem_p0_006_runtime_trust.py -v
+
       - name: Validate readiness package and assessed release reference
         shell: bash
         run: |
