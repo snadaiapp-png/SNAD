@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from verify_rem_p0_006_crypto import VerificationError, obtain_oidc_token, verify_oidc_token, verify_commit_range
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY = ROOT / "docs/security/independent-assurance/trust-policy.json"
@@ -34,7 +37,7 @@ class TrustContext:
     repository_name: str = ""
     head_sha: str = ""
     assessed_release_sha: str = ""
-    commit_signatures: dict[str, bool] = field(default_factory=dict)
+    mode: str = "readiness"
     environment_name: str = ""
     is_protected_environment: bool = False
     authority_token_present: bool = False
@@ -61,7 +64,17 @@ def load_policy(path: Path) -> dict[str, Any]:
 
 
 def _verify_oidc_identity(ctx: TrustContext) -> str | None:
-    """Verify OIDC token matches expected GitHub Actions identity."""
+    """Readiness checks metadata; closure verifies the live GitHub-issued JWT cryptographically."""
+    if ctx.mode == "closure":
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        if not repository or "/" not in repository:
+            return "GITHUB_REPOSITORY runtime identity is unavailable"
+        try:
+            token = obtain_oidc_token("https://github.com")
+            verify_oidc_token(token, repository, "https://github.com", "rem-p0-006-closure")
+        except VerificationError as exc:
+            return f"Cryptographic OIDC verification failed: {exc}"
+        return None
     if not ctx.oidc_issuer:
         return "OIDC issuer not available"
     if ctx.oidc_issuer != EXPECTED_OIDC_ISSUER:
@@ -110,15 +123,17 @@ def _verify_head_commit_signature() -> str | None:
 
 
 def _verify_git_signatures(ctx: TrustContext) -> str | None:
-    """Verify all commits in assessed range are signed."""
-    if not ctx.commit_signatures:
-        # Zero-commit range (release_sha == HEAD): verify the HEAD commit directly
-        if ctx.head_sha and ctx.assessed_release_sha and ctx.head_sha == ctx.assessed_release_sha:
-            return _verify_head_commit_signature()
-        return "No commit signature data provided"
-    unsigned = [sha for sha, signed in ctx.commit_signatures.items() if not signed]
-    if unsigned:
-        return f"Unsigned or unverified commits detected: {unsigned[:5]}"
+    """Verify every commit in the assessed range from Git's cryptographic trust store.
+
+    Caller-provided boolean maps are deliberately not part of TrustContext and can
+    never satisfy this control.
+    """
+    if not ctx.assessed_release_sha or not ctx.head_sha:
+        return "Assessed release SHA and workflow HEAD SHA are required"
+    try:
+        verify_commit_range(ctx.assessed_release_sha, ctx.head_sha)
+    except VerificationError as exc:
+        return f"Cryptographic Git signature verification failed: {exc}"
     return None
 
 
@@ -233,6 +248,7 @@ def validate_trust_policy(
     policy = load_policy(policy_path)
     require(mode in {"readiness", "closure"}, "invalid mode")
 
+    ctx.mode = mode
     control_results = evaluate_controls(policy, ctx)
     rule_results = evaluate_rules(policy, control_results, mode)
 
@@ -251,15 +267,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Trust policy validator for REM-P0-006")
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--mode", choices=("readiness", "closure"), required=True)
-    parser.add_argument("--oidc-issuer", default="")
-    parser.add_argument("--oidc-audience", default="")
-    parser.add_argument("--oidc-subject", default="")
-    parser.add_argument("--repository-owner", default="")
-    parser.add_argument("--repository-name", default="")
     parser.add_argument("--head-sha", default="")
     parser.add_argument("--assessed-release-sha", default="")
-    parser.add_argument("--commit-signatures-json", default="{}",
-                        help="JSON dict mapping commit SHA to boolean verified-signature status")
     parser.add_argument("--environment-name", default="")
     parser.add_argument("--is-protected-environment", action="store_true")
     parser.add_argument("--authority-token-present", action="store_true")
@@ -268,21 +277,11 @@ def main() -> int:
     parser.add_argument("--project-organization", default="")
     args = parser.parse_args()
 
-    try:
-        commit_sigs = json.loads(args.commit_signatures_json)
-    except json.JSONDecodeError:
-        print("ERROR: --commit-signatures-json is not valid JSON", file=sys.stderr)
-        return 1
-
     ctx = TrustContext(
-        oidc_issuer=args.oidc_issuer,
-        oidc_audience=args.oidc_audience,
-        oidc_subject=args.oidc_subject,
-        repository_owner=args.repository_owner,
-        repository_name=args.repository_name,
+        repository_owner=os.environ.get("GITHUB_REPOSITORY_OWNER", ""),
+        repository_name=os.environ.get("GITHUB_REPOSITORY", "").split("/", 1)[-1],
         head_sha=args.head_sha,
         assessed_release_sha=args.assessed_release_sha,
-        commit_signatures=commit_sigs,
         environment_name=args.environment_name,
         is_protected_environment=args.is_protected_environment,
         authority_token_present=args.authority_token_present,
