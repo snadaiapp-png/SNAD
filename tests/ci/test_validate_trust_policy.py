@@ -238,6 +238,26 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertFalse(sig["passed"])
         self.assertIn("not signed", sig["error"])
 
+    def test_unknown_control_type_fails(self):
+        """A control type not registered in the validator must be rejected (fail closed)."""
+        real = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+        real["controls"][0]["type"] = "BOGUS_UNKNOWN_CONTROL_TYPE"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(real, f)
+            f.flush()
+            with self.assertRaisesRegex(
+                trust_validator.TrustPolicyError, "unknown control type"
+            ):
+                ctx = make_context()
+                trust_validator.validate_trust_policy(Path(f.name), "readiness", ctx)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_allowlist_metadata_does_not_break_evaluation(self):
+        """Extra control fields (e.g. allowed_github_accounts) are advisory metadata:
+        they must not break validator evaluation and the institutional
+        ASSESSOR_INDEPENDENCE control type must remain registered."""
+        real = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+        at = [c for c in real["controls"] if c["id"] == "ASSESSOR-TRUST"][0]
+        self.assertEqual(at["type"], "ASSESSOR_INDEPENDENCE")
+        ctx = make_context()
+        result = trust_validator.validate_trust_policy(POLICY_PATH, "readiness", ctx)
+        self.assertTrue(result["all_passed"])

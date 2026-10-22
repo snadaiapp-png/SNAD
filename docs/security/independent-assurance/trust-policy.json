@@ -1,6 +1,6 @@
 {
   "policy_id": "REM-P0-006-TRUST-POLICY-001",
-  "schema_version": "1.1",
+  "schema_version": "1.0",
   "finding_id": "REM-P0-006",
   "description": "Owner-authorized single-account trust policy for the project's security review and REM-P0-006 evidence-approval path",
   "version": "1.1.0",
@@ -55,8 +55,8 @@
     },
     {
       "id": "ASSESSOR-TRUST",
-      "type": "SOLE_AUTHORIZED_REVIEWER_IDENTITY",
-      "description": "The only accepted external GitHub reviewer identity for this project security-review path is abdulrhmansenan1985-creator. The workflow must verify the reviewer's GitHub identity and record the review against the exact assessed release SHA. This account designation is the project's governance trust decision; it does not by itself prove organizational independence or replace required technical evidence, retesting, Security Governance review, or Project Owner approval.",
+      "type": "ASSESSOR_INDEPENDENCE",
+      "description": "Assessor organization must differ from the project organization; independence is verified from workflow context and documented evidence. Additionally, the only accepted external GitHub reviewer identity for this project security-review path is abdulrhmansenan1985-creator, whose review must be recorded against the exact assessed release SHA. This account allowlist is an additional constraint only: it does not by itself prove organizational independence and does not replace required technical evidence, retesting, Security Governance review, or Project Owner approval.",
       "severity": "critical",
       "required": true,
       "allowed_github_accounts": [

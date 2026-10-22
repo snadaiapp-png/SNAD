@@ -2,6 +2,8 @@
 
 **Governance state:** `SOLE_TRUSTED_REVIEWER_DESIGNATED`  
 **Authorized GitHub reviewer:** `abdulrhmansenan1985-creator`  
+**Assessment state:** `OPEN / NOT_READY` (per `assessment-manifest.json`)  
+**Independent assessor organizational independence:** `PENDING_VERIFICATION`  
 **P0 security hold:** `ACTIVE until closure evidence is accepted`  
 **Broad commercial go-live:** `NOT_APPROVED`
 
@@ -20,7 +22,7 @@ This designation is a project governance trust decision. It does not, by itself,
 3. Production configuration, identity, access, logging, encryption and secret-management review.
 4. Source, dependency, container, CI/CD and software-supply-chain review.
 5. Privacy/data-flow review and documented challenge of the threat model.
-6. Remediation verification and retesting on the exact candidate release.
+6. Remediation verification and independent retesting on the exact candidate release.
 
 ## Evidence model
 
@@ -38,7 +40,7 @@ Required controls include complete test coverage, evidence integrity, no unresol
 
 1. Keep `closure_state=NOT_READY` during assessment, remediation and evidence collection.
 2. Set `READY_FOR_APPROVAL` only after required cases pass, the findings register is complete, every workstream has dedicated evidence, and material findings have been retested.
-3. Obtain three role-separated approvals: the designated reviewer `abdulrhmansenan1985-creator`, Security Governance, and Project Owner. The designated reviewer is the sole accepted reviewer identity; it does not collapse the other two approval roles.
+3. Obtain three role-separated approvals: the designated reviewer `abdulrhmansenan1985-creator`, Security Governance, and Project Owner. The designated reviewer is the sole accepted reviewer identity; it does not collapse the other two approval roles. The `independent_assessor` approval additionally requires the assessor's organizational independence to be verified and evidenced in the manifest (`independence_status` must be `VERIFIED`); a reviewer account designation alone never satisfies it.
 4. Configure the `rem-p0-006-closure` GitHub Environment with required protection rules and the environment secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN`. Closure must fail if the authority secret or required protections are absent.
 5. Run the closure workflow on `main` against the exact assessed release SHA.
 6. Publish a separate dated closure decision. Only the governed closure record may set `ACCEPTED` and update current-status authorities.
