@@ -30,7 +30,11 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
                 runtime.verify_environment("", "snadaiapp-png", "SNAD")
 
     def test_environment_without_reviewer_protection_fails(self):
-        with patch.dict(os.environ, {"CLOSURE_AUTHORITY_TOKEN": "configured"}, clear=True):
+        env = {
+            "CLOSURE_AUTHORITY_TOKEN": "configured",
+            "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS": "trusted-reviewer",
+        }
+        with patch.dict(os.environ, env, clear=True):
             with patch.object(runtime, "api_get", return_value={"protection_rules": []}):
                 with self.assertRaisesRegex(runtime.GateError, "no configured protection rules"):
                     runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
