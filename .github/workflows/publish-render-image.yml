@@ -78,5 +78,5 @@ jobs:
             echo "- GitHub artifact attestation: requested for the exact published digest"
             echo "- Note: This workflow ONLY builds, publishes, and attests the image."
             echo "- Production deployment is performed exclusively by production-release.yml."
-            echo "- Verify after a successful run with gh attestation verify oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@ ${{ steps.build.outputs.digest }} --repo ${{ github.repository }} (remove the space before the digest when executing)."
+            echo "- Verify after a successful run with: gh attestation verify oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} --repo ${{ github.repository }}"
           } >> "$GITHUB_STEP_SUMMARY"
