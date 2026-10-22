@@ -8,8 +8,11 @@ on:
       - 'docs/security/independent-assurance/**'
       - 'scripts/ci/validate_independent_security_assurance.py'
       - 'scripts/ci/validate_trust_policy.py'
+      - 'scripts/ci/verify_rem_p0_006_crypto.py'
       - 'tests/ci/test_validate_independent_security_assurance.py'
       - 'tests/ci/test_validate_trust_policy.py'
+      - 'tests/ci/test_verify_rem_p0_006_crypto.py'
+      - 'tests/ci/test_rem_p0_006_workflow_integrity.py'
       - '.github/workflows/independent-security-assurance.yml'
   workflow_dispatch:
     inputs:
@@ -39,6 +42,9 @@ jobs:
     if: ${{ github.event_name == 'pull_request' || inputs.gate_mode == 'readiness' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,6 +54,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install cryptographic verifier dependency
+        run: python3 -m pip install --disable-pip-version-check 'PyJWT[crypto]>=2.8,<3'
+
       - name: Test fail-closed validator
         run: python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
 
@@ -56,6 +65,9 @@ jobs:
 
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
+
+      - name: Test cryptographic OIDC and Git signature verifier
+        run: python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
 
       - name: Validate readiness package and assessed release reference
         shell: bash
@@ -97,6 +109,7 @@ jobs:
     environment: rem-p0-006-closure
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,6 +118,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install cryptographic verifier dependency
+        run: python3 -m pip install --disable-pip-version-check 'PyJWT[crypto]>=2.8,<3'
 
       - name: Enforce configured closure authority, main branch and exact release
         shell: bash
@@ -128,15 +144,31 @@ jobs:
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
-      - name: Fail closed until trust inputs are cryptographically verified
+      - name: Test cryptographic OIDC and Git signature verifier
+        run: python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
+
+      - name: Verify OIDC JWT and assessed commit signatures cryptographically
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          # Do not fabricate OIDC claims, protected-environment state, authority-token presence,
-          # or commit-signature evidence. The current validator is invoked with only direct
-          # workflow/release identifiers; absent verified trust inputs must fail closure.
+          python3 scripts/ci/verify_rem_p0_006_crypto.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-sha "$RELEASE_SHA" \
+            --head-sha "$GITHUB_SHA" \
+            --environment rem-p0-006-closure
+
+      - name: Fail closed until validator consumes verified trust evidence
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          # The independent cryptographic preflight above is necessary but not sufficient.
+          # The canonical policy validator still has no verified-evidence handoff contract;
+          # until that contract is implemented, closure must fail closed rather than accept
+          # caller-supplied claim strings or boolean signature assertions.
           python3 scripts/ci/validate_trust_policy.py \
             --mode closure \
             --head-sha "$GITHUB_SHA" \
@@ -150,8 +182,6 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          # Closure must evaluate evidence that already exists in the repository.
-          # This workflow must never manufacture evidence, approvals, findings, or PASS states.
           python3 scripts/ci/validate_independent_security_assurance.py \
             --mode closure \
             --expected-release-sha "$RELEASE_SHA" \
@@ -176,9 +206,9 @@ jobs:
             echo ''
             echo "- Package SHA: ${{ github.sha }}"
             echo "- Assessed release SHA input: ${{ inputs.release_sha }}"
-            echo "- Canonical evidence package: validated in place; no runtime package was generated"
-            echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
-            echo '- This workflow validates existing evidence only; it does not manufacture evidence, approve findings, set ACCEPTED, persist a runtime package, merge with admin override, or close governance issues.'
+            echo '- Canonical evidence package: validated in place; no runtime package was generated'
+            echo '- This workflow requires the rem-p0-006-closure GitHub Environment and its authority secret.'
+            echo '- This workflow validates existing evidence only; it does not manufacture evidence, approvals, or PASS states.'
             echo '- A successful validation run is not itself the formal closure decision.'
             echo '- P0 remains on hold until the separately authorized, evidence-backed governance decision is recorded.'
           } >> "$GITHUB_STEP_SUMMARY"
