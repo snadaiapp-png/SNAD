@@ -50,8 +50,9 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertEqual(policy["finding_id"], "REM-P0-006")
         self.assertEqual(len(policy["controls"]), 5)
 
-    def test_valid_trust_context_passes(self):
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", make_context())
+    def test_valid_trust_context_passes_when_runtime_signature_verifier_passes(self):
+        with patch("trust_policy_validator._verify_git_signatures", return_value=None):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", make_context(commit_signatures={}))
         self.assertTrue(result["all_passed"])
         self.assertEqual(len(result["controls"]), 5)
 
@@ -85,26 +86,24 @@ class TrustPolicyValidatorTest(unittest.TestCase):
                     POLICY_PATH, "closure", make_context(**override))
                 self.assertFalse(control(result, "ENVIRONMENT-PROTECTION")["passed"])
 
-    def test_missing_or_untrusted_range_signature_evidence_fails(self):
-        for signatures in [{}, {"a" * 40: True, "b" * 40: False}]:
-            with self.subTest(signatures=signatures):
-                result = trust_validator.validate_trust_policy(
-                    POLICY_PATH, "closure", make_context(commit_signatures=signatures))
-                self.assertFalse(control(result, "GIT-SIGNATURES")["passed"])
+    def test_caller_supplied_boolean_signature_evidence_is_rejected(self):
+        result = trust_validator.validate_trust_policy(
+            POLICY_PATH, "closure", make_context(commit_signatures={"a" * 40: True}))
+        self.assertFalse(control(result, "GIT-SIGNATURES")["passed"])
+        self.assertIn("not cryptographic evidence", control(result, "GIT-SIGNATURES")["error"])
 
-    def test_only_cryptographically_good_head_signature_passes(self):
+    def test_git_signature_requires_allowlisted_crypto_verified_commits(self):
         sha = "c" * 40
         ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
-        for status, expected_pass in [("G", True), ("U", False), ("E", False),
-                                      ("X", False), ("Y", False), ("R", False),
-                                      ("N", False), ("B", False), ("", False)]:
-            mock = subprocess.CompletedProcess(args=[], returncode=0,
-                                               stdout=f"{status}\n", stderr="")
-            with self.subTest(status=status), patch(
-                "trust_policy_validator.subprocess.run", return_value=mock
-            ):
-                result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
-                self.assertEqual(control(result, "GIT-SIGNATURES")["passed"], expected_pass)
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        listing = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        signed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="[GNUPG:] VALIDSIG ABCDEF123456\n")
+        with patch.dict("os.environ", {"REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS": "ABCDEF123456"}):
+            with patch("trust_policy_validator.subprocess.run", side_effect=[completed, completed, completed, listing, signed]):
+                self.assertIsNone(trust_validator._verify_git_signatures(ctx))
+            unsigned = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+            with patch("trust_policy_validator.subprocess.run", side_effect=[completed, completed, completed, listing, unsigned]):
+                self.assertIn("lacks a cryptographically valid", trust_validator._verify_git_signatures(ctx))
 
     def test_same_organization_assessor_fails(self):
         result = trust_validator.validate_trust_policy(
