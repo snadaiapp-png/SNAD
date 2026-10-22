@@ -7,7 +7,9 @@ on:
     paths:
       - 'docs/security/independent-assurance/**'
       - 'scripts/ci/validate_independent_security_assurance.py'
+      - 'scripts/ci/validate_trust_policy.py'
       - 'tests/ci/test_validate_independent_security_assurance.py'
+      - 'tests/ci/test_validate_trust_policy.py'
       - '.github/workflows/independent-security-assurance.yml'
   workflow_dispatch:
     inputs:
@@ -123,75 +125,21 @@ jobs:
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
-      - name: Extract workflow trust context
-        id: trust-context
+      - name: Fail closed until trust inputs are cryptographically verified
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
-          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
-
-          # Extract git commit signatures for assessed release range
-          commit_sigs=$(git log --format="%H %G?" "$RELEASE_SHA"..HEAD 2>/dev/null | while read sha status; do
-            if [[ "$status" == "G" || "$status" == "U" ]]; then
-              echo "\"$sha\":true"
-            else
-              echo "\"$sha\":false"
-            fi
-          done | paste -sd, -)
-          commit_sigs="{${commit_sigs}}"
-          echo "commit_signatures=${commit_sigs}" >> "$GITHUB_OUTPUT"
-
-          # Extract assessor organization from manifest
-          assessor_org=$(python3 -c "
-          import json
-          from pathlib import Path
-          data = json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text())
-          print(data.get('assessor', {}).get('organization', ''))
-          ")
-
-          # Write trust context to file
-          python3 -c "
-          import json, os
-          from pathlib import Path
-          ctx = {
-              'oidc_issuer': os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', ''),
-              'oidc_subject': 'repo:${{ github.repository }}:ref:${{ github.ref }}',
-              'repository_owner': '${{ github.repository_owner }}',
-              'repository_name': '${{ github.event.repository.name }}',
-              'head_sha': '${{ github.sha }}',
-              'assessed_release_sha': os.environ.get('RELEASE_SHA', ''),
-              'commit_signatures': json.loads('''${commit_sigs}'''),
-              'environment_name': 'rem-p0-006-closure',
-              'is_protected_environment': True,
-              'authority_token_present': True,
-              'ref': '${{ github.ref }}',
-              'assessor_organization': '''${assessor_org}''',
-              'project_organization': '${{ github.repository_owner }}',
-          }
-          Path('.trust-context.json').write_text(json.dumps(ctx, indent=2))
-          "
-
-      - name: Validate trust policy
-        env:
-          RELEASE_SHA: ${{ inputs.release_sha }}
-        run: >-
-          python3 scripts/ci/validate_trust_policy.py
-          --mode closure
-          --oidc-issuer "https://token.actions.githubusercontent.com"
-          --oidc-subject "repo:${{ github.repository }}:ref:${{ github.ref }}"
-          --repository-owner "${{ github.repository_owner }}"
-          --repository-name "${{ github.event.repository.name }}"
-          --head-sha "${{ github.sha }}"
-          --assessed-release-sha "${RELEASE_SHA}"
-          --environment-name "rem-p0-006-closure"
-          --is-protected-environment
-          --authority-token-present
-          --ref "${{ github.ref }}"
-          --commit-signatures-json '${{ steps.trust-context.outputs.commit_signatures }}'
-          --assessor-organization "$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('docs/security/independent-assurance/assessment-manifest.json').read_text()).get('assessor',{}).get('organization',''))")"
-          --project-organization "${{ github.repository_owner }}"
+          # Do not fabricate OIDC claims, protected-environment state, authority-token presence,
+          # or commit-signature evidence. The current validator is invoked with only direct
+          # workflow/release identifiers; absent verified trust inputs must fail closure.
+          python3 scripts/ci/validate_trust_policy.py \
+            --mode closure \
+            --head-sha "$GITHUB_SHA" \
+            --assessed-release-sha "$RELEASE_SHA" \
+            --environment-name "rem-p0-006-closure" \
+            --ref "$GITHUB_REF"
 
       - name: Validate canonical evidence package without mutation
         shell: bash
