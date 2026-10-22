@@ -42,7 +42,7 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
 
     def test_workflow_verifies_real_runtime_trust(self):
         self.assertIn("id-token: write", self.workflow)
-        self.assertIn("administration: read", self.workflow)
+        self.assertIn("REM_P0_006_ENVIRONMENT_AUDIT_TOKEN", self.workflow)
         self.assertIn("PyJWT[crypto]", self.workflow)
         self.assertIn("verify_rem_p0_006_runtime_trust.py", self.workflow)
         self.assertIn("REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS", self.workflow)
