@@ -177,6 +177,43 @@ jobs:
             exit 1
           }
 
+      # V20261011_3 and V20261011_4 fail closed unless the restricted `sanad`
+      # runtime role exists before Flyway (G1_RLS_RUNTIME_ROLE_UNAVAILABLE).
+      # Same provisioning contract as the G4 payroll data isolation workflow
+      # (see 76dce28f / c07bde50), targeted at this job's runtime role.
+      - name: Provision restricted sanad runtime role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_g3 WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_g3', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_g3'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
