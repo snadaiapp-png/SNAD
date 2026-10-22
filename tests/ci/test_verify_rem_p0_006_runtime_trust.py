@@ -35,9 +35,10 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
                 with self.assertRaisesRegex(runtime.GateError, "no configured protection rules"):
                     runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
 
-    def test_environment_rejects_unapproved_reviewer_identity(self):
+    def test_environment_rejects_reviewer_outside_configured_allowlist(self):
         env = {
             "CLOSURE_AUTHORITY_TOKEN": "configured",
+            "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS": "trusted-reviewer",
         }
         environment = {"protection_rules": [{
             "type": "required_reviewers",
@@ -45,8 +46,38 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
         }]}
         with patch.dict(os.environ, env, clear=True):
             with patch.object(runtime, "api_get", return_value=environment):
-                with self.assertRaisesRegex(runtime.GateError, "policy-allowlisted reviewer"):
+                with self.assertRaisesRegex(runtime.GateError, "no reviewer matching"):
                     runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_environment_rejects_assessor_in_reviewer_allowlist(self):
+        env = {
+            "CLOSURE_AUTHORITY_TOKEN": "configured",
+            "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS": "abdulrhmansenan1985-creator",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(runtime.GateError, "exclude the lead assessor"):
+                runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_environment_requires_explicit_reviewer_allowlist(self):
+        with patch.dict(os.environ, {"CLOSURE_AUTHORITY_TOKEN": "configured"}, clear=True):
+            with self.assertRaisesRegex(runtime.GateError, "ALLOWED_ENVIRONMENT_REVIEWER_LOGINS is not configured"):
+                runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_environment_accepts_configured_reviewer_distinct_from_assessor(self):
+        env = {
+            "CLOSURE_AUTHORITY_TOKEN": "configured",
+            "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS": "trusted-reviewer",
+        }
+        environment = {"protection_rules": [{
+            "type": "required_reviewers",
+            "reviewers": [{"type": "User", "reviewer": {"login": "trusted-reviewer"}}],
+        }]}
+        branch_protection = {
+            "required_pull_request_reviews": {"required_approving_review_count": 2},
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(runtime, "api_get", side_effect=[environment, branch_protection]):
+                runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
 
     def test_main_branch_requires_pull_request_approval_protection(self):
         with patch.object(runtime, "api_get", return_value={}):
