@@ -54,8 +54,10 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
         self.assertIn("scripts/ci/verify_rem_p0_006_crypto.py", self.workflow)
         self.assertIn("PyJWT[crypto]", self.workflow)
 
-    def test_unverified_policy_handoff_still_fails_closed(self):
-        self.assertIn("Fail closed until validator consumes verified trust evidence", self.workflow)
+    def test_canonical_validator_consumes_cryptographic_evidence(self):
+        self.assertIn("Run canonical trust policy validator with cryptographic evidence", self.workflow)
+        self.assertNotIn("Fail closed until validator consumes verified trust evidence", self.workflow)
+        self.assertIn("No caller-supplied claims or boolean signature map are accepted as proof.", self.workflow)
         self.assertIn("python3 scripts/ci/validate_trust_policy.py", self.workflow)
         self.assertIn('--head-sha "$GITHUB_SHA"', self.workflow)
         self.assertIn('--assessed-release-sha "$RELEASE_SHA"', self.workflow)
