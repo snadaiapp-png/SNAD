@@ -138,7 +138,17 @@ def _verify_git_signatures(ctx: TrustContext) -> str | None:
 
 
 def _verify_environment_protection(ctx: TrustContext) -> str | None:
-    """Verify workflow runs in a protected environment."""
+    """For closure, prove the protected environment through the signed OIDC subject."""
+    if ctx.mode == "closure":
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        if not repository or "/" not in repository:
+            return "GITHUB_REPOSITORY runtime identity is unavailable"
+        try:
+            token = obtain_oidc_token("https://github.com")
+            verify_oidc_token(token, repository, "https://github.com", "rem-p0-006-closure")
+        except VerificationError as exc:
+            return f"Protected environment OIDC verification failed: {exc}"
+        return None
     if not ctx.is_protected_environment:
         return "Workflow is not running in a protected environment"
     if not ctx.environment_name:
