@@ -8,6 +8,7 @@ on:
       - 'docs/security/independent-assurance/**'
       - 'scripts/ci/validate_independent_security_assurance.py'
       - 'scripts/ci/validate_trust_policy.py'
+      - 'scripts/ci/verify_rem_p0_006_runtime_trust.py'
       - 'tests/ci/test_validate_independent_security_assurance.py'
       - 'tests/ci/test_validate_trust_policy.py'
       - '.github/workflows/independent-security-assurance.yml'
@@ -97,6 +98,7 @@ jobs:
     environment: rem-p0-006-closure
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,6 +107,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install cryptographic OIDC verifier
+        run: python3 -m pip install 'PyJWT[crypto]>=2.8,<3'
 
       - name: Enforce configured closure authority, main branch and exact release
         shell: bash
@@ -128,21 +133,46 @@ jobs:
       - name: Test trust policy validator
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
-      - name: Fail closed until trust inputs are cryptographically verified
+      - name: Verify live OIDC, protected environment and signed SHA range
+        id: runtime-trust
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          GITHUB_ENVIRONMENT_AUDIT_TOKEN: ${{ secrets.REM_P0_006_ENVIRONMENT_AUDIT_TOKEN }}
+          CLOSURE_AUTHORITY_TOKEN: ${{ secrets.REM_P0_006_CLOSURE_AUTHORITY_TOKEN }}
+          REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS: ${{ vars.REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS }}
         run: |
           set -euo pipefail
-          # Do not fabricate OIDC claims, protected-environment state, authority-token presence,
-          # or commit-signature evidence. The current validator is invoked with only direct
-          # workflow/release identifiers; absent verified trust inputs must fail closure.
+          python3 scripts/ci/verify_rem_p0_006_runtime_trust.py
+
+      - name: Validate policy from cryptographically verified runtime claims
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          OIDC_ISSUER: ${{ steps.runtime-trust.outputs.oidc_issuer }}
+          OIDC_AUDIENCE: ${{ steps.runtime-trust.outputs.oidc_audience }}
+          OIDC_SUBJECT: ${{ steps.runtime-trust.outputs.oidc_subject }}
+          REPOSITORY_OWNER: ${{ steps.runtime-trust.outputs.repository_owner }}
+          REPOSITORY_NAME: ${{ steps.runtime-trust.outputs.repository_name }}
+          HEAD_SHA: ${{ steps.runtime-trust.outputs.head_sha }}
+          ENVIRONMENT_NAME: ${{ steps.runtime-trust.outputs.environment_name }}
+          REF_NAME: ${{ steps.runtime-trust.outputs.ref }}
+          REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS: ${{ vars.REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS }}
+        run: |
+          set -euo pipefail
           python3 scripts/ci/validate_trust_policy.py \
             --mode closure \
-            --head-sha "$GITHUB_SHA" \
+            --oidc-issuer "$OIDC_ISSUER" \
+            --oidc-audience "$OIDC_AUDIENCE" \
+            --oidc-subject "$OIDC_SUBJECT" \
+            --repository-owner "$REPOSITORY_OWNER" \
+            --repository-name "$REPOSITORY_NAME" \
+            --head-sha "$HEAD_SHA" \
             --assessed-release-sha "$RELEASE_SHA" \
-            --environment-name "rem-p0-006-closure" \
-            --ref "$GITHUB_REF"
+            --environment-name "$ENVIRONMENT_NAME" \
+            --is-protected-environment \
+            --authority-token-present \
+            --ref "$REF_NAME"
 
       - name: Validate canonical evidence package without mutation
         shell: bash
