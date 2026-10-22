@@ -95,7 +95,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      administration: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -135,7 +134,7 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ENVIRONMENT_AUDIT_TOKEN: ${{ secrets.REM_P0_006_ENVIRONMENT_AUDIT_TOKEN }}
           CLOSURE_AUTHORITY_TOKEN: ${{ secrets.REM_P0_006_CLOSURE_AUTHORITY_TOKEN }}
           REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS: ${{ vars.REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS }}
         run: |
