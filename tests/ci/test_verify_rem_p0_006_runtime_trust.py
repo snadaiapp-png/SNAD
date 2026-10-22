@@ -78,10 +78,24 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
         }]}
         branch_protection = {
             "required_pull_request_reviews": {"required_approving_review_count": 2},
+            "required_status_checks": {"contexts": ["ci/trust"]},
+            "enforce_admins": {"enabled": True},
+            "required_signatures": {"enabled": True},
         }
         with patch.dict(os.environ, env, clear=True):
             with patch.object(runtime, "api_get", side_effect=[environment, branch_protection]):
-                runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+                source = runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+        self.assertEqual(source, "legacy-branch-protection")
+
+    def test_environment_unreadable_fails_closed(self):
+        env = {
+            "CLOSURE_AUTHORITY_TOKEN": "configured",
+            "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS": "trusted-reviewer",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(runtime, "api_get", return_value=None):
+                with self.assertRaisesRegex(runtime.GateError, "environment could not be read"):
+                    runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
 
     def test_main_branch_requires_pull_request_approval_protection(self):
         with patch.object(runtime, "api_get", return_value={}):
@@ -93,6 +107,79 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
             "required_pull_request_reviews": {"required_approving_review_count": 0}
         }):
             with self.assertRaisesRegex(runtime.GateError, "at least one approving review"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_legacy_protection_complete_passes(self):
+        legacy = {
+            "required_pull_request_reviews": {"required_approving_review_count": 2},
+            "required_status_checks": {"contexts": ["ci/trust"]},
+            "enforce_admins": {"enabled": True},
+            "required_signatures": {"enabled": True},
+        }
+        with patch.object(runtime, "api_get", return_value=legacy):
+            source = runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+        self.assertEqual(source, "legacy-branch-protection")
+
+    def test_main_branch_legacy_without_admin_enforcement_fails(self):
+        legacy = {
+            "required_pull_request_reviews": {"required_approving_review_count": 1},
+            "required_status_checks": {"contexts": ["ci/trust"]},
+            "enforce_admins": {"enabled": False},
+            "required_signatures": {"enabled": True},
+        }
+        with patch.object(runtime, "api_get", return_value=legacy):
+            with self.assertRaisesRegex(runtime.GateError, "enforce rules for administrators"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_legacy_without_signed_commits_fails(self):
+        legacy = {
+            "required_pull_request_reviews": {"required_approving_review_count": 1},
+            "required_status_checks": {"contexts": ["ci/trust"]},
+            "enforce_admins": {"enabled": True},
+            "required_signatures": {"enabled": False},
+        }
+        with patch.object(runtime, "api_get", return_value=legacy):
+            with self.assertRaisesRegex(runtime.GateError, "require signed commits"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_legacy_without_status_checks_fails(self):
+        legacy = {
+            "required_pull_request_reviews": {"required_approving_review_count": 1},
+            "required_status_checks": {"contexts": []},
+            "enforce_admins": {"enabled": True},
+            "required_signatures": {"enabled": True},
+        }
+        with patch.object(runtime, "api_get", return_value=legacy):
+            with self.assertRaisesRegex(runtime.GateError, "non-empty required status checks"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_rulesets_complete_pass_when_legacy_absent(self):
+        rulesets = [
+            {"type": "pull_request"},
+            {"type": "required_status_checks"},
+            {"type": "required_signatures"},
+            {"type": "non_fast_forward"},
+        ]
+        with patch.object(runtime, "api_get", side_effect=[None, rulesets]):
+            source = runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+        self.assertEqual(source, "active-rulesets")
+
+    def test_main_branch_rulesets_missing_rule_fail_closed(self):
+        rulesets = [
+            {"type": "pull_request"},
+            {"type": "required_status_checks"},
+            {"type": "required_signatures"},
+        ]
+        with patch.object(runtime, "api_get", side_effect=[None, rulesets]):
+            with self.assertRaisesRegex(runtime.GateError, "missing required rules: non_fast_forward"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_unverifiable_protection_fails_closed(self):
+        with patch.object(runtime, "api_get", side_effect=[None, None]):
+            with self.assertRaisesRegex(
+                runtime.GateError,
+                "could not be verified through legacy protection or active rulesets",
+            ):
                 runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
 
     def test_invalid_release_sha_fails_before_git_calls(self):
