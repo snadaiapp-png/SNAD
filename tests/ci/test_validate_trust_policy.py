@@ -93,7 +93,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertIn("does not match", oidc["error"])
 
     def test_unsigned_commit_fails(self):
-        ctx = make_context(commit_signatures={"a" * 40: False})
+        ctx = make_context()
         result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
