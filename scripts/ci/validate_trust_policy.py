@@ -75,12 +75,11 @@ def _verify_oidc_identity(ctx: TrustContext) -> str | None:
 
 
 def _verify_head_commit_signature() -> str | None:
-    """Verify the HEAD commit itself has a valid signature via git log.
+    """Require a cryptographically verified, trusted HEAD commit signature.
 
-    Returns None on success (signature present), or an error string on failure.
-    Status E (signed but key unavailable) is treated as success with a warning
-    printed to stderr — the commit IS signed, verification is just not possible
-    on this runner.
+    Only Git status G is accepted. U means trust is unknown; E means the signer
+    key is unavailable; X/Y/R indicate expired or revoked signer conditions.
+    These statuses cannot prove the closure trust requirement and fail closed.
     """
     try:
         result = subprocess.run(
@@ -88,17 +87,22 @@ def _verify_head_commit_signature() -> str | None:
             capture_output=True, text=True, timeout=30,
         )
         status = result.stdout.strip()
-        # G=good, U=good+unknown validity, X=good+expired key,
-        # Y=good+key expired, R=good+key revoked — verified signatures.
-        if status in ("G", "U", "X", "Y", "R"):
+        # G=good signature with trusted validity. Every other status fails closed.
+        if status == "G":
             return None
-        # E=signed but key not in local keyring — signature exists, cannot verify.
         if status == "E":
-            print("WARNING: HEAD commit is signed but signer public key is "
-                  "unavailable on this runner.", file=sys.stderr)
-            return None
-        # N=unsigned, B=bad signature — reject.
-        return f"HEAD commit is not signed (status={status})"
+            return "HEAD commit signature cannot be verified: signer public key is unavailable"
+        if status == "U":
+            return "HEAD commit signature is not trusted: signer key validity is unknown"
+        if status in ("X", "Y"):
+            return f"HEAD commit signature is not accepted: expired key/signature status={status}"
+        if status == "R":
+            return "HEAD commit signature is not accepted: signer key is revoked"
+        if status == "B":
+            return "HEAD commit has a bad signature (status=B)"
+        if status == "N":
+            return "HEAD commit is unsigned (status=N)"
+        return f"HEAD commit signature status is not verifiably trusted (status={status!r})"
     except FileNotFoundError:
         return "git binary not available for signature verification"
     except subprocess.TimeoutExpired:
@@ -114,7 +118,7 @@ def _verify_git_signatures(ctx: TrustContext) -> str | None:
         return "No commit signature data provided"
     unsigned = [sha for sha, signed in ctx.commit_signatures.items() if not signed]
     if unsigned:
-        return f"Unsigned commits detected: {unsigned[:5]}"
+        return f"Unsigned or unverified commits detected: {unsigned[:5]}"
     return None
 
 
@@ -255,7 +259,7 @@ def main() -> int:
     parser.add_argument("--head-sha", default="")
     parser.add_argument("--assessed-release-sha", default="")
     parser.add_argument("--commit-signatures-json", default="{}",
-                        help="JSON dict mapping commit SHA to boolean signed status")
+                        help="JSON dict mapping commit SHA to boolean verified-signature status")
     parser.add_argument("--environment-name", default="")
     parser.add_argument("--is-protected-environment", action="store_true")
     parser.add_argument("--authority-token-present", action="store_true")
