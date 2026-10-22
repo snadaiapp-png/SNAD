@@ -9,9 +9,11 @@ on:
       - 'scripts/ci/validate_independent_security_assurance.py'
       - 'scripts/ci/validate_trust_policy.py'
       - 'scripts/ci/verify_rem_p0_006_crypto.py'
+      - 'scripts/ci/verify_rem_p0_006_protection.py'
       - 'tests/ci/test_validate_independent_security_assurance.py'
       - 'tests/ci/test_validate_trust_policy.py'
       - 'tests/ci/test_verify_rem_p0_006_crypto.py'
+      - 'tests/ci/test_verify_rem_p0_006_protection.py'
       - 'tests/ci/test_rem_p0_006_workflow_integrity.py'
       - '.github/workflows/independent-security-assurance.yml'
   workflow_dispatch:
@@ -67,7 +69,9 @@ jobs:
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
       - name: Test cryptographic OIDC and Git signature verifier
-        run: python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
+        run: |
+          python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
+          python3 -m unittest tests/ci/test_verify_rem_p0_006_protection.py -v
 
       - name: Validate readiness package and assessed release reference
         shell: bash
@@ -145,7 +149,17 @@ jobs:
         run: python3 -m unittest tests/ci/test_validate_trust_policy.py -v
 
       - name: Test cryptographic OIDC and Git signature verifier
-        run: python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
+        run: |
+          python3 -m unittest tests/ci/test_verify_rem_p0_006_crypto.py -v
+          python3 -m unittest tests/ci/test_verify_rem_p0_006_protection.py -v
+
+      - name: Verify live closure environment and main-branch protection
+        shell: bash
+        env:
+          REM_P0_006_ENVIRONMENT_AUDIT_TOKEN: ${{ secrets.REM_P0_006_ENVIRONMENT_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify_rem_p0_006_protection.py --repository "$GITHUB_REPOSITORY"
 
       - name: Verify OIDC JWT and assessed commit signatures cryptographically
         shell: bash
