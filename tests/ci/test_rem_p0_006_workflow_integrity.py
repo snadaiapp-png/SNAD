@@ -40,6 +40,21 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
         self.assertIn("git diff --quiet -- docs/security/independent-assurance", self.workflow)
         self.assertIn("Canonical evidence package remained unchanged.", self.workflow)
 
+    def test_workflow_does_not_fabricate_trust_context(self):
+        self.assertNotIn("'is_protected_environment': True", self.workflow)
+        self.assertNotIn("'authority_token_present': True", self.workflow)
+        self.assertNotIn("'oidc_subject': 'repo:", self.workflow)
+        self.assertNotIn("steps.oidc.outputs.token", self.workflow)
+        self.assertNotIn("--is-protected-environment", self.workflow)
+        self.assertNotIn("--authority-token-present", self.workflow)
+
+    def test_unverified_trust_inputs_fail_closed(self):
+        self.assertIn("Fail closed until trust inputs are cryptographically verified", self.workflow)
+        self.assertIn("python3 scripts/ci/validate_trust_policy.py", self.workflow)
+        self.assertIn('--head-sha "$GITHUB_SHA"', self.workflow)
+        self.assertIn('--assessed-release-sha "$RELEASE_SHA"', self.workflow)
+        self.assertIn('--ref "$GITHUB_REF"', self.workflow)
+
     def test_workflow_states_success_is_not_the_closure_decision(self):
         self.assertIn("A successful validation run is not itself the formal closure decision.", self.workflow)
         self.assertIn("P0 remains on hold", self.workflow)
