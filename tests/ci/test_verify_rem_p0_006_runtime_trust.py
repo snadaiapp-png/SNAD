@@ -35,6 +35,31 @@ class RuntimeTrustVerifierTest(unittest.TestCase):
                 with self.assertRaisesRegex(runtime.GateError, "no configured protection rules"):
                     runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
 
+    def test_environment_rejects_unapproved_reviewer_identity(self):
+        env = {
+            "CLOSURE_AUTHORITY_TOKEN": "configured",
+        }
+        environment = {"protection_rules": [{
+            "type": "required_reviewers",
+            "reviewers": [{"type": "User", "reviewer": {"login": "someone-else"}}],
+        }]}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(runtime, "api_get", return_value=environment):
+                with self.assertRaisesRegex(runtime.GateError, "policy-allowlisted reviewer"):
+                    runtime.verify_environment("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_requires_pull_request_approval_protection(self):
+        with patch.object(runtime, "api_get", return_value={}):
+            with self.assertRaisesRegex(runtime.GateError, "main branch lacks required pull-request review protection"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
+    def test_main_branch_requires_at_least_one_approval(self):
+        with patch.object(runtime, "api_get", return_value={
+            "required_pull_request_reviews": {"required_approving_review_count": 0}
+        }):
+            with self.assertRaisesRegex(runtime.GateError, "at least one approving review"):
+                runtime.verify_main_branch_protection("read-only-audit-token", "snadaiapp-png", "SNAD")
+
     def test_invalid_release_sha_fails_before_git_calls(self):
         with patch("runtime_trust_verifier.git_output") as git_output:
             with self.assertRaisesRegex(runtime.GateError, "exact lowercase commit SHA"):
