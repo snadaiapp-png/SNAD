@@ -48,8 +48,14 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
         self.assertNotIn("--is-protected-environment", self.workflow)
         self.assertNotIn("--authority-token-present", self.workflow)
 
-    def test_unverified_trust_inputs_fail_closed(self):
-        self.assertIn("Fail closed until trust inputs are cryptographically verified", self.workflow)
+    def test_closure_requests_runtime_oidc_and_runs_crypto_verifier(self):
+        self.assertIn("id-token: write", self.workflow)
+        self.assertIn("Verify OIDC JWT and assessed commit signatures cryptographically", self.workflow)
+        self.assertIn("scripts/ci/verify_rem_p0_006_crypto.py", self.workflow)
+        self.assertIn("PyJWT[crypto]", self.workflow)
+
+    def test_unverified_policy_handoff_still_fails_closed(self):
+        self.assertIn("Fail closed until validator consumes verified trust evidence", self.workflow)
         self.assertIn("python3 scripts/ci/validate_trust_policy.py", self.workflow)
         self.assertIn('--head-sha "$GITHUB_SHA"', self.workflow)
         self.assertIn('--assessed-release-sha "$RELEASE_SHA"', self.workflow)
