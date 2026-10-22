@@ -69,6 +69,8 @@ def verify_oidc() -> dict:
         raise GateError(f"OIDC JWT signature/claims validation failed ({type(exc).__name__})") from exc
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     require(claims.get("repository", "").casefold() == repo.casefold(), "OIDC repository claim does not match this repository")
+    require(claims.get("repository_owner", "").casefold() == repo.split("/", 1)[0].casefold(), "OIDC owner claim does not match this repository")
+    require(claims.get("sub") == f"repo:{repo}:environment:{ENVIRONMENT}", "OIDC subject is not bound to the exact protected environment")
     require(claims.get("ref") == "refs/heads/main", "OIDC ref claim is not refs/heads/main")
     require(claims.get("sha") == os.environ.get("GITHUB_SHA", ""), "OIDC SHA claim does not match workflow SHA")
     require(claims.get("environment") == ENVIRONMENT, "OIDC token is not bound to the required protected environment")
