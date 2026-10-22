@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -107,20 +109,46 @@ def _verify_head_commit_signature() -> str | None:
 
 
 def _verify_git_signatures(ctx: TrustContext) -> str | None:
-    """Require verified signature evidence for every commit in the assessed range."""
+    """Verify commit signatures cryptographically; reject caller-supplied boolean evidence."""
     if not ctx.head_sha or not ctx.assessed_release_sha:
         return "HEAD SHA and assessed release SHA are required for signature verification"
-    if not ctx.commit_signatures:
-        if ctx.head_sha == ctx.assessed_release_sha:
-            return _verify_head_commit_signature()
-        return "No per-commit signature verification evidence provided for assessed range"
-    invalid_sha = [sha for sha in ctx.commit_signatures if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha)]
-    if invalid_sha:
-        return f"Invalid commit SHA in signature evidence: {invalid_sha[:3]}"
-    unverified = [sha for sha, verified in ctx.commit_signatures.items() if verified is not True]
-    if unverified:
-        return f"Commits lack trusted signature verification: {unverified[:5]}"
-    return None
+    if ctx.commit_signatures:
+        return "Caller-supplied signature booleans are not cryptographic evidence"
+    if not re.fullmatch(r"[0-9a-f]{40}", ctx.head_sha) or not re.fullmatch(r"[0-9a-f]{40}", ctx.assessed_release_sha):
+        return "HEAD and assessed release must be exact lowercase commit SHAs"
+    allowed = {item.strip().upper() for item in os.environ.get("REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS", "").split(",") if item.strip()}
+    if not allowed:
+        return "Trusted signer fingerprint allowlist is not configured"
+    try:
+        for args in (
+            ["git", "cat-file", "-e", f"{ctx.assessed_release_sha}^{{commit}}"],
+            ["git", "cat-file", "-e", f"{ctx.head_sha}^{{commit}}"],
+            ["git", "merge-base", "--is-ancestor", ctx.assessed_release_sha, ctx.head_sha],
+        ):
+            result = subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
+            if result.returncode != 0:
+                return "Assessed release is missing or is not an ancestor of workflow HEAD"
+        result = subprocess.run(["git", "rev-list", "--reverse", f"{ctx.assessed_release_sha}^..{ctx.head_sha}"],
+                                capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode != 0:
+            return "Unable to enumerate assessed commit range"
+        commits = result.stdout.splitlines()
+        if ctx.assessed_release_sha not in commits:
+            commits.insert(0, ctx.assessed_release_sha)
+        for commit in commits:
+            result = subprocess.run(["git", "verify-commit", "--raw", commit],
+                                    capture_output=True, text=True, timeout=30, check=False)
+            output = result.stdout + "\n" + result.stderr
+            if result.returncode != 0:
+                return f"Commit {commit} lacks a cryptographically valid Git signature"
+            fingerprints = {value.upper() for value in re.findall(r"\[GNUPG:\] VALIDSIG ([0-9A-Fa-f]+)", output)}
+            if not (fingerprints & allowed):
+                return f"Commit {commit} signer is not in the trusted fingerprint allowlist"
+        return None
+    except FileNotFoundError:
+        return "git binary not available for signature verification"
+    except subprocess.TimeoutExpired:
+        return "Git signature or ancestry verification timed out"
 
 
 def _verify_environment_protection(ctx: TrustContext) -> str | None:
@@ -241,8 +269,8 @@ def main() -> int:
         commit_sigs = json.loads(args.commit_signatures_json)
         if not isinstance(commit_sigs, dict):
             raise TrustPolicyError("--commit-signatures-json must be a JSON object")
-        if any(not isinstance(value, bool) for value in commit_sigs.values()):
-            raise TrustPolicyError("signature evidence values must be booleans from a trusted verifier")
+        if commit_sigs:
+            raise TrustPolicyError("--commit-signatures-json is not accepted; use cryptographic Git verification")
         ctx = TrustContext(
             oidc_issuer=args.oidc_issuer, oidc_audience=args.oidc_audience,
             oidc_subject=args.oidc_subject, repository_owner=args.repository_owner,
