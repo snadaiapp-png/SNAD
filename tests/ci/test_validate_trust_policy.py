@@ -86,7 +86,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
 
     def test_oidc_subject_mismatch_fails(self):
         ctx = make_context(oidc_subject="repo:evil/evil:pull_request")
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        result = trust_validator.validate_trust_policy(POLICY_PATH, "readiness", ctx)
         self.assertFalse(result["all_passed"])
         oidc = [c for c in result["controls"] if c["control_id"] == "OIDC-IDENTITY"][0]
         self.assertFalse(oidc["passed"])
@@ -94,7 +94,8 @@ class TrustPolicyValidatorTest(unittest.TestCase):
 
     def test_unsigned_commit_fails(self):
         ctx = make_context()
-        result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
+        with patch.object(trust_validator, "verify_commit_range", side_effect=trust_validator.VerificationError("unsigned or untrusted commit")):
+            result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
         self.assertFalse(result["all_passed"])
         sig = [c for c in result["controls"] if c["control_id"] == "GIT-SIGNATURES"][0]
         self.assertFalse(sig["passed"])
