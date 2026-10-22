@@ -62,6 +62,9 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
         self.assertIn('--head-sha "$GITHUB_SHA"', self.workflow)
         self.assertIn('--assessed-release-sha "$RELEASE_SHA"', self.workflow)
         self.assertIn('--ref "$GITHUB_REF"', self.workflow)
+        self.assertIn('--assessor-organization "$assessor_org"', self.workflow)
+        self.assertIn('--project-organization "$GITHUB_REPOSITORY_OWNER"', self.workflow)
+        self.assertIn("Assessor organization is missing from canonical manifest", self.workflow)
 
     def test_workflow_states_success_is_not_the_closure_decision(self):
         self.assertIn("A successful validation run is not itself the formal closure decision.", self.workflow)
