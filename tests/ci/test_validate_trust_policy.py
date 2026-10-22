@@ -51,7 +51,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
         self.assertEqual(len(policy["controls"]), 5)
 
     def test_valid_trust_context_passes_when_runtime_signature_verifier_passes(self):
-        with patch("trust_policy_validator._verify_git_signatures", return_value=None):
+        with patch.dict(trust_validator.CONTROL_EVALUATORS, {"GIT_SIGNATURE_VERIFICATION": lambda ctx: None}):
             result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", make_context(commit_signatures={}))
         self.assertTrue(result["all_passed"])
         self.assertEqual(len(result["controls"]), 5)
