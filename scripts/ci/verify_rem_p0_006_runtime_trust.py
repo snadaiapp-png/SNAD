@@ -15,7 +15,6 @@ from pathlib import Path
 ISSUER = "https://token.actions.githubusercontent.com"
 AUDIENCE = "https://github.com"
 ENVIRONMENT = "rem-p0-006-closure"
-TRUSTED_REVIEWER_LOGIN = "abdulrhmansenan1985-creator"
 API = "https://api.github.com"
 
 
@@ -90,24 +89,40 @@ def verify_main_branch_protection(token: str, owner: str, repo: str) -> None:
 
 def verify_environment(token: str, owner: str, repo: str) -> None:
     require(token, "GITHUB_TOKEN unavailable; cannot verify environment protection rules")
+    allowed_reviewers = {
+        item.strip().casefold()
+        for item in os.environ.get("REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS", "").split(",")
+        if item.strip()
+    }
+    require(allowed_reviewers, "REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS is not configured")
+    manifest_path = Path("docs/security/independent-assurance/assessment-manifest.json")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GateError("Canonical assessment manifest cannot establish assessor identity") from exc
+    assessor_login = str(manifest.get("assessor", {}).get("lead_assessor", "")).strip().casefold()
+    require(assessor_login, "Canonical manifest does not identify the lead assessor")
+    require(assessor_login not in allowed_reviewers,
+            "Environment reviewer allowlist must exclude the lead assessor to preserve role separation")
     url = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/environments/{urllib.parse.quote(ENVIRONMENT)}"
     environment = api_get(url, token)
     rules = environment.get("protection_rules")
     require(isinstance(rules, list) and rules, "Protected environment has no configured protection rules")
     reviewer_rules = [r for r in rules if r.get("type") == "required_reviewers"]
     require(reviewer_rules, "Protected environment lacks required-reviewer protection")
-    configured_reviewers = []
+    configured_reviewers = set()
     for rule in reviewer_rules:
         for entry in rule.get("reviewers") or []:
             reviewer = entry.get("reviewer") or {}
             login = reviewer.get("login") or reviewer.get("slug")
             if login:
-                configured_reviewers.append(login.casefold())
-    require(TRUSTED_REVIEWER_LOGIN.casefold() in configured_reviewers,
-            "Protected environment does not require the policy-allowlisted reviewer identity")
+                configured_reviewers.add(str(login).casefold())
+    require(configured_reviewers & allowed_reviewers,
+            "Protected environment has no reviewer matching the configured independent allowlist")
     verify_main_branch_protection(token, owner, repo)
     require(os.environ.get("CLOSURE_AUTHORITY_TOKEN", ""), "Closure authority secret is not configured")
-    # Never print or persist the authority secret.
+    # The secret is only checked for configuration; its authority scope is not independently
+    # proven here. Formal closure remains blocked until governance verifies that scope.
 
 
 def git_output(args: list[str]) -> str:
