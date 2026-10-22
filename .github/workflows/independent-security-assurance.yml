@@ -145,6 +145,7 @@ jobs:
           GITHUB_ENVIRONMENT_AUDIT_TOKEN: ${{ secrets.REM_P0_006_ENVIRONMENT_AUDIT_TOKEN }}
           CLOSURE_AUTHORITY_TOKEN: ${{ secrets.REM_P0_006_CLOSURE_AUTHORITY_TOKEN }}
           REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS: ${{ vars.REM_P0_006_ALLOWED_SIGNER_FINGERPRINTS }}
+          REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS: ${{ vars.REM_P0_006_ALLOWED_ENVIRONMENT_REVIEWER_LOGINS }}
         run: |
           set -euo pipefail
           python3 scripts/ci/verify_rem_p0_006_runtime_trust.py
