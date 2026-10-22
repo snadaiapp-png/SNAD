@@ -221,7 +221,7 @@ class TrustPolicyValidatorTest(unittest.TestCase):
                 sha = status.lower() * 40
                 ctx = make_context(head_sha=sha, assessed_release_sha=sha, commit_signatures={})
                 mock = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout=f"{status}\\n", stderr="",
+                    args=[], returncode=0, stdout=f"{status}\n", stderr="",
                 )
                 with patch("trust_policy_validator.subprocess.run", return_value=mock):
                     result = trust_validator.validate_trust_policy(POLICY_PATH, "closure", ctx)
