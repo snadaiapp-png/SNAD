@@ -123,7 +123,7 @@ def main() -> int:
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         require("/" in repository, "GITHUB_REPOSITORY is malformed")
         owner, name = repository.split("/", 1)
-        verify_environment(os.environ.get("GITHUB_TOKEN", ""), owner, name)
+        verify_environment(os.environ.get("GITHUB_ENVIRONMENT_AUDIT_TOKEN", ""), owner, name)
         verify_release_and_signatures(os.environ.get("RELEASE_SHA", ""), os.environ.get("GITHUB_SHA", ""))
         output = os.environ.get("GITHUB_OUTPUT", "")
         if output:
