@@ -53,6 +53,10 @@ class RemP0ClosureWorkflowIntegrityTest(unittest.TestCase):
         self.assertIn("Verify OIDC JWT and assessed commit signatures cryptographically", self.workflow)
         self.assertIn("scripts/ci/verify_rem_p0_006_crypto.py", self.workflow)
         self.assertIn("PyJWT[crypto]", self.workflow)
+        self.assertIn("Verify live closure environment and main-branch protection", self.workflow)
+        self.assertIn("REM_P0_006_ENVIRONMENT_AUDIT_TOKEN", self.workflow)
+        self.assertIn("scripts/ci/verify_rem_p0_006_protection.py", self.workflow)
+        self.assertIn("tests/ci/test_verify_rem_p0_006_protection.py", self.workflow)
 
     def test_canonical_validator_consumes_cryptographic_evidence(self):
         self.assertIn("Run canonical trust policy validator with cryptographic evidence", self.workflow)
