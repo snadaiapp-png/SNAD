@@ -27,7 +27,11 @@ def require(condition: bool, message: str) -> None:
         raise GateError(message)
 
 
-def api_get(url: str, token: str) -> dict:
+def api_get(url: str, token: str, *, not_found_ok: bool = False) -> dict | None:
+    """GET a trust API endpoint; with not_found_ok, HTTP 404 maps to None.
+
+    Any other failure raises GateError so the caller fails closed.
+    """
     request = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -37,7 +41,11 @@ def api_get(url: str, token: str) -> dict:
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+    except urllib.error.HTTPError as exc:
+        if not_found_ok and exc.code == 404:
+            return None
+        raise GateError(f"GitHub trust API could not be verified ({type(exc).__name__}); refusing closure") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise GateError(f"GitHub trust API could not be verified ({type(exc).__name__}); refusing closure") from exc
 
 
@@ -77,17 +85,47 @@ def verify_oidc() -> dict:
     return claims
 
 
-def verify_main_branch_protection(token: str, owner: str, repo: str) -> None:
-    """Require repository-level main-branch PR review protection; environment rules alone are insufficient."""
-    url = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/branches/main/protection"
-    protection = api_get(url, token)
-    reviews = protection.get("required_pull_request_reviews")
-    require(isinstance(reviews, dict), "main branch lacks required pull-request review protection")
-    count = reviews.get("required_approving_review_count")
-    require(isinstance(count, int) and count >= 1, "main branch must require at least one approving review")
+REQUIRED_RULESET_RULES = {"pull_request", "required_status_checks", "required_signatures", "non_fast_forward"}
 
 
-def verify_environment(token: str, owner: str, repo: str) -> None:
+def verify_main_branch_protection(token: str, owner: str, repo: str) -> str:
+    """Require main-branch protection that cannot be bypassed silently.
+
+    Verified through the legacy branch protection API first; if it is absent
+    (HTTP 404), through the active rulesets that govern refs/heads/main.
+    Either source must prove: pull-request review protection, non-empty
+    required status checks, administrator enforcement, and signed commits.
+    Fails closed when neither source proves the full requirement set.
+    Returns the protection source for evidence recording.
+    """
+    base = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}"
+    protection = api_get(f"{base}/branches/main/protection", token, not_found_ok=True)
+    if isinstance(protection, dict):
+        reviews = protection.get("required_pull_request_reviews")
+        require(isinstance(reviews, dict), "main branch lacks required pull-request review protection")
+        count = reviews.get("required_approving_review_count")
+        require(isinstance(count, int) and count >= 1, "main branch must require at least one approving review")
+        checks = protection.get("required_status_checks")
+        require(isinstance(checks, dict) and checks.get("contexts"),
+                "main branch lacks non-empty required status checks")
+        admins = protection.get("enforce_admins")
+        require(isinstance(admins, dict) and admins.get("enabled") is True,
+                "main branch protection does not enforce rules for administrators")
+        signatures = protection.get("required_signatures")
+        require(isinstance(signatures, dict) and signatures.get("enabled") is True,
+                "main branch does not require signed commits")
+        return "legacy-branch-protection"
+    rulesets = api_get(f"{base}/rules/branches/main", token, not_found_ok=True)
+    require(isinstance(rulesets, list),
+            "main branch protection could not be verified through legacy protection or active rulesets")
+    rule_types = {item.get("type") for item in rulesets if isinstance(item, dict)}
+    missing = sorted(REQUIRED_RULESET_RULES - rule_types)
+    require(not missing,
+            "active main-branch rulesets are missing required rules: " + ", ".join(missing))
+    return "active-rulesets"
+
+
+def verify_environment(token: str, owner: str, repo: str) -> str:
     require(token, "GITHUB_TOKEN unavailable; cannot verify environment protection rules")
     allowed_reviewers = {
         item.strip().casefold()
@@ -106,6 +144,7 @@ def verify_environment(token: str, owner: str, repo: str) -> None:
             "Environment reviewer allowlist must exclude the lead assessor to preserve role separation")
     url = f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/environments/{urllib.parse.quote(ENVIRONMENT)}"
     environment = api_get(url, token)
+    require(isinstance(environment, dict), "Protected environment could not be read; refusing closure")
     rules = environment.get("protection_rules")
     require(isinstance(rules, list) and rules, "Protected environment has no configured protection rules")
     reviewer_rules = [r for r in rules if r.get("type") == "required_reviewers"]
@@ -119,10 +158,11 @@ def verify_environment(token: str, owner: str, repo: str) -> None:
                 configured_reviewers.add(str(login).casefold())
     require(configured_reviewers & allowed_reviewers,
             "Protected environment has no reviewer matching the configured independent allowlist")
-    verify_main_branch_protection(token, owner, repo)
-    require(os.environ.get("CLOSURE_AUTHORITY_TOKEN", ""), "Closure authority secret is not configured")
+    branch_protection_source = verify_main_branch_protection(token, owner, repo)
     # The secret is only checked for configuration; its authority scope is not independently
     # proven here. Formal closure remains blocked until governance verifies that scope.
+    require(os.environ.get("CLOSURE_AUTHORITY_TOKEN", ""), "Closure authority secret is not configured")
+    return branch_protection_source
 
 
 def git_output(args: list[str]) -> str:
@@ -160,7 +200,8 @@ def main() -> int:
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         require("/" in repository, "GITHUB_REPOSITORY is malformed")
         owner, name = repository.split("/", 1)
-        verify_environment(os.environ.get("GITHUB_ENVIRONMENT_AUDIT_TOKEN", ""), owner, name)
+        branch_protection_source = verify_environment(
+            os.environ.get("GITHUB_ENVIRONMENT_AUDIT_TOKEN", ""), owner, name)
         verify_release_and_signatures(os.environ.get("RELEASE_SHA", ""), os.environ.get("GITHUB_SHA", ""))
         output = os.environ.get("GITHUB_OUTPUT", "")
         if output:
@@ -175,8 +216,11 @@ def main() -> int:
                 handle.write(f"environment_name={ENVIRONMENT}\n")
                 handle.write("is_protected_environment=true\n")
                 handle.write("authority_token_present=true\n")
+                handle.write(f"branch_protection_source={branch_protection_source}\n")
                 handle.write(f"ref={claims['ref']}\n")
-        print("Runtime trust checks passed: signed OIDC JWT, protected environment API, exact SHA ancestry, allowlisted cryptographic commit signatures.")
+        print("Runtime trust checks passed: signed OIDC JWT, protected environment API, "
+              f"main-branch protection ({branch_protection_source}), exact SHA ancestry, "
+              "allowlisted cryptographic commit signatures.")
         return 0
     except (GateError, OSError, subprocess.TimeoutExpired) as exc:
         print(f"REM-P0-006 RUNTIME TRUST FAILED CLOSED: {exc}", file=sys.stderr)
