@@ -96,7 +96,7 @@ The project owner has granted the delegation requested in this conversation, rec
 
 Operational activation requires identity verification and separate implementation of only the approved least-privilege access changes by an authorized administrator. This policy does not itself change repository permissions, environment protection, or gate status. Where a legally binding or scheme-specific approval is required, this owner delegation does not replace it.
 
-The policy may be cross-referenced from authoritative governance records only after formal approval. The assessment manifest must not be edited merely to imply that an independent assessor has been verified or that the gate is ready.
+The recorded project-owner decision may be cross-referenced from authoritative governance records. Any mandatory governance workflow or legally required approval still applies. The assessment manifest must not be edited merely to imply that an independent assessor has been verified or that the gate is ready.
 
 ## 7. Review, expiry, and exit
 
