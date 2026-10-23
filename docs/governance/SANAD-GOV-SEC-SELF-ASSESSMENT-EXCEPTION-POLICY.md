@@ -10,9 +10,11 @@
 
 > **Classification notice:** The project owner has authorized the named account for the internal review and internal-document issuance/export scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
 
-## 1. Purpose
+## 1. Purpose and temporary project-development policy
 
-Establish a controlled internal-only security-assurance route for SANAD and record the project owner's request to avoid enhanced independent-assessment costs where independent review is optional. The named account may perform and document internal reviews and issue clearly labelled internal attestations. A waiver of an external review requirement is effective only after a documented applicability check confirms that no law, regulation, contract, customer commitment, certification scheme, regulator, or mandatory project/release control requires an independent assessor. This policy cannot waive obligations imposed by another authority or turn an internal review into independent certification.
+Record the project owner's direction that, during active development and until formal project completion, SANAD should use internal security reviews by `abdulrhmansenan1985@gmail.com` as its default assurance activity and should not initiate or procure optional enhanced independent assessments, external security certificates, or other optional third-party approval services. After formal project completion, the project intends to consolidate the full-project security evidence package and seek a unified assessment/certificate from an appropriately qualified independent body.
+
+This is a project procurement and sequencing decision for optional services, not a legal or regulatory exemption. It cannot cancel, suppress, or waive an obligation imposed by law, regulation, contract, customer commitment, insurer, certification scheme, regulator, or a mandatory security/release gate. If such an obligation applies, the project must record it and handle it before making the affected release, deployment, customer assurance, or certification claim. Internal reviews and attestations remain explicitly internal and are not substitutes for mandatory independent assurance.
 
 ## 2. Designation and permitted authority
 
@@ -76,13 +78,15 @@ The designated reviewer may contribute to development or remediation only if tha
 
 The designation does not establish independence. The named account and its owner must not be represented as an independent assessor solely by virtue of this policy. Any later independent-assessor appointment requires separate identity, qualification, conflict-of-interest, and independence verification under the applicable governance process.
 
-## 5. Internal-only route, conditional waiver, and non-waivable controls
+## 5. Temporary deferral of optional external assurance and non-waivable controls
 
-**Project-owner direction:** Prefer internal security reviews by `abdulrhmansenan1985@gmail.com` instead of commissioning enhanced independent assurance when, and only when, independent assurance is not mandatory under the applicable law, regulation, contract, customer commitment, certification scheme, or formally approved release policy. This is a request for a scoped governance exception, not a blanket legal or regulatory exemption.
+**Project-owner direction:** Until formal project completion is recorded, do not initiate or procure optional independent security reviews, external security certificates, or optional third-party approvals. Use internal reviews by `abdulrhmansenan1985@gmail.com` as the default development-phase review route, with internal-only attestations. After completion, prepare one consolidated project-wide evidence package and pursue a unified assessment/certificate from an appropriately qualified independent body, subject to the applicable scheme and its scope.
+
+This deferral applies only to optional procurement and scheduling. It does not prohibit recording, disclosing, escalating, or satisfying a mandatory requirement. It does not permit the team to conceal a requirement, skip a required control, claim a waiver without authority, or release/deploy where a mandatory approval is outstanding. If a mandatory requirement is discovered, the accountable governance owner must record the source, applicability, affected scope, deadline, and required decision; any affected release or claim remains blocked until the requirement is met or a valid written waiver is issued by the authority legally/contractually empowered to grant it.
 
 Before relying on the internal-only route for a particular release or certificate request, the governance owner must record: (a) the exact release/SHA and intended claims; (b) the applicable legal, regulatory, contractual, customer, insurer, and certification-scheme requirements checked; (c) the authority empowered to approve any project-internal exception; (d) the risks accepted and by whom; and (e) the explicit statement that the output is an internal review attestation, not independent or accredited certification. If any mandatory requirement is unknown or cannot be evidenced, the waiver is `NOT ESTABLISHED` and the affected external certification/release claim must not be made.
 
-For the current `REM-P0-006` gate, this document alone does not establish that independent assurance can be waived. Until the gate owner and applicable requirement owners document a valid exception and all other release criteria are satisfied, the existing `NOT_READY` state and security hold remain unchanged.
+For the current `REM-P0-006` gate, this document alone does not establish that independent assurance can be waived. The temporary deferral does not close or bypass that gate. Until the gate owner documents a valid disposition consistent with all applicable requirements and all other release criteria are satisfied, the existing `NOT_READY` state and security hold remain unchanged.
 
 This policy does not:
 - Change `REM-P0-006` closure state from `NOT_READY` by itself.
@@ -123,10 +127,11 @@ The exception ends when the approved period expires or the independent-assurance
 **Operational activation:** Pending identity verification and separate technical access provisioning.  
 **Review/expiry date:** Must be recorded by the project owner or delegated governance administrator before operational access is provisioned.
 
-**Decision B — Request for conditional internal-only assurance route:** `REQUESTED — APPLICABILITY REVIEW REQUIRED; NOT A BLANKET WAIVER`  
+**Decision B — Temporary deferral of optional external assurance:** `OWNER DIRECTION RECORDED — OPTIONAL SERVICES DEFERRED UNTIL FORMAL PROJECT COMPLETION`  
 **Decision date:** `2026-10-23`  
-**Owner direction:** Prefer reviews performed by the delegated internal reviewer and internal review attestations over enhanced independent assessment when external independence is not mandatory and the competent governance authority approves the scoped exception.  
-**Required before use:** Documented requirement/applicability review for the target release and intended claims; confirmation of the approving authority; recorded risk acceptance where permitted; completion of the applicable security test/evidence set; and explicit internal-only labelling.  
-**Current status for REM-P0-006:** `NOT_READY — NO WAIVER ESTABLISHED BY THIS POLICY ALONE`.
+**Owner direction:** During active development, use the delegated internal reviewer for internal reviews and do not initiate optional external review/certification procurement. At formal project completion, consolidate the project's security evidence and seek a unified project-wide assessment/certificate from a qualified independent body.  
+**Completion trigger:** The project owner must record a formal project-completion decision and identify the frozen release scope/SHA before the consolidated independent assessment is commissioned.  
+**Exception boundary:** Mandatory legal, regulatory, contractual, customer, scheme-specific, incident-response, and release-gate requirements remain applicable and cannot be cancelled by this internal policy. If one applies before completion, it must be escalated and satisfied for the affected release/claim; no false waiver or certification claim is permitted.  
+**Current status for REM-P0-006:** `NOT_READY — TEMPORARY DEFERRAL DOES NOT WAIVE OR CLOSE THE GATE`.
 
-This records the project owner's requested governance direction, but does not itself waive any external requirement, certify the account as independent, authorize an accredited or regulatory certificate, or close `REM-P0-006`. Any internal attestation must not be marketed or represented as an independent/accredited security certificate. All existing security and release gates remain in force until the authorized gate owners document a valid decision based on applicable requirements and evidence.
+This records the project owner's requested development-phase sequencing decision. It does not certify the account as independent, authorize an accredited or regulatory certificate, or close `REM-P0-006`. Internal attestations must not be marketed or represented as independent/accredited certificates. All existing security and release gates remain in force until their authorized owners document a valid disposition based on applicable requirements and evidence.
