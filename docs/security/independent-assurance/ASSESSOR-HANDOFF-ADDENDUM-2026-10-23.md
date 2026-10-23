@@ -11,8 +11,8 @@ Owner), per `certification/B9-ROLE-CONFLICT-RESOLUTION-2026-10-23.md`.
 
 | Item | State |
 |---|---|
-| Assessment reference (pinned) | `assessed_release.repository_sha = eb52a57b463a0c3da78e4af55ede89c1c7068b8f` — head of `main` after the squash-merge of PR #1435 (merged 2026-10-23T02:07:10Z, merge commit signed by GitHub) |
-| Reference binding of record | `certification/SHA-REFERENCE-DECISION-2026-10-23.md`: REF-PROD-LIVE `1d80c573` (live production web+backend) / REF-CODE-BASE `0f460ee9` / REF-CANDIDATE `eb52a57b` (pinned in the manifest) |
+| Assessment reference (pinned, documentation layer) | `eb52a57b463a0c3da78e4af55ede89c1c7068b8f` — head of `main` after the squash-merge of PR #1435 (merged 2026-10-23T02:07:10Z, merge commit signed by GitHub). The manifest `assessed_release` block remains verbatim July (`f34f2dd7`) because the evidence-reconciliation control binds it to the July appointment evidence chain — see §5 |
+| Reference binding of record | `certification/SHA-REFERENCE-DECISION-2026-10-23.md`: REF-PROD-LIVE `1d80c573` (live production web+backend) / REF-CODE-BASE `0f460ee9` / REF-CANDIDATE `eb52a57b` (pinned at the documentation layer; manifest re-pin deferred per §5) |
 | Assessment scope for this window | **Candidate/pre-release** (non-production verification environments; production read-only) — a production evaluation of a deployed release remains a separate, later requirement |
 | Trust-policy interim evaluation | 3/5 PASS (`OIDC-IDENTITY`, `ENVIRONMENT-PROTECTION`, `RELEASE-SHA-AUTH`); 2/5 FAIL (`GIT-SIGNATURES`, `ASSESSOR-TRUST`) — see `CERTIFICATION-REM-P0-006-PHASE-2026-10-23.md` §3 |
 | Coverage matrix | 0/19 `COMPLETED` — unchanged; execution against the pinned SHA is the assessor's work |
@@ -67,3 +67,30 @@ Owner), per `certification/B9-ROLE-CONFLICT-RESOLUTION-2026-10-23.md`.
   independent assurance by any successor work.
 - All standing holds (P0 HOLD, G1 HOLD, NO MERGE without review, NO DEPLOY, PAYMENTS OFF)
   and `commercial_go_live=NOT_APPROVED` remain until their own governed changes.
+
+## 5. Why the manifest keeps the July window (reconciliation control, verified working)
+
+An initial attempt to re-point `assessed_release.repository_sha` to `eb52a57b` in this PR
+was **rejected by the repository's own evidence-reconciliation validator**
+(`scripts/ci/validate_independent_security_assurance.py`: `evidence release SHA mismatch:
+EV-APPOINTMENT`). The control requires every record in the evidence index to carry
+`assessed_release_sha` equal to the manifest's release SHA; all eight July records
+(`EV-APPOINTMENT`, `EV-ROOT-INTEGRITY`, `EV-PEN-AUTOMATED`, …) are bound to `f34f2dd7`,
+which is what the July appointment actually assessed. Re-pointing the manifest without
+re-basing the evidence chain would have forged that binding.
+
+**Consequence (the corrected pin model):**
+
+1. **Documentation layer (effective now):** the reference of record for ongoing governance
+   is the three-reference binding in `certification/SHA-REFERENCE-DECISION-2026-10-23.md`
+   — REF-CANDIDATE = `eb52a57b` (materialized by the #1435 merge). The owner's decision
+   authority is recorded there and on Issue #784.
+2. **Manifest layer (deferred to the assessor engagement):** `assessed_release` is
+   re-pointed to a new SHA only when a new assessment window opens **with its own evidence
+   records** (new appointment/scope evidence or an explicit amendment, plus per-case
+   evidence) whose `assessed_release_sha` values match — i.e., together with step 2–3 of
+   §2, executed by the assessor through a governance PR.
+
+The failed-then-corrected attempt is itself recorded as positive evidence: the
+reconciliation control enforced cross-file consistency fail-closed on a governance change,
+exactly as designed.
