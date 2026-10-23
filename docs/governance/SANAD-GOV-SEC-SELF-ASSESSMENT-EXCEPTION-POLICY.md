@@ -1,13 +1,14 @@
 # SANAD Governance Exception Policy — Approved Internal Security Reviewer
 
 **Document ID:** `SANAD-GOV-SEC-SELF-ASSESSMENT-001`  
-**Document status:** `PROPOSED — PENDING FORMAL APPROVAL`  
+**Document status:** `PROJECT-OWNER AUTHORIZATION RECORDED — IMPLEMENTATION CONTROLS PENDING`  
 **Scope:** Internal security reviews and evidence preparation associated with `REM-P0-006`  
 **Proposed designated internal security reviewer account:** `abdulrhmansenan1985@gmail.com`  
 **Designation requested:** `APPROVED INTERNAL SECURITY REVIEWER — NOT INDEPENDENT`  
-**Effective date:** Not effective until formally approved and recorded.
+**Owner authorization date:** 2026-10-23  
+**Effective status:** Project-owner delegation is granted as recorded below. Operational activation remains subject to identity verification, approved technical access, and any mandatory legal/contractual or scheme-specific requirements.
 
-> **Classification notice:** Upon formal approval of this policy, the named account is designated as SANAD's approved **internal** security reviewer for the limited scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
+> **Classification notice:** The project owner has authorized the named account for the internal review and internal-document issuance/export scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
 
 ## 1. Purpose
 
@@ -15,7 +16,7 @@ Establish a controlled route for internal security review and evidence preparati
 
 ## 2. Designation and permitted authority
 
-Upon formal approval of this policy, and after the account owner's identity has been verified, `abdulrhmansenan1985@gmail.com` is designated:
+By the project owner's authorization recorded in Section 6, and after the account owner's identity has been verified, `abdulrhmansenan1985@gmail.com` is designated:
 
 **SANAD Approved Internal Security Reviewer — `INTERNAL / NOT INDEPENDENT`.**
 
@@ -34,7 +35,7 @@ This is an **internal review and controlled internal-document issuance/export au
 
 ## 3. Identity, accountability, and evidence
 
-Before the designation is activated, an authorized governance owner must verify the account owner's identity, record the accountable individual, confirm the intended scope, and ensure appropriate least-privilege access. The email address alone is not proof of identity, competence, or independence.
+Before operational access is enabled, an authorized administrator must verify the account owner's identity, record the accountable individual, confirm the intended scope, and grant appropriate least-privilege access. The email address alone is not proof of identity, competence, or independence. The owner authorization establishes the delegated policy scope; it does not itself provision credentials or repository/system permissions.
 
 Each review record must include:
 - The actual person/account performing the work and the designated internal-review role.
@@ -91,9 +92,9 @@ Until the authorized governance owners separately decide otherwise on documented
 
 ## 6. Approval and activation
 
-This document remains a proposal and the designation is **not active** until authorized governance approval is recorded in the repository's authoritative governance process. The approval record must identify each approver, role, decision, timestamp, scope, evidence reference, accountable individual for the named account, and the review/expiry date. No approval may be entered on behalf of another person.
+The project owner has granted the delegation requested in this conversation, recorded as an owner decision dated 2026-10-23. This record is limited to the internal review and internal-document issuance/export authority defined here. The repository governance record should retain the owner decision, scope, timestamp, accountable individual for the named account, and review/expiry date. This policy does not claim cryptographic proof of the conversation or of the account owner's identity.
 
-Following approval, the authorized repository administrator may implement only the access changes explicitly approved and necessary for the internal-review scope. Policy approval itself does not change repository permissions, environment protection, or gate status.
+Operational activation requires identity verification and separate implementation of only the approved least-privilege access changes by an authorized administrator. This policy does not itself change repository permissions, environment protection, or gate status. Where a legally binding or scheme-specific approval is required, this owner delegation does not replace it.
 
 The policy may be cross-referenced from authoritative governance records only after formal approval. The assessment manifest must not be edited merely to imply that an independent assessor has been verified or that the gate is ready.
 
@@ -103,14 +104,17 @@ The approving authority must set an explicit review date and expiry condition be
 
 The exception ends when the approved period expires or the independent-assurance path becomes available, whichever comes first, unless the authorized governance body explicitly renews it. Expiry does not convert prior internal reviews into independent assessments.
 
-## 8. Decision requested
+## 8. Recorded project-owner decision
 
-Approve the limited designation of `abdulrhmansenan1985@gmail.com` as **SANAD Approved Internal Security Reviewer — NOT INDEPENDENT**, including authority to issue internal security review attestations and approve controlled exports of internal security documents, subject to identity verification, least-privilege access, recipient authorization, data classification/redaction, complete audit logging, evidence traceability, conflict disclosure, and a defined review/expiry date. This does not authorize independent/accredited certificate issuance or release-gate closure.
+**Decision:** `GRANTED — LIMITED INTERNAL DELEGATION`  
+**Decision date:** `2026-10-23`  
+**Decision source:** Explicit instruction from the project owner in this ChatGPT conversation to grant the named account internal security review, internal security document issuance, and controlled export-approval authority.  
+**Delegated account:** `abdulrhmansenan1985@gmail.com`  
+**Delegated role:** `SANAD Internal Security Reviewer and Internal Security Document Issuance/Export Approver — NOT INDEPENDENT`  
+**Scope:** Internal security review reports, attestations, findings summaries, remediation-status statements, and controlled exports of internal security evidence, subject to Sections 2 and 3A.  
+**Excluded authority:** Independent/accredited/regulatory/third-party certification; declaration of REM-P0-006 closure; release approval; merge/deploy/production/payment authority; or access beyond separately granted least-privilege permissions.  
+**Accountable verified individual:** Pending identity verification.  
+**Operational activation:** Pending identity verification and separate technical access provisioning.  
+**Review/expiry date:** Must be recorded by the project owner or delegated governance administrator before operational access is provisioned.
 
-Preserve all existing release and security gates. Independent certification remains a separate process requiring an actually independent evaluation and the approvals applicable to the requested certification.
-
-**Approver:** Pending authorized governance decision  
-**Accountable verified individual:** Pending  
-**Approval evidence:** Pending  
-**Effective date:** Pending  
-**Review/expiry date:** Pending
+This delegation preserves all existing security and release gates. Independent certification remains a separate process requiring an actually independent evaluation and any approvals applicable to the requested certification.
