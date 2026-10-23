@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'docs/security/independent-assurance/**'
+      - 'docs/governance/SANAD-GOV-SEC-SELF-ASSESSMENT-EXCEPTION-POLICY.md'
       - 'scripts/ci/validate_independent_security_assurance.py'
       - 'scripts/ci/validate_trust_policy.py'
       - 'scripts/ci/verify_rem_p0_006_runtime_trust.py'
@@ -81,6 +82,19 @@ jobs:
             args+=(--expected-release-sha "$release_sha")
           fi
           python3 scripts/ci/validate_independent_security_assurance.py "${args[@]}"
+
+      - name: Publish temporary external-assurance deferral boundary
+        if: always()
+        run: |
+          {
+            echo '## Temporary Development-Phase Assurance Policy'
+            echo ''
+            echo '- Optional external-assurance procurement is deferred until formal project completion under the project governance policy.'
+            echo '- Internal reviews and attestations during development are internal only; they are not independent or accredited certification.'
+            echo '- This deferral does not waive mandatory legal, regulatory, contractual, customer, scheme-specific, incident-response, or release-gate requirements.'
+            echo '- The protected closure job retains exact-SHA, OIDC/runtime-trust, environment, authority-secret, evidence, and role-separated approval requirements.'
+            echo '- This notice does not change REM-P0-006 status or lift P0/G1/NO DEPLOY/PAYMENTS holds.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish readiness boundary
         if: always()
