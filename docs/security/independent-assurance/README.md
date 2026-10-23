@@ -15,6 +15,16 @@ The accepted review must be a GitHub pull-request review submitted by that exact
 
 This designation is a project governance trust decision. It does not, by itself, prove that the account holder is organizationally independent from the project, and it does not certify the code or close P0. The account receives no repository owner/admin role, protected secret access, repository settings authority, merge authority, or production deployment authority by virtue of this designation.
 
+## Temporary development-phase external-assurance deferral
+
+The project-owner governance direction recorded in `docs/governance/SANAD-GOV-SEC-SELF-ASSESSMENT-EXCEPTION-POLICY.md` defers procurement of **optional** external security reviews/certificates until formal project completion. During development, the designated internal reviewer may conduct internal reviews and issue explicitly internal-only attestations.
+
+This deferral changes procurement timing only. It does **not** waive mandatory law, regulation, contract, customer, insurer, certification-scheme, incident-response, or release-gate requirements. If any such requirement applies to a release or claim before project completion, it must be recorded and satisfied (or covered by a valid written waiver from the authority empowered to grant it) before that release/claim proceeds.
+
+At formal project completion, the owner should freeze the release scope and SHA, consolidate the project-wide evidence package, and seek a unified assessment/certificate from a qualified independent body. Internal reviews are not independent certification.
+
+**Gate behavior:** readiness checks continue to validate package structure and evidence integrity. The protected closure job retains exact-SHA binding, runtime trust/OIDC, environment protection, authority-secret, evidence-completeness, and role-separated approval requirements. The temporary deferral does not mark `REM-P0-006` ready or accepted, and does not lift `P0 SECURITY HOLD`, `G1 = HOLD`, `NO DEPLOY`, or `PAYMENTS = OFF`.
+
 ## Required workstreams
 
 1. Authenticated and unauthenticated penetration testing.
@@ -62,4 +72,5 @@ A CI pass or reviewer designation alone does not close REM-P0-006, accept residu
 **Change:** Sole trusted GitHub reviewer identity designated for the SNAD security-review path.  
 **Authorized account:** `abdulrhmansenan1985-creator`  
 **Scope:** Reviewer identity and external review approval path only.  
+**Additional change:** Optional external-assurance procurement is deferred until formal project completion; mandatory requirements and the protected closure controls are unchanged.  
 **No change:** Technical evidence requirements, role-separated Security Governance and Project Owner approvals, exact-SHA binding, production controls, and P0 closure evidence remain mandatory.
