@@ -1,11 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { GlobalUserProvisioningLauncher } from "./GlobalUserProvisioningLauncher";
 import styles from "./ModuleAccessNavigation.module.css";
+
+// Deferred via dynamic() to keep the launcher subtree (modal + provisioning
+// form) out of the initial JS of every route embedding this navigation.
+// Renders null until a privileged user triggers it.
+const GlobalUserProvisioningLauncher = dynamic(
+  () =>
+    import("./GlobalUserProvisioningLauncher").then(
+      (m) => m.GlobalUserProvisioningLauncher,
+    ),
+  { ssr: false },
+);
 
 export interface ModuleAccessNavigationProps {
   routePath: string;
