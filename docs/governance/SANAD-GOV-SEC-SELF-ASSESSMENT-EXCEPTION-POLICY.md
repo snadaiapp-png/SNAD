@@ -26,9 +26,11 @@ Within the documented scope of `REM-P0-006`, and subject to the technical permis
 - Record, classify, prioritize, and track findings, limitations, and residual risks.
 - Review evidence traceability to an exact commit SHA, build, artifact, environment, and release scope.
 - Produce and sign internal review reports, identify the review as approved internal work, and recommend remediation or further testing.
+- Issue internal security review attestations and other internal security documents within the approved scope, provided every document clearly states its scope, evidence basis, limitations, validity period if applicable, and the classification `INTERNAL — NOT INDEPENDENT CERTIFICATION`.
+- Approve the export or release of internal security reports, review attestations, findings summaries, and related security evidence to named recipients, subject to the export controls in Section 3A.
 - Verify completion of internal review tasks and attest to the accuracy of its own internal review record.
 
-This is an **internal review authority only**. It does not grant the account owner repository, production, protected-environment, secret, deployment, merge, or administrative permissions. Those permissions must be separately granted by authorized administrators through normal least-privilege access controls. The policy cannot bypass branch protection, required reviews, environment approvals, or access-control rules.
+This is an **internal review and controlled internal-document issuance/export authority only**. It does not authorize the account to issue, approve, sign, or represent any third-party, regulator-recognized, accredited, or independent security certificate; any certificate of conformity or compliance requiring a separate authorized issuer; or any document that asserts production readiness or closure of a release gate. It does not grant the account owner repository, production, protected-environment, secret, deployment, merge, or administrative permissions. Those permissions must be separately granted by authorized administrators through normal least-privilege access controls. The policy cannot bypass branch protection, required reviews, environment approvals, or access-control rules.
 
 ## 3. Identity, accountability, and evidence
 
@@ -48,6 +50,25 @@ Internal review reports must be clearly labelled:
 
 The reviewer must not describe missing findings or incomplete evidence as proof that no vulnerabilities exist. The reviewer may recommend gate closure but may not declare `REM-P0-006` closed or issue an independent security certificate under this designation.
 
+## 3A. Issuance, approval, and export of security documents
+
+The designated account may issue internal security review reports, internal review attestations, findings summaries, remediation-status statements, and other internal security documents only within the approved scope. The document must not be titled or formatted in a way that falsely implies external accreditation, independent certification, regulatory approval, or release authorization.
+
+The designated account may approve export of those internal documents and associated evidence to specifically identified recipients when all of the following are recorded:
+- Document identifier, version, classification, purpose, and exact SHA/release scope where relevant.
+- Recipient identity, organization, and destination/channel; business purpose and authorization to receive the information.
+- Data-classification and disclosure review, including removal or masking of credentials, secrets, personal data, exploitable details, and unrelated tenant/customer data unless disclosure is explicitly authorized and necessary.
+- Exporter's identity, approving account, timestamp, approved files, and a durable audit record of what was sent and to whom.
+- Any restrictions on onward sharing, retention, or deletion, plus the applicable legal, contractual, customer, and incident-response requirements.
+
+Approval to export does not override legal privilege, confidentiality obligations, customer permissions, data-protection requirements, incident-response controls, or secure-channel requirements. If recipient authorization or classification is uncertain, export must be held for review by the relevant data/security owner.
+
+Any internal certificate or attestation issued under this policy must prominently state:
+
+`INTERNAL SECURITY REVIEW ATTESTATION — NOT AN INDEPENDENT SECURITY CERTIFICATE`
+
+The account may not issue or approve export of a document that falsely claims independent assurance, accredited certification, regulatory endorsement, or `REM-P0-006` closure. Independent or externally accredited certificates must be issued by the separately authorized and qualified body/person under the applicable scheme.
+
 ## 4. Independence and separation of duties
 
 The designated reviewer may contribute to development or remediation only if that involvement is disclosed in the relevant record. Where practical, another authorized person should verify material evidence and any risk-acceptance decision. If the designated reviewer reviews their own work, the record must explicitly identify it as self-review.
@@ -60,6 +81,7 @@ This policy does not:
 - Change `REM-P0-006` closure state from `NOT_READY`.
 - Satisfy or waive independent-assessor appointment, independence verification, trust-policy verification, formal approvals, release-provenance requirements, or any of the required security cases.
 - Allow the internal reviewer to self-approve independent assurance, certify their own independence, accept risks outside their delegated authority, or approve release-gate closure.
+- Authorize issuance or export approval for independent, accredited, regulatory, customer-mandated, or third-party security certificates unless the applicable scheme explicitly authorizes the named person and all required qualifications and approvals are independently verified.
 - Change the required assessment target SHA or bind evidence to a different release.
 - Disable branch protection, protected-environment reviewers, OIDC, signing, provenance, or audit logging.
 - Authorize merge, deployment, rollback, production changes, commercial go-live, or payment activation.
@@ -83,7 +105,7 @@ The exception ends when the approved period expires or the independent-assurance
 
 ## 8. Decision requested
 
-Approve the limited designation of `abdulrhmansenan1985@gmail.com` as **SANAD Approved Internal Security Reviewer — NOT INDEPENDENT**, subject to identity verification, least-privilege access, evidence traceability, conflict disclosure, and a defined review/expiry date.
+Approve the limited designation of `abdulrhmansenan1985@gmail.com` as **SANAD Approved Internal Security Reviewer — NOT INDEPENDENT**, including authority to issue internal security review attestations and approve controlled exports of internal security documents, subject to identity verification, least-privilege access, recipient authorization, data classification/redaction, complete audit logging, evidence traceability, conflict disclosure, and a defined review/expiry date. This does not authorize independent/accredited certificate issuance or release-gate closure.
 
 Preserve all existing release and security gates. Independent certification remains a separate process requiring an actually independent evaluation and the approvals applicable to the requested certification.
 
