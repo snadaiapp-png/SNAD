@@ -20,11 +20,11 @@
     }
   },
   "assessed_release": {
-    "completed_at": "2026-07-26T15:21:13Z",
-    "deployment_id": "snad-production-vercel-render-f34f2dd7",
-    "environment": "production",
-    "repository_sha": "f34f2dd71743e6361a49e86643944c089622bd4c",
-    "started_at": "2026-07-26T15:06:33Z"
+    "completed_at": "",
+    "deployment_id": "",
+    "environment": "candidate",
+    "repository_sha": "eb52a57b463a0c3da78e4af55ede89c1c7068b8f",
+    "started_at": "2026-10-23T02:07:10Z"
   },
   "assessor": {
     "appointment_evidence_id": "EV-APPOINTMENT",
