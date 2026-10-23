@@ -1,56 +1,65 @@
-# SANAD Governance Exception Policy — Internal Security Self-Assessment
+# SANAD Governance Exception Policy — Approved Internal Security Reviewer
 
 **Document ID:** `SANAD-GOV-SEC-SELF-ASSESSMENT-001`  
 **Document status:** `PROPOSED — PENDING FORMAL APPROVAL`  
 **Scope:** Internal security reviews and evidence preparation associated with `REM-P0-006`  
-**Proposed coordination account:** `abdulrhmansenan1985@gmail.com`  
+**Proposed designated internal security reviewer account:** `abdulrhmansenan1985@gmail.com`  
+**Designation requested:** `APPROVED INTERNAL SECURITY REVIEWER — NOT INDEPENDENT`  
 **Effective date:** Not effective until formally approved and recorded.
 
-> **Classification notice:** This policy authorizes no independent assessment and issues no security certification. Any work performed under this exception must be labelled **INTERNAL SELF-ASSESSMENT — NOT INDEPENDENT**.
+> **Classification notice:** Upon formal approval of this policy, the named account is designated as SANAD's approved **internal** security reviewer for the limited scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
 
 ## 1. Purpose
 
-Provide a controlled, temporary route for conducting internal security reviews and organizing remediation evidence while an independently qualified assessor is unavailable. The exception improves internal visibility and remediation progress; it is not a substitute for independent assurance where required by law, contract, customer commitment, or the governing release gate.
+Establish a controlled route for internal security review and evidence preparation while independent assurance is pending. The exception allows the named account to perform and document an authorized internal review; it does not substitute for independent assurance required by law, contract, customer commitment, certification scheme, or the governing release gate.
 
-## 2. Permitted activities
+## 2. Designation and permitted authority
 
-Once this policy is formally approved, the proposed coordination account may, within the access actually granted to it:
+Upon formal approval of this policy, and after the account owner's identity has been verified, `abdulrhmansenan1985@gmail.com` is designated:
 
-- Coordinate internal reviews and evidence collection.
-- Execute or arrange internal tests within its authorized technical scope.
-- Record test results, findings, limitations, and residual risks.
-- Track remediation and retest evidence against an exact repository SHA and release scope.
-- Prepare internal assessment reports and an evidence package for later independent review.
+**SANAD Approved Internal Security Reviewer — `INTERNAL / NOT INDEPENDENT`.**
 
-The email address is a proposed role identifier only. Repository administrators must verify the account owner and grant least-privilege access through the repository's normal access-control process. This document itself grants no account, repository, environment, or deployment permissions.
+Within the documented scope of `REM-P0-006`, and subject to the technical permissions actually granted, the designated account may:
 
-## 3. Mandatory classification and reporting
+- Plan, coordinate, and conduct internal security reviews and authorized security tests.
+- Inspect and assess security evidence, test results, remediation records, and retest outcomes.
+- Record, classify, prioritize, and track findings, limitations, and residual risks.
+- Review evidence traceability to an exact commit SHA, build, artifact, environment, and release scope.
+- Produce and sign internal review reports, identify the review as approved internal work, and recommend remediation or further testing.
+- Verify completion of internal review tasks and attest to the accuracy of its own internal review record.
 
-All work conducted under this exception must use the classification:
+This is an **internal review authority only**. It does not grant the account owner repository, production, protected-environment, secret, deployment, merge, or administrative permissions. Those permissions must be separately granted by authorized administrators through normal least-privilege access controls. The policy cannot bypass branch protection, required reviews, environment approvals, or access-control rules.
 
-`INTERNAL_SELF_ASSESSMENT — NOT INDEPENDENT`
+## 3. Identity, accountability, and evidence
 
-Each record must identify:
-- The actual person or account performing the work and their role.
-- Assessment date, scope, environment, and exact commit SHA.
-- Test method, evidence references, results, and reproducible run identifiers where available.
+Before the designation is activated, an authorized governance owner must verify the account owner's identity, record the accountable individual, confirm the intended scope, and ensure appropriate least-privilege access. The email address alone is not proof of identity, competence, or independence.
+
+Each review record must include:
+- The actual person/account performing the work and the designated internal-review role.
+- Approval record for this policy, review date, scope, environment, and exact commit SHA.
+- Test method, evidence references, reproducible run identifiers where available, and results.
 - Failed tests, unresolved findings, limitations, and retest outcomes.
-- Conflicts of interest, self-review, or other independence limitations.
-- The decision-maker who accepted any residual risk, where such acceptance is authorized.
+- Conflicts of interest, development/remediation involvement, and any self-review.
+- The authorized decision-maker for residual-risk acceptance, where risk acceptance is permitted.
 
-No report, dashboard, release note, or certificate may represent this work as independent assurance or as an independent security certification. Missing findings or incomplete evidence must not be described as proof that no vulnerabilities exist.
+Internal review reports must be clearly labelled:
 
-## 4. Separation of duties and conflicts
+`APPROVED INTERNAL SECURITY REVIEW — NOT INDEPENDENT ASSURANCE`
 
-The coordinator may contribute to development or remediation only if that involvement is disclosed in the relevant record. Where practical, a different authorized person should verify the evidence and approve risk acceptance. If the same person performs and reviews work, the record must explicitly mark it as self-review.
+The reviewer must not describe missing findings or incomplete evidence as proof that no vulnerabilities exist. The reviewer may recommend gate closure but may not declare `REM-P0-006` closed or issue an independent security certificate under this designation.
 
-This exception does not deem the proposed account or its owner independent merely because the account is named in this policy. Independence must be assessed separately for any future independent engagement.
+## 4. Independence and separation of duties
+
+The designated reviewer may contribute to development or remediation only if that involvement is disclosed in the relevant record. Where practical, another authorized person should verify material evidence and any risk-acceptance decision. If the designated reviewer reviews their own work, the record must explicitly identify it as self-review.
+
+The designation does not establish independence. The named account and its owner must not be represented as an independent assessor solely by virtue of this policy. Any later independent-assessor appointment requires separate identity, qualification, conflict-of-interest, and independence verification under the applicable governance process.
 
 ## 5. Non-waivable controls and prohibited effects
 
 This policy does not:
 - Change `REM-P0-006` closure state from `NOT_READY`.
-- Satisfy or waive independent-assessor appointment, independence verification, trust-policy verification, formal approval, or release-provenance requirements.
+- Satisfy or waive independent-assessor appointment, independence verification, trust-policy verification, formal approvals, release-provenance requirements, or any of the required security cases.
+- Allow the internal reviewer to self-approve independent assurance, certify their own independence, accept risks outside their delegated authority, or approve release-gate closure.
 - Change the required assessment target SHA or bind evidence to a different release.
 - Disable branch protection, protected-environment reviewers, OIDC, signing, provenance, or audit logging.
 - Authorize merge, deployment, rollback, production changes, commercial go-live, or payment activation.
@@ -58,23 +67,28 @@ This policy does not:
 
 Until the authorized governance owners separately decide otherwise on documented evidence, the existing security hold, `G1 = HOLD`, `NO DEPLOY`, and `PAYMENTS = OFF` remain in force.
 
-## 6. Approval and recordkeeping
+## 6. Approval and activation
 
-This document is a proposal and is not operationally effective until the required authorized approvals are recorded in the repository's authoritative governance process. The approval record must identify each approver, role, decision, timestamp, scope, and evidence reference. Do not populate approvals on behalf of another person.
+This document remains a proposal and the designation is **not active** until authorized governance approval is recorded in the repository's authoritative governance process. The approval record must identify each approver, role, decision, timestamp, scope, evidence reference, accountable individual for the named account, and the review/expiry date. No approval may be entered on behalf of another person.
 
-The policy should be cross-referenced from the authoritative governance status and the `REM-P0-006` tracking record only after formal approval. The assessment manifest must not be edited merely to make it appear that an independent assessor has been verified or that the gate is ready.
+Following approval, the authorized repository administrator may implement only the access changes explicitly approved and necessary for the internal-review scope. Policy approval itself does not change repository permissions, environment protection, or gate status.
+
+The policy may be cross-referenced from authoritative governance records only after formal approval. The assessment manifest must not be edited merely to imply that an independent assessor has been verified or that the gate is ready.
 
 ## 7. Review, expiry, and exit
 
-The approving authority must set an explicit review date and expiry condition before the policy becomes effective. Review it upon a material security incident, material release or architecture change, a change in scope, or appointment of an independent assessor.
+The approving authority must set an explicit review date and expiry condition before the policy becomes effective. Reassess it after a material security incident, material release or architecture change, scope change, or appointment of an independent assessor.
 
-The exception should end when the approved review period expires or the independent-assurance path is available, whichever comes first unless the authorized governance body explicitly renews it. Expiry does not convert prior self-assessments into independent assessments.
+The exception ends when the approved period expires or the independent-assurance path becomes available, whichever comes first, unless the authorized governance body explicitly renews it. Expiry does not convert prior internal reviews into independent assessments.
 
 ## 8. Decision requested
 
-Approve only the limited use of internal self-assessments for remediation, monitoring, and evidence preparation, under the classification `INTERNAL SELF-ASSESSMENT — NOT INDEPENDENT`. Preserve all existing release and security gates. Independent certification remains a separate decision requiring actual independent evaluation and the approvals applicable to the requested certification.
+Approve the limited designation of `abdulrhmansenan1985@gmail.com` as **SANAD Approved Internal Security Reviewer — NOT INDEPENDENT**, subject to identity verification, least-privilege access, evidence traceability, conflict disclosure, and a defined review/expiry date.
+
+Preserve all existing release and security gates. Independent certification remains a separate process requiring an actually independent evaluation and the approvals applicable to the requested certification.
 
 **Approver:** Pending authorized governance decision  
+**Accountable verified individual:** Pending  
 **Approval evidence:** Pending  
 **Effective date:** Pending  
 **Review/expiry date:** Pending
