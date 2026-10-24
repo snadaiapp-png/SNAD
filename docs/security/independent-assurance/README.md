@@ -11,6 +11,7 @@
 
 - `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` (2026-10-24) revoked the independent certificate as a project-completion requirement.
 - `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001` (2026-10-25) confirms the rule applies project-wide: neither a named independent reviewer/assessor nor an independent certificate is an internal completion prerequisite.
+- Formal decision: `docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`.
 - Decision record: GitHub Issue #1438, comment 6389802911.
 - The earlier sole-reviewer designation, assessor appointment, three certificate-closure approvals, and post-completion certificate plan are historical records only. They do not impose current completion obligations.
 
