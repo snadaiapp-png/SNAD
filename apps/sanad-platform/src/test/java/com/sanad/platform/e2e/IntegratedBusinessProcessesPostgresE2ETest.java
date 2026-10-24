@@ -46,11 +46,7 @@ class IntegratedBusinessProcessesPostgresE2ETest {
     }
 
     static boolean postgresqlNotAvailable() {
-        try {
-            return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("IntegratedBusinessProcessesPostgresE2ETest");
-        } catch (Exception e) {
-            return true;
-        }
+        return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("IntegratedBusinessProcessesPostgresE2ETest");
     }
 
     @Autowired BusinessProcessService service;
