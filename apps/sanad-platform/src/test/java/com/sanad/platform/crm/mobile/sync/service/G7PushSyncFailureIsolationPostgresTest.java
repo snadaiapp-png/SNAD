@@ -47,11 +47,7 @@ class G7PushSyncFailureIsolationPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            available = false;
-        }
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping G7PushSyncFailureIsolationPostgresTest.");
     }
