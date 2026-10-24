@@ -89,7 +89,8 @@
   "security_certification_requirement": {
     "status": "REVOKED_PROJECT_WIDE_COMPLETION_REQUIREMENT",
     "decision_id": "DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001",
-    "decision_document": "docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md",
+    "decision_document": "docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md",
+    "previous_decision_document": "docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md",
     "decision_record": "GitHub Issue #1438 comment 6389802911",
     "decided_by": "Project Owner (snadaiapp-png) via direct written executive order, recorded 2026-10-25",
     "decided_at": "2026-10-25",
