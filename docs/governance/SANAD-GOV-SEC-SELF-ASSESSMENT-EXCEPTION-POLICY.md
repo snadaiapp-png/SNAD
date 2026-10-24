@@ -6,7 +6,8 @@
 **Proposed designated internal security reviewer account:** `abdulrhmansenan1985@gmail.com`  
 **Designation requested:** `APPROVED INTERNAL SECURITY REVIEWER — NOT INDEPENDENT`  
 **Owner authorization date:** 2026-10-23  
-**Effective status:** Project-owner delegation is granted as recorded below. Operational activation remains subject to identity verification, approved technical access, and any mandatory legal/contractual or scheme-specific requirements.
+**Effective status:** Project-owner delegation is granted as recorded below. Operational activation remains subject to identity verification, approved technical access, and any mandatory legal/contractual or scheme-specific requirements.  
+**Superseding decision (2026-10-24):** `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` (`docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`) revokes the security-certificate requirement as a project-completion condition and cancels the post-completion unified-certificate plan recorded in Decision B below. Sections 1–8 are retained as historical record; where they conflict with the revocation decision, the revocation decision governs.
 
 > **Classification notice:** The project owner has authorized the named account for the internal review and internal-document issuance/export scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
 
@@ -135,3 +136,21 @@ The exception ends when the approved period expires or the independent-assurance
 **Current status for REM-P0-006:** `NOT_READY — TEMPORARY DEFERRAL DOES NOT WAIVE OR CLOSE THE GATE`.
 
 This records the project owner's requested development-phase sequencing decision. It does not certify the account as independent, authorize an accredited or regulatory certificate, or close `REM-P0-006`. Internal attestations must not be marketed or represented as independent/accredited certificates. All existing security and release gates remain in force until their authorized owners document a valid disposition based on applicable requirements and evidence.
+
+## 9. Decision C — Revocation of the security-certificate completion requirement
+
+**Decision:** `REVOKED — THE CERTIFIED SECURITY CERTIFICATE IS NO LONGER A COMPLETION REQUIREMENT`  
+**Decision ID:** `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`  
+**Decision date:** `2026-10-24` (Asia/Riyadh)  
+**Decision source:** Direct written executive order from the project owner — «قرار إلغاء شرط الشهادة الأمنية المعتمدة» — authorizing cancellation of the mandatory independent security certification within project-completion requirements.  
+**Authoritative record:** `docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`
+
+Effects of Decision C on this policy:
+
+1. The post-completion unified-certificate pursuit described in Section 1, Section 5 and Decision B is **cancelled as a project-completion element**. Project completion no longer depends on any certificate issued before or after completion, and the certificate is no longer a mandatory deferred item.
+2. The independent-assessor appointment, the three closure approvals, and the `rem-p0-006-closure` environment path are **retired-optional**: they are no longer prerequisites for development, module closure, or project completion, and they run only if the project owner explicitly re-activates them by a later recorded decision.
+3. The internal-reviewer delegation in Decision A (Sections 2–4, 6) is **unchanged** and remains bounded by its own recorded limits.
+4. The technical security controls listed in the revocation decision (RLS/tenant isolation, authorization tests, dependency and supply-chain controls, evidence-integrity validators, branch and environment protection) remain fully in force and are not affected by the revocation.
+5. No independent certificate has been issued; nothing in this policy or in the revocation decision claims otherwise. The 19-case coverage matrix remains at its truthful recorded state and is re-scoped as the internal technical-verification requirement — it must not be presented as certification.
+6. Standing holds (`G1 = HOLD`, `P0 SECURITY HOLD = ACTIVE`, `NO MERGE` without required review, `NO DEPLOY`, `PAYMENTS = OFF`) and `commercial_go_live = NOT_APPROVED` are **not** changed by Decision C; each is lifted only through its own governed path and its own evidence.
+7. If a mandatory legal, regulatory, contractual, customer, insurer, or scheme-specific external-assurance obligation is later identified, it must be recorded and satisfied for the affected release/claim under its own authority — Decision C neither cancels nor waives any such obligation.

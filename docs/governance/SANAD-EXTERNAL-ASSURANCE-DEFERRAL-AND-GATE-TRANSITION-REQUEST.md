@@ -5,6 +5,20 @@
 **Scope:** Optional external security accreditation procurement and development-phase sequencing  
 **Related controls:** `REM-P0-006`, `P0 SECURITY HOLD`, `G1 = HOLD`, `NO DEPLOY`, `PAYMENTS = OFF`
 
+> **2026-10-24 — RESOLVED (superseded by revocation):** `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`
+> (`docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`) resolved
+> this request by **cancelling** the certified-security-certificate completion requirement itself
+> rather than deferring it. The independent-certificate path (assessor appointment, three
+> approvals, `rem-p0-006-closure` environment) is retired-optional and runs only if the project
+> owner explicitly re-activates it by a later recorded decision. Sections 1–5 below are retained
+> as the historical record of the request; where they conflict with the revocation decision, the
+> revocation decision governs. Standing holds listed in Section 5 remain in force through their
+> own authorities.
+>
+> **تم حسم هذا الطلب بالإلغاء لا بالتأجيل** بموجب قرار مالك المشروع بتاريخ 2026-10-24
+> (`DEC-SEC-CERT-REVOCATION-REM-P0-006-001`): شرط الشهادة الأمنية المعتمدة أُلغي من متطلبات
+> إكمال المشروع بالكامل، مع بقاء الضوابط الأمنية التقنية والحواجز التشغيلية كما هي.
+
 ## 1. Decision requested
 
 Request that the authorized SANAD governance and risk owners:

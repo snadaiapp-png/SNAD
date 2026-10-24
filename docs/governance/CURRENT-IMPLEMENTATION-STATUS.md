@@ -134,7 +134,7 @@ Closed through PR #529 and merge SHA `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0` 
 | REM-P0-002 — BFF/authentication/session reliability | Application controls implemented / open / temporarily accepted pending production observation and REM-P0-001 | Identity, Operations and Infrastructure |
 | REM-P0-004 — later-deliverable governance sequence | Open / temporarily accepted for controlled scope | Executive Steering Committee |
 | REM-P0-005 — backup, restore and disaster recovery | Open / temporarily accepted for controlled scope | Infrastructure and Data Platform |
-| REM-P0-006 — independent security assurance | Open / temporarily accepted for controlled scope | Security Governance |
+| REM-P0-006 — independent security assurance | Open — independent-certification completion requirement revoked by DEC-SEC-CERT-REVOCATION-REM-P0-006-001 (2026-10-24); internal technical-verification matrix remains tracked at its truthful state; temporarily accepted for controlled scope | Security Governance |
 | REM-P1-009 — repository visibility decision | Open / temporarily accepted for controlled scope | Project Owner and Security Governance |
 
 The REM-P0-002 control and closure contract is `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.

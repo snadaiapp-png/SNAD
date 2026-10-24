@@ -7,6 +7,17 @@
 **P0 security hold:** `ACTIVE until closure evidence is accepted`  
 **Broad commercial go-live:** `NOT_APPROVED`
 
+> **2026-10-24 — Certificate-requirement revocation (`DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):**
+> The independent security certification is **no longer a mandatory completion requirement** for
+> SNAD development, module closure, or project phases (owner decision of 2026-10-24 — see
+> `docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`).
+> **قرار إلغاء شرط الشهادة الأمنية المعتمدة:** لم تعد الشهادة الأمنية المستقلة شرطًا إلزاميًا لإكمال المشروع أو إغلاق وحداته.
+> This directory remains as an **optional internal technical-verification program**. Its recorded
+> state (`NOT_READY`, 0/19 cases `COMPLETED`) stays as the truthful state of that optional
+> matrix; no independent certificate has been issued and none is claimed. The certificate-issuance
+> path (assessor appointment, three approvals, closure environment) applies **only if** the
+> project owner explicitly re-activates it by a later recorded decision.
+
 ## Sole trusted reviewer designation
 
 By the project governance decision recorded in this repository, `abdulrhmansenan1985-creator` is the **only accepted GitHub reviewer identity** for the SNAD project security-review path and the external reviewer approval step for REM-P0-006.
@@ -17,11 +28,15 @@ This designation is a project governance trust decision. It does not, by itself,
 
 ## Temporary development-phase external-assurance deferral
 
+**Superseded in part (2026-10-24):** under `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` the post-completion unified-certificate plan below is **cancelled as a project-completion element**; external assurance is optional only, with no scheduled or mandatory engagement.
+
 The project-owner governance direction recorded in `docs/governance/SANAD-GOV-SEC-SELF-ASSESSMENT-EXCEPTION-POLICY.md` defers procurement of **optional** external security reviews/certificates until formal project completion. During development, the designated internal reviewer may conduct internal reviews and issue explicitly internal-only attestations.
 
 This deferral changes procurement timing only. It does **not** waive mandatory law, regulation, contract, customer, insurer, certification-scheme, incident-response, or release-gate requirements. If any such requirement applies to a release or claim before project completion, it must be recorded and satisfied (or covered by a valid written waiver from the authority empowered to grant it) before that release/claim proceeds.
 
 At formal project completion, the owner should freeze the release scope and SHA, consolidate the project-wide evidence package, and seek a unified assessment/certificate from a qualified independent body. Internal reviews are not independent certification.
+
+**Superseded (2026-10-24, `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):** the sentence above no longer describes a project requirement. Project completion does not include commissioning any assessment or certificate; external assurance may be commissioned only if a mandatory external obligation is later recorded, or by explicit optional owner decision.
 
 **Gate behavior:** readiness checks continue to validate package structure and evidence integrity. The protected closure job retains exact-SHA binding, runtime trust/OIDC, environment protection, authority-secret, evidence-completeness, and role-separated approval requirements. The temporary deferral does not mark `REM-P0-006` ready or accepted, and does not lift `P0 SECURITY HOLD`, `G1 = HOLD`, `NO DEPLOY`, or `PAYMENTS = OFF`.
 
@@ -47,6 +62,8 @@ The manifest is not authoritative by itself. Closure validation must reconcile a
 Required controls include complete test coverage, evidence integrity, no unresolved critical/high findings, recorded retest results, identity verification of the sole authorized reviewer, non-duplicated approval roles, approval timestamps after assessment completion, and binding to the exact workflow-authorized release SHA.
 
 ## Closure sequence
+
+**Applies only if the optional certificate path is explicitly re-activated by a later owner decision (see the revocation notice above). It is not a project-completion path.**
 
 1. Keep `closure_state=NOT_READY` during assessment, remediation and evidence collection.
 2. Set `READY_FOR_APPROVAL` only after required cases pass, the findings register is complete, every workstream has dedicated evidence, and material findings have been retested.
@@ -74,3 +91,5 @@ A CI pass or reviewer designation alone does not close REM-P0-006, accept residu
 **Scope:** Reviewer identity and external review approval path only.  
 **Additional change:** Optional external-assurance procurement is deferred until formal project completion; mandatory requirements and the protected closure controls are unchanged.  
 **No change:** Technical evidence requirements, role-separated Security Governance and Project Owner approvals, exact-SHA binding, production controls, and P0 closure evidence remain mandatory.
+
+**Change (2026-10-24 — `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):** The independent security certification is **revoked as a project-completion requirement** (owner decision; «قرار إلغاء شرط الشهادة الأمنية المعتمدة»). The certificate-issuance path on this page is retired-optional; the 19-case matrix continues as the internal technical-verification requirement at its truthful state; all technical security controls and standing holds are unchanged. See `docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`.
