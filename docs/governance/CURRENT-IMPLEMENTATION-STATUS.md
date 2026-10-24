@@ -2,7 +2,7 @@
 
 <!-- STATUS_AUTHORITY: CURRENT -->
 
-**As of:** 2026-10-09, Asia/Riyadh  
+**As of:** 2026-10-25, Asia/Riyadh  
 **Accountable owner:** Project Owner  
 **Current transition tracker:** GitHub Issue #1337  
 **Historical remediation tracker:** GitHub Issue #516 (CLOSED / retained for audit)
@@ -134,14 +134,20 @@ Closed through PR #529 and merge SHA `e6b7cb7e9dde8b603bc282fb5c491c5fdad6a8e0` 
 | REM-P0-002 — BFF/authentication/session reliability | Application controls implemented / open / temporarily accepted pending production observation and REM-P0-001 | Identity, Operations and Infrastructure |
 | REM-P0-004 — later-deliverable governance sequence | Open / temporarily accepted for controlled scope | Executive Steering Committee |
 | REM-P0-005 — backup, restore and disaster recovery | Open / temporarily accepted for controlled scope | Infrastructure and Data Platform |
-| REM-P0-006 — independent security assurance | Open — independent-certification completion requirement revoked by DEC-SEC-CERT-REVOCATION-REM-P0-006-001 (2026-10-24); internal technical-verification matrix remains tracked at its truthful state; temporarily accepted for controlled scope | Security Governance |
+| REM-P0-006 — technical security verification | Open / NOT_READY — independent reviewer appointment and certificate issuance are not project-completion requirements under DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001; 19-case matrix remains 0/19 COMPLETED; technical controls and holds remain active | Security Governance |
 | REM-P1-009 — repository visibility decision | Open / temporarily accepted for controlled scope | Project Owner and Security Governance |
 
 The REM-P0-002 control and closure contract is `docs/operations/reliability/AUTH-SESSION-RELIABILITY.md`.
 
 The detailed unresolved-risk report remains `docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md`. Temporary acceptance changes the allowed operating boundary only; it does not close findings, reduce severity or satisfy closure criteria.
 
-## 8. Status-document interpretation
+## 8. Project-wide security-assurance governance decision (2026-10-25)
+
+Decision `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001` (`docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`) cancels any internal project-completion requirement to appoint a named independent reviewer/assessor or obtain an independent security certificate. Historical reviewer-designation and certificate-planning records remain for audit and do not create current completion obligations. This is not a waiver of any applicable legal, regulatory, contractual, customer, insurer, or certification-scheme obligation; only the competent authority may grant such a waiver.
+
+The decision does **not** close or downgrade `REM-P0-006`, complete its technical test matrix, or lift any gate. RLS, tenant isolation, authorization tests, dependency/supply-chain controls, evidence integrity, branch/environment protections and all existing release criteria remain applicable. Current holds remain `G1 = HOLD`, `P0 SECURITY HOLD = ACTIVE`, `NO DEPLOY`, `PAYMENTS = OFF`, and broad commercial go-live `NOT_APPROVED`.
+
+## 9. Status-document interpretation
 
 - `docs/stage-*` records historical stage evidence.
 - `docs/execution/` records execution-scope evidence.
@@ -152,7 +158,7 @@ The detailed unresolved-risk report remains `docs/governance/UNRESOLVED-RISKS-RE
 
 The classification registry is `docs/governance/status-document-registry.json`.
 
-## 9. Current sources of truth
+## 10. Current sources of truth
 
 - GitHub Issue #1337 — current Stage 30 transition tracker.
 - `docs/governance/CURRENT-STATUS.json`.
@@ -163,6 +169,6 @@ The classification registry is `docs/governance/status-document-registry.json`.
 - `docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md` for remediation history.
 - Exact-SHA workflow, deployment and runtime evidence linked by those sources.
 
-## 10. Update rule
+## 11. Update rule
 
 A material status change must update both current-status documents, identify exact evidence, classify superseded records and pass `.github/workflows/status-documentation-validation.yml`.

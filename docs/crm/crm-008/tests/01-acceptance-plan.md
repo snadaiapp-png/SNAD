@@ -513,4 +513,4 @@ Specifically:
 
 **Implementation Merge Gate:** 17 P0 criteria must pass (AC-01 → AC-11 + AC-DB-01/02/03 + AC-CONC-01 + AC-RR-01 + AC-TEST-01)
 **Formal Stage Closure Gate:** 21 criteria must pass (all 17 above + AC-12 + AC-13 + AC-14 + AC-15)
-**Commercial Go-Live Gate:** 21 criteria + owner sign-off + REM-P0-006 independent security assurance
+**Commercial Go-Live Gate:** 21 criteria + owner sign-off + all applicable technical security/release controls and authorized gate decisions. An independent certificate or named independent reviewer is not an internal project-completion prerequisite under `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001`. `P0 SECURITY HOLD = ACTIVE` and `commercial_go_live = NOT_APPROVED` remain unchanged until their own gates are satisfied.

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "status_authority": "CURRENT",
-  "as_of": "2026-10-24",
+  "as_of": "2026-10-25",
   "timezone": "Asia/Riyadh",
   "project": "SANAD",
   "decision": "CONDITIONAL_CONTINUE",
@@ -74,7 +74,7 @@
     "REM-P0-002": "BFF and browser session controls implemented; production observation and REM-P0-001 dependency remain open; temporarily accepted for controlled scope only",
     "REM-P0-004": "Governance sequence for later outputs remains unreconciled; temporarily accepted for controlled scope only",
     "REM-P0-005": "Production backup, restore and disaster-recovery evidence is incomplete; temporarily accepted for controlled scope only",
-    "REM-P0-006": "Independent security assurance not closed; the independent-certification completion requirement was revoked by DEC-SEC-CERT-REVOCATION-REM-P0-006-001 (2026-10-24); the internal technical-verification matrix (19 cases, truthful state 0/19 COMPLETED) remains tracked as the risk-appropriate requirement; no independent certificate issued or claimed; temporarily accepted for controlled scope only",
+    "REM-P0-006": "Technical security verification remains open and NOT_READY; independent reviewer appointment and certificate issuance are not project-completion requirements under DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001. The 19-case technical matrix remains truthfully 0/19 COMPLETED; no independent certificate issued or claimed; existing risk/hold classifications remain unchanged.",
     "REM-P1-009": "Repository visibility requires an explicit governance decision; temporarily accepted for controlled scope only"
   },
   "open_finding_counts": {
@@ -87,16 +87,18 @@
     "remediation_in_progress": 0
   },
   "security_certification_requirement": {
-    "status": "REVOKED_AS_COMPLETION_REQUIREMENT",
-    "decision_id": "DEC-SEC-CERT-REVOCATION-REM-P0-006-001",
-    "decision_document": "docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md",
-    "decided_by": "Project Owner (snadaiapp-png) via direct written executive order",
-    "decided_at": "2026-10-24",
-    "change_in_this_update": "as_of advanced to 2026-10-24; open_findings.REM-P0-006 re-worded; this block added. No other fields were modified by the revocation decision.",
-    "scope": "Independent/certified security certificate is no longer a mandatory completion requirement; the certificate-issuance path (assessor appointment, three approvals, rem-p0-006-closure environment) is retired-optional",
-    "replacement_requirements": "Risk-appropriate technical security verification: internal 19-case coverage matrix (docs/security/independent-assurance/TEST-COVERAGE-MATRIX.json, truthful state 0/19 COMPLETED), RLS and tenant-isolation verification, authorization tests, dependency and supply-chain controls",
+    "status": "REVOKED_PROJECT_WIDE_COMPLETION_REQUIREMENT",
+    "decision_id": "DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001",
+    "decision_document": "docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md",
+    "previous_decision_document": "docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md",
+    "decision_record": "GitHub Issue #1438 comment 6389802911",
+    "decided_by": "Project Owner (snadaiapp-png) via direct written executive order, recorded 2026-10-25",
+    "decided_at": "2026-10-25",
+    "change_in_this_update": "2026-10-25: project-wide governance decision DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001 reaffirmed cancellation of mandatory independent reviewer/certificate completion requirements. Technical security controls and gate states remain unchanged.",
+    "scope": "Project-wide internal governance does not require appointment of an independent reviewer, independent assessor, or issuance of an independent security certificate for development, module closure, or project completion. Any external obligation remains governed by its own competent authority.",
+    "replacement_requirements": "Technical security verification remains governed by its own risk and release criteria: 19-case matrix (docs/security/independent-assurance/TEST-COVERAGE-MATRIX.json, truthful state 0/19 COMPLETED), RLS and tenant-isolation verification, authorization tests, dependency and supply-chain controls. No specific independent reviewer identity or certificate is required by internal project governance.",
     "no_certificate_claim": "No independent security certificate has been issued; none is claimed by this decision",
-    "unaffected_authorities": "G1=HOLD, P0 SECURITY HOLD=ACTIVE, NO MERGE (without required review), NO DEPLOY, PAYMENTS=OFF, commercial_go_live=NOT_APPROVED, RLS, tenant isolation, branch/environment protection remain in force via their own authorities"
+    "unaffected_authorities": "G1=HOLD, P0 SECURITY HOLD=ACTIVE, NO MERGE (without required review), NO DEPLOY, PAYMENTS=OFF, commercial_go_live=NOT_APPROVED, RLS, tenant isolation, authorization/security tests, dependency/supply-chain controls, branch/environment protection remain in force via their own authorities"
   },
   "deferred_findings": [
     "REM-P0-001"
