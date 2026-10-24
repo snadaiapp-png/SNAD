@@ -72,11 +72,7 @@ class HrG1MigrationTest {
     @BeforeAll
     void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("HrG1MigrationTest");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("HrG1MigrationTest");
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping HrG1MigrationTest.");
 
