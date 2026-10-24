@@ -41,12 +41,8 @@ class PartnerPrincipalSchemaPostgresTest {
     @BeforeAll
     static void requirePostgreSqlDirect() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "PartnerPrincipalSchemaPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is required for PartnerPrincipalSchemaPostgresTest");
         MigrationTestSchemaSupport.ensureDatabase(SOURCE_URL, USER, PASSWORD);
