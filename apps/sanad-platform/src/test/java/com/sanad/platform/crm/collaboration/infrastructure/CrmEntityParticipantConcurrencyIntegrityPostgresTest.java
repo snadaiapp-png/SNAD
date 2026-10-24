@@ -21,8 +21,7 @@ class CrmEntityParticipantConcurrencyIntegrityPostgresTest {
     @BeforeAll
     static void setup() {
         boolean ok;
-        try { ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("CrmEntityParticipantConcurrencyIntegrityPostgresTest"); }
-        catch (Throwable ignored) { ok = false; }
+        ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("CrmEntityParticipantConcurrencyIntegrityPostgresTest");
         Assumptions.assumeTrue(ok, "PostgreSQL Direct required");
         jdbcUrl = System.getenv().getOrDefault("SPRING_DATASOURCE_URL","jdbc:postgresql://localhost:5432/sanad");
         jdbcUser = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME","sanad");
