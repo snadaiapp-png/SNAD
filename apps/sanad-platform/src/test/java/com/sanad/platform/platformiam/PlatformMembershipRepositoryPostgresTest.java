@@ -54,11 +54,7 @@ class PlatformMembershipRepositoryPostgresTest {
     @BeforeAll
     void migrateAndCreateRepositories() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("PlatformMembershipRepositoryPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("PlatformMembershipRepositoryPostgresTest");
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping PlatformMembershipRepositoryPostgresTest.");
 
