@@ -41,11 +41,7 @@ class FlywayJavaMigrationsChainConsistencyTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable = false;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable t) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping FlywayJavaMigrationsChainConsistencyTest. "
                         + "Run with PostgreSQL Direct to exercise the migration chain invariant.");
