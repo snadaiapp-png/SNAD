@@ -1,14 +1,13 @@
-# REM-P0-006 Independent Security Assurance Gate
+# REM-P0-006 Internal Technical Security Verification
 name: Independent Security Assurance Gate
 #
 # GOVERNANCE NOTE — DEC-SEC-CERT-REVOCATION-REM-P0-006-001 (2026-10-24):
-# The independent security certification is no longer a mandatory project-completion
-# requirement (owner decision; see docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md).
-# - The `readiness` job is RETAINED as an evidence-integrity control for this package.
-# - The `closure` job (certificate-issuance path: assessor appointment, three approvals,
-#   rem-p0-006-closure environment) is RETIRED-OPTIONAL: absence of a certificate must
-#   not block project completion. It runs only via explicit workflow_dispatch against
-#   the protected environment, and any re-activation requires a new recorded owner decision.
+# Project-wide decision DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001:
+# Independent reviewer/assessor appointment and certificate issuance are not internal
+# project-completion requirements. The readiness job remains an evidence-integrity check.
+# The closure job is a manual, optional legacy path only; it is not a required check and
+# must never be treated as a project/module completion prerequisite. Technical security
+# controls and standing release holds remain governed by their own policies.
 
 on:
   pull_request:
@@ -26,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       gate_mode:
-        description: 'readiness validates the package; closure requires the environment-gated main-branch decision gate'
+        description: 'readiness validates internal evidence; closure is an optional manual legacy path and never a project-completion prerequisite'
         required: true
         type: choice
         default: readiness
@@ -96,13 +95,13 @@ jobs:
         if: always()
         run: |
           {
-            echo '## Temporary Development-Phase Assurance Policy'
+            echo '## Internal Technical Security Verification'
             echo ''
-            echo '- Optional external-assurance procurement is deferred until formal project completion under the project governance policy.'
+            echo '- Independent reviewer appointment and certificate issuance are not project-completion requirements under the current project-wide governance decision.'
             echo '- Internal reviews and attestations during development are internal only; they are not independent or accredited certification.'
             echo '- This deferral does not waive mandatory legal, regulatory, contractual, customer, scheme-specific, incident-response, or release-gate requirements.'
-            echo '- The protected closure job retains exact-SHA, OIDC/runtime-trust, environment, authority-secret, evidence, and role-separated approval requirements.'
-            echo '- This notice does not change REM-P0-006 status or lift P0/G1/NO DEPLOY/PAYMENTS holds.'
+            echo '- The manual closure job is an optional legacy path, not a required check or completion prerequisite; if used, its own technical trust and evidence checks remain fail-closed.'
+            echo '- This workflow does not close REM-P0-006 or lift P0/G1/NO DEPLOY/PAYMENTS holds; technical verification and release gates remain in force.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish readiness boundary
@@ -235,7 +234,7 @@ jobs:
             echo "- Package SHA: ${{ github.sha }}"
             echo "- Assessed release SHA input: ${{ inputs.release_sha }}"
             echo "- Canonical evidence package: validated in place; no runtime package was generated"
-            echo '- This job requires the rem-p0-006-closure GitHub Environment and its authority secret.'
+            echo '- This manual legacy path requires the rem-p0-006-closure GitHub Environment and its authority secret only if explicitly run; it is not a required project-completion check.'
             echo '- This workflow validates existing evidence only; it does not manufacture evidence, approve findings, set ACCEPTED, persist a runtime package, merge with admin override, or close governance issues.'
             echo '- A successful validation run is not itself the formal closure decision.'
             echo '- P0 remains on hold until the separately authorized, evidence-backed governance decision is recorded.'
