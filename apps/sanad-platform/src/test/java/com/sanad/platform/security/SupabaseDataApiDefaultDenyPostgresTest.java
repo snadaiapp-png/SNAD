@@ -20,12 +20,8 @@ class SupabaseDataApiDefaultDenyPostgresTest {
     @BeforeAll
     static void setup() {
         boolean ok;
-        try {
-            ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "SupabaseDataApiDefaultDenyPostgresTest");
-        } catch (Throwable ignored) {
-            ok = false;
-        }
         Assumptions.assumeTrue(ok, "PostgreSQL Direct required");
 
         String url = System.getenv().getOrDefault(
