@@ -70,12 +70,8 @@ class ContactRlsPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "ContactRlsPostgresTest");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping ContactRlsPostgresTest. "
                         + "Run with PostgreSQL Direct to exercise crm_contacts FORCE RLS.");
