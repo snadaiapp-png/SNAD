@@ -55,12 +55,8 @@ class CrmImportWorkerRlsPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "CrmImportWorkerRlsPostgresTest");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmImportWorkerRlsPostgresTest.");
         MigrationTestSchemaSupport.ensureDatabase(BASE_JDBC_URL, USERNAME, PASSWORD);
