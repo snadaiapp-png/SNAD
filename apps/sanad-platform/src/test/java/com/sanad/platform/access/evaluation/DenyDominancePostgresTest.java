@@ -41,7 +41,7 @@ class DenyDominancePostgresTest {
     private static final String PASSWORD=System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD","");
 
     @BeforeAll static void requirePostgres(){
-        boolean available;try{available=Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("DenyDominancePostgresTest");}catch(Throwable ignored){available=false;}
+        boolean available;available=Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("DenyDominancePostgresTest");
         Assumptions.assumeTrue(available,"PostgreSQL Direct is required for DenyDominancePostgresTest");
         MigrationTestSchemaSupport.ensureDatabase(SOURCE_URL,USER,PASSWORD);
     }
