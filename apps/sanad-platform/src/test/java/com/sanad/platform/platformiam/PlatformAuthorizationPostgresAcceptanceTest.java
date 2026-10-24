@@ -42,12 +42,8 @@ class PlatformAuthorizationPostgresAcceptanceTest {
     @BeforeAll
     void migrateAndCreateRepository() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "PlatformAuthorizationPostgresAcceptanceTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping PlatformAuthorizationPostgresAcceptanceTest.");
 
