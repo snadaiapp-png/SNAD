@@ -1,95 +1,55 @@
-# REM-P0-006 — Security Assurance and Trusted Review Path
+# REM-P0-006 — Internal Technical Security Verification
 
-**Governance state:** `SOLE_TRUSTED_REVIEWER_DESIGNATED`  
-**Authorized GitHub reviewer:** `abdulrhmansenan1985-creator`  
-**Assessment state:** `OPEN / NOT_READY` (per `assessment-manifest.json`)  
-**Independent assessor organizational independence:** `PENDING_VERIFICATION`  
-**P0 security hold:** `ACTIVE until closure evidence is accepted`  
+**Current purpose:** Optional-to-certificate, risk-based internal technical verification and evidence tracking.  
+**Certificate requirement:** `REVOKED_AS_PROJECT_COMPLETION_REQUIREMENT`  
+**Independent reviewer/assessor appointment:** Not required by internal project governance.  
+**Technical assessment state:** `NOT_READY` — the recorded 19-case matrix remains at its truthful state of 0/19 `COMPLETED`.  
+**P0 security hold:** `ACTIVE`  
 **Broad commercial go-live:** `NOT_APPROVED`
 
-> **2026-10-24 — Certificate-requirement revocation (`DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):**
-> The independent security certification is **no longer a mandatory completion requirement** for
-> SNAD development, module closure, or project phases (owner decision of 2026-10-24 — see
-> `docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`).
-> **قرار إلغاء شرط الشهادة الأمنية المعتمدة:** لم تعد الشهادة الأمنية المستقلة شرطًا إلزاميًا لإكمال المشروع أو إغلاق وحداته.
-> This directory remains as an **optional internal technical-verification program**. Its recorded
-> state (`NOT_READY`, 0/19 cases `COMPLETED`) stays as the truthful state of that optional
-> matrix; no independent certificate has been issued and none is claimed. The certificate-issuance
-> path (assessor appointment, three approvals, closure environment) applies **only if** the
-> project owner explicitly re-activates it by a later recorded decision.
+## Controlling governance decisions
 
-## Sole trusted reviewer designation
+- `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` (2026-10-24) revoked the independent certificate as a project-completion requirement.
+- `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001` (2026-10-25) confirms the rule applies project-wide: neither a named independent reviewer/assessor nor an independent certificate is an internal completion prerequisite.
+- Decision record: GitHub Issue #1438, comment 6389802911.
+- The earlier sole-reviewer designation, assessor appointment, three certificate-closure approvals, and post-completion certificate plan are historical records only. They do not impose current completion obligations.
 
-By the project governance decision recorded in this repository, `abdulrhmansenan1985-creator` is the **only accepted GitHub reviewer identity** for the SNAD project security-review path and the external reviewer approval step for REM-P0-006.
+## What this directory is for
 
-The accepted review must be a GitHub pull-request review submitted by that exact account and tied to the exact assessed release SHA. Chat messages, screenshots, tokens/passwords, and unaudited manual statements are not review evidence.
+Use this directory to track technical security tests, evidence integrity, findings, remediation and retest status. It is not a certification workflow and its status must not be represented as an independent assessment or certificate.
 
-This designation is a project governance trust decision. It does not, by itself, prove that the account holder is organizationally independent from the project, and it does not certify the code or close P0. The account receives no repository owner/admin role, protected secret access, repository settings authority, merge authority, or production deployment authority by virtue of this designation.
+Relevant evidence files include:
 
-## Temporary development-phase external-assurance deferral
+- `TEST-COVERAGE-MATRIX.json` — current recorded 19-case matrix; do not infer completion.
+- `assessment-manifest.json` — evidence and assessed-release references.
+- `findings-register.json` — tracked findings and their real status.
+- `evidence-index.json` — evidence references and integrity metadata.
 
-**Superseded in part (2026-10-24):** under `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` the post-completion unified-certificate plan below is **cancelled as a project-completion element**; external assurance is optional only, with no scheduled or mandatory engagement.
+A missing or incomplete item must remain missing or incomplete in the evidence. Do not create synthetic approvals, mark tests passed without execution, claim that a certificate exists, or treat a readiness-validation pass as security acceptance.
 
-The project-owner governance direction recorded in `docs/governance/SANAD-GOV-SEC-SELF-ASSESSMENT-EXCEPTION-POLICY.md` defers procurement of **optional** external security reviews/certificates until formal project completion. During development, the designated internal reviewer may conduct internal reviews and issue explicitly internal-only attestations.
+## Technical controls remain in force
 
-This deferral changes procurement timing only. It does **not** waive mandatory law, regulation, contract, customer, insurer, certification-scheme, incident-response, or release-gate requirements. If any such requirement applies to a release or claim before project completion, it must be recorded and satisfied (or covered by a valid written waiver from the authority empowered to grant it) before that release/claim proceeds.
+The governance revocation does not waive or disable:
 
-At formal project completion, the owner should freeze the release scope and SHA, consolidate the project-wide evidence package, and seek a unified assessment/certificate from a qualified independent body. Internal reviews are not independent certification.
+1. PostgreSQL RLS and tenant-isolation enforcement, including direct-database tests using the actual restricted application role.
+2. Authentication, authorization, BOLA/IDOR and privilege-boundary testing.
+3. Dependency, build, artifact and software-supply-chain controls.
+4. Evidence integrity, exact-SHA traceability and truthful test reporting.
+5. Protected branches, required reviews where configured, protected environments, OIDC/signature checks and audit logging.
+6. Any applicable incident-response or release-specific security criteria.
 
-**Superseded (2026-10-24, `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):** the sentence above no longer describes a project requirement. Project completion does not include commissioning any assessment or certificate; external assurance may be commissioned only if a mandatory external obligation is later recorded, or by explicit optional owner decision.
+This directory's readiness workflow may validate package structure and evidence integrity. Such validation is not a project-completion gate for obtaining an independent certificate, does not close `REM-P0-006`, and does not lift any standing hold.
 
-**Gate behavior:** readiness checks continue to validate package structure and evidence integrity. The protected closure job retains exact-SHA binding, runtime trust/OIDC, environment protection, authority-secret, evidence-completeness, and role-separated approval requirements. The temporary deferral does not mark `REM-P0-006` ready or accepted, and does not lift `P0 SECURITY HOLD`, `G1 = HOLD`, `NO DEPLOY`, or `PAYMENTS = OFF`.
+## External obligations
 
-## Required workstreams
+This internal decision does not waive a requirement imposed by law, regulation, contract, customer commitment, insurer, regulator, or certification scheme. If one applies to a particular release or claim, identify the competent authority and satisfy the obligation, or obtain a valid written waiver from the authority empowered to grant it, before proceeding with the affected release or claim.
 
-1. Authenticated and unauthenticated penetration testing.
-2. Tenant-boundary, BOLA/IDOR and object-level authorization testing using isolated tenants and multiple privilege levels.
-3. Production configuration, identity, access, logging, encryption and secret-management review.
-4. Source, dependency, container, CI/CD and software-supply-chain review.
-5. Privacy/data-flow review and documented challenge of the threat model.
-6. Remediation verification and independent retesting on the exact candidate release.
+## Standing holds — unchanged
 
-## Evidence model
+- `G1 = HOLD`
+- `P0 SECURITY HOLD = ACTIVE`
+- `NO DEPLOY`
+- `PAYMENTS = OFF`
+- `commercial_go_live = NOT_APPROVED`
 
-The manifest is not authoritative by itself. Closure validation must reconcile all of the following:
-
-- `assessment-manifest.json`
-- `TEST-COVERAGE-MATRIX.json`
-- `findings-register.json`
-- `evidence-index.json`
-- Sanitized local evidence or immutable restricted external references
-
-Required controls include complete test coverage, evidence integrity, no unresolved critical/high findings, recorded retest results, identity verification of the sole authorized reviewer, non-duplicated approval roles, approval timestamps after assessment completion, and binding to the exact workflow-authorized release SHA.
-
-## Closure sequence
-
-**Applies only if the optional certificate path is explicitly re-activated by a later owner decision (see the revocation notice above). It is not a project-completion path.**
-
-1. Keep `closure_state=NOT_READY` during assessment, remediation and evidence collection.
-2. Set `READY_FOR_APPROVAL` only after required cases pass, the findings register is complete, every workstream has dedicated evidence, and material findings have been retested.
-3. Obtain three role-separated approvals: the designated reviewer `abdulrhmansenan1985-creator`, Security Governance, and Project Owner. The designated reviewer is the sole accepted reviewer identity; it does not collapse the other two approval roles. The `independent_assessor` approval additionally requires the assessor's organizational independence to be verified and evidenced in the manifest (`independence_status` must be `VERIFIED`); a reviewer account designation alone never satisfies it.
-4. Configure the `rem-p0-006-closure` GitHub Environment with required protection rules and the environment secret `REM_P0_006_CLOSURE_AUTHORITY_TOKEN`. Closure must fail if the authority secret or required protections are absent.
-5. Run the closure workflow on `main` against the exact assessed release SHA.
-6. Publish a separate dated closure decision. Only the governed closure record may set `ACCEPTED` and update current-status authorities.
-
-## Validation commands
-
-```bash
-python3 -m unittest tests/ci/test_validate_independent_security_assurance.py -v
-python3 scripts/ci/validate_independent_security_assurance.py --mode readiness
-python3 scripts/ci/validate_independent_security_assurance.py \
-  --mode closure \
-  --expected-release-sha <40-character-release-sha>
-```
-
-A CI pass or reviewer designation alone does not close REM-P0-006, accept residual risk, or approve commercial go-live. P0 remains on hold until the evidence-based closure sequence succeeds.
-
-## Governance Change Record
-
-**Change:** Sole trusted GitHub reviewer identity designated for the SNAD security-review path.  
-**Authorized account:** `abdulrhmansenan1985-creator`  
-**Scope:** Reviewer identity and external review approval path only.  
-**Additional change:** Optional external-assurance procurement is deferred until formal project completion; mandatory requirements and the protected closure controls are unchanged.  
-**No change:** Technical evidence requirements, role-separated Security Governance and Project Owner approvals, exact-SHA binding, production controls, and P0 closure evidence remain mandatory.
-
-**Change (2026-10-24 — `DEC-SEC-CERT-REVOCATION-REM-P0-006-001`):** The independent security certification is **revoked as a project-completion requirement** (owner decision; «قرار إلغاء شرط الشهادة الأمنية المعتمدة»). The certificate-issuance path on this page is retired-optional; the 19-case matrix continues as the internal technical-verification requirement at its truthful state; all technical security controls and standing holds are unchanged. See `docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`.
+No reviewer appointment, certificate, workflow result, or documentation change alone changes these statuses. Each gate requires its own authorized decision and evidence.
