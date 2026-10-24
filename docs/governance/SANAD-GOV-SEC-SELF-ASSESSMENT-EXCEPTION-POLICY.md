@@ -158,6 +158,8 @@ Effects of Decision C on this policy:
 
 ## 10. Decision D — Project-wide revocation of mandatory reviewer and certificate requirements
 
+**Formal decision document:** `docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`
+
 **Decision ID:** `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001`  
 **Decision date:** 2026-10-25 (Asia/Riyadh)  
 **Authority:** Project Owner (`snadaiapp-png`), direct written instruction recorded at GitHub Issue #1438, comment 6389802911.  
