@@ -30,12 +30,8 @@ class UserPermissionOverrideJdbcRepositoryPostgresTest {
     @BeforeAll
     static void requirePostgres() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "UserPermissionOverrideJdbcRepositoryPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(
                 available,
                 "PostgreSQL Direct is required for UserPermissionOverrideJdbcRepositoryPostgresTest");
