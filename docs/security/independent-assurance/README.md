@@ -1,6 +1,6 @@
 # REM-P0-006 — Internal Technical Security Verification
 
-**Current purpose:** Optional-to-certificate, risk-based internal technical verification and evidence tracking.  
+**Current purpose:** Risk-based internal technical verification and evidence tracking; independent certification is not a project-completion prerequisite.  
 **Certificate requirement:** `REVOKED_AS_PROJECT_COMPLETION_REQUIREMENT`  
 **Independent reviewer/assessor appointment:** Not required by internal project governance.  
 **Technical assessment state:** `NOT_READY` — the recorded 19-case matrix remains at its truthful state of 0/19 `COMPLETED`.  
