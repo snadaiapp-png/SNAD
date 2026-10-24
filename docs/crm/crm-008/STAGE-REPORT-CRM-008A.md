@@ -358,7 +358,7 @@ ADMIN_SECURITY_BYPASS: NOT_USED
 SECURITY_FINDING: RESOLVED
 ```
 
-This security design sign-off does not satisfy or replace `REM-P0-006`, which remains an independent commercial assurance gate.
+This security design sign-off does not complete the open technical-security work tracked by `REM-P0-006`. Under `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001`, independent assessor appointment and certificate issuance are not internal project-completion prerequisites; technical security controls and release gates remain applicable. `P0 SECURITY HOLD` and commercial go-live status are unchanged by this document.
 
 ---
 
