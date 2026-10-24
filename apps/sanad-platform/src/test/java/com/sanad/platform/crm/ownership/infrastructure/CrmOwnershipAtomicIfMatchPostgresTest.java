@@ -51,11 +51,7 @@ class CrmOwnershipAtomicIfMatchPostgresTest {
     @BeforeAll
     static void migrateAndCreateAspect() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(
                 postgresAvailable,
                 "PostgreSQL Direct is required for CRM-008R atomic If-Match acceptance.");
