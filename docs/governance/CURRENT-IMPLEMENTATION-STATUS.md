@@ -143,7 +143,7 @@ The detailed unresolved-risk report remains `docs/governance/UNRESOLVED-RISKS-RE
 
 ## 8. Project-wide security-assurance governance decision (2026-10-25)
 
-Decision `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001` cancels any internal project-completion requirement to appoint a named independent reviewer/assessor or obtain an independent security certificate. Historical reviewer-designation and certificate-planning records remain for audit and do not create current completion obligations. This is not a waiver of any applicable legal, regulatory, contractual, customer, insurer, or certification-scheme obligation; only the competent authority may grant such a waiver.
+Decision `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001` (`docs/governance/SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`) cancels any internal project-completion requirement to appoint a named independent reviewer/assessor or obtain an independent security certificate. Historical reviewer-designation and certificate-planning records remain for audit and do not create current completion obligations. This is not a waiver of any applicable legal, regulatory, contractual, customer, insurer, or certification-scheme obligation; only the competent authority may grant such a waiver.
 
 The decision does **not** close or downgrade `REM-P0-006`, complete its technical test matrix, or lift any gate. RLS, tenant isolation, authorization tests, dependency/supply-chain controls, evidence integrity, branch/environment protections and all existing release criteria remain applicable. Current holds remain `G1 = HOLD`, `P0 SECURITY HOLD = ACTIVE`, `NO DEPLOY`, `PAYMENTS = OFF`, and broad commercial go-live `NOT_APPROVED`.
 
