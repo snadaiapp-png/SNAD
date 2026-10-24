@@ -51,12 +51,8 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "AccessCapabilityCodeCanonicalizationPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available, "PostgreSQL Direct is not available.");
         MigrationTestSchemaSupport.ensureDatabase(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
