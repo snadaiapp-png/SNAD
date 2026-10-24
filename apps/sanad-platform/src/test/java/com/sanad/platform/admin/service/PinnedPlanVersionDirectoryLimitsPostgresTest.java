@@ -41,12 +41,8 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "PinnedPlanVersionDirectoryLimitsPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping PinnedPlanVersionDirectoryLimitsPostgresTest.");
         baseUrl = System.getenv().getOrDefault("PG_ACCEPTANCE_JDBC_URL",
