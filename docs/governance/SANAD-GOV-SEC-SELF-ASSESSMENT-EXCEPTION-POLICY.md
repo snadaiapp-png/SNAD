@@ -1,13 +1,13 @@
-# SANAD Governance Exception Policy — Approved Internal Security Reviewer
+# SANAD Governance Exception Policy — Historical Internal Reviewer Delegation and Superseding Revocation
 
 **Document ID:** `SANAD-GOV-SEC-SELF-ASSESSMENT-001`  
-**Document status:** `PROJECT-OWNER AUTHORIZATION RECORDED — IMPLEMENTATION CONTROLS PENDING`  
+**Document status:** `HISTORICAL RECORD — reviewer designation and certificate plan are not current project-completion requirements`  
 **Scope:** Internal security reviews and evidence preparation associated with `REM-P0-006`  
 **Proposed designated internal security reviewer account:** `abdulrhmansenan1985@gmail.com`  
 **Designation requested:** `APPROVED INTERNAL SECURITY REVIEWER — NOT INDEPENDENT`  
 **Owner authorization date:** 2026-10-23  
 **Effective status:** Project-owner delegation is granted as recorded below. Operational activation remains subject to identity verification, approved technical access, and any mandatory legal/contractual or scheme-specific requirements.  
-**Superseding decision (2026-10-24):** `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` (`docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`) revokes the security-certificate requirement as a project-completion condition and cancels the post-completion unified-certificate plan recorded in Decision B below. Sections 1–8 are retained as historical record; where they conflict with the revocation decision, the revocation decision governs.
+**Superseding decisions (2026-10-24 and 2026-10-25):** `DEC-SEC-CERT-REVOCATION-REM-P0-006-001` (`docs/governance/SANAD-SECURITY-CERTIFICATION-REQUIREMENT-REVOCATION-2026-10-24.md`) revokes the security-certificate requirement as a project-completion condition and cancels the post-completion unified-certificate plan recorded in Decision B below. Sections 1–8 and Decisions A–C are retained as historical audit record. Project-wide Decision D below supersedes any language that treats a named reviewer, independent assessor, or certificate as mandatory for development, module closure, or project completion.
 
 > **Classification notice:** The project owner has authorized the named account for the internal review and internal-document issuance/export scope defined below. This designation is not an independent assessor appointment, external certification, or authorization to approve release-gate closure.
 
@@ -154,3 +154,23 @@ Effects of Decision C on this policy:
 5. No independent certificate has been issued; nothing in this policy or in the revocation decision claims otherwise. The 19-case coverage matrix remains at its truthful recorded state and is re-scoped as the internal technical-verification requirement — it must not be presented as certification.
 6. Standing holds (`G1 = HOLD`, `P0 SECURITY HOLD = ACTIVE`, `NO MERGE` without required review, `NO DEPLOY`, `PAYMENTS = OFF`) and `commercial_go_live = NOT_APPROVED` are **not** changed by Decision C; each is lifted only through its own governed path and its own evidence.
 7. If a mandatory legal, regulatory, contractual, customer, insurer, or scheme-specific external-assurance obligation is later identified, it must be recorded and satisfied for the affected release/claim under its own authority — Decision C neither cancels nor waives any such obligation.
+
+
+## 10. Decision D — Project-wide revocation of mandatory reviewer and certificate requirements
+
+**Decision ID:** `DEC-SEC-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25-001`  
+**Decision date:** 2026-10-25 (Asia/Riyadh)  
+**Authority:** Project Owner (`snadaiapp-png`), direct written instruction recorded at GitHub Issue #1438, comment 6389802911.  
+**Status:** `EFFECTIVE FOR INTERNAL PROJECT GOVERNANCE`
+
+This decision applies across SANAD, not only to `REM-P0-006`:
+
+1. Appointment or verification of a named independent reviewer/assessor is **not** an internal project-completion prerequisite.
+2. Issuance of an independent or unified security certificate is **not** an internal prerequisite for development completion, module closure, or project completion. The post-completion certificate plan in Decision B is cancelled as a required deliverable.
+3. The account-specific designation in Decision A is historical and optional. It does not make that account the sole required reviewer, and no particular reviewer identity is mandated by this policy.
+4. Sections 1–9 and Decisions A–C remain in this file solely to preserve the historical decision trail. Where they describe a future mandatory certificate, a sole required reviewer, or mandatory independent-assessor approvals, those descriptions are superseded by this Decision D.
+5. This decision does **not** waive any obligation imposed by applicable law, regulation, contract, customer commitment, insurer, regulator, or certification scheme. Such obligations must be assessed separately and satisfied, or waived in writing by the authority competent to grant the waiver.
+6. This decision does not close `REM-P0-006`, declare the 19-case matrix complete, or imply that any certificate has been issued. The matrix remains at its actual recorded state; RLS, tenant isolation, authorization testing, dependency/supply-chain controls, evidence integrity, branch/environment protections, and other technical security controls remain in force.
+7. Existing operational holds are unchanged: `G1 = HOLD`, `P0 SECURITY HOLD = ACTIVE`, `NO DEPLOY`, `PAYMENTS = OFF`, and `commercial_go_live = NOT_APPROVED`. Each can change only through its own authorized gate and evidence.
+
+The decision is a change to internal governance requirements, not a change to GitHub Secrets, access credentials, protected environments, or technical security controls. Do not store policy text in Secrets or remove credentials unless a separately authorized credential-rotation/removal action is required.
