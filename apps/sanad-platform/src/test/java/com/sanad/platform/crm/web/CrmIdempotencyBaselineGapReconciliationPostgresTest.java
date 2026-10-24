@@ -28,11 +28,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is required to verify the CRM idempotency baseline reconciliation.");
         // Ensure the disposable test_migration database exists so that flyway.clean()
