@@ -540,7 +540,6 @@ jobs:
       # the production Supabase / Render managed DB markers.
       PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
       PG_ACCEPTANCE_USERNAME: sanad
-      PG_ACCEPTANCE_PASSWORD: sanad_pass
 
     defaults:
       run:
@@ -574,14 +573,17 @@ jobs:
         # idempotently re-created `pg_acceptance` database owned by `sanad`.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          app_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$app_password"
+          echo "PG_ACCEPTANCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
-          DO $$
+          DO $
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
-          END $$;
+          END $;
           ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
@@ -1253,8 +1255,7 @@ jobs:
           SPRING_PROFILES_ACTIVE: pg-acceptance
           PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
           PG_ACCEPTANCE_USERNAME: sanad
-          PG_ACCEPTANCE_PASSWORD: sanad_pass
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
+              CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           export PATH="$PGHOME/bin:$PATH"
