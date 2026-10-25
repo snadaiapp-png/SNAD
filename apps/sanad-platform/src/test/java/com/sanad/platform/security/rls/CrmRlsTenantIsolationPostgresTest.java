@@ -107,7 +107,7 @@ class CrmRlsTenantIsolationPostgresTest {
             throw new IllegalStateException(
                     "Pre-provisioned role '" + RLS_USER + "' is missing. "
                             + "An environment/bootstrap actor must CREATE ROLE "
-                            + RLS_USER + " WITH LOGIN PASSWORD '<redacted>' "
+                            + RLS_USER + " with a runtime-provided credential "
                             + "before running CrmRlsTenantIsolationPostgresTest. sanad does not have "
                             + "CREATEROLE under the least-privilege contract.");
         }
