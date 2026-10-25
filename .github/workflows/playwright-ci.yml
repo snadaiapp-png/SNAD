@@ -531,11 +531,9 @@ jobs:
     env:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
       DATABASE_USERNAME: sanad_subscription_test
-      DATABASE_PASSWORD: sanad_subscription_test_pass
       DATABASE_NAME: sanad_subscription_test
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
       SPRING_DATASOURCE_USERNAME: sanad_subscription_test
-      SPRING_DATASOURCE_PASSWORD: sanad_subscription_test_pass
       SPRING_PROFILES_ACTIVE: crm-acceptance
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -574,6 +572,16 @@ jobs:
           echo "expected=$expected actual=$actual"
           test "$actual" = "$expected"
 
+      - name: Generate ephemeral subscription database password
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 32)"
+          test -n "$password"
+          echo "::add-mask::$password"
+          echo "DATABASE_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "SPRING_DATASOURCE_PASSWORD=$password" >> "$GITHUB_ENV"
+
       - name: Start host-native PostgreSQL (no containers)
         shell: bash
         run: |
@@ -593,14 +601,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $sanad$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_subscription_test') THEN
-              CREATE ROLE sanad_subscription_test WITH LOGIN PASSWORD 'sanad_subscription_test_pass';
-            END IF;
-          END $sanad$;
-          ALTER ROLE sanad_subscription_test NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          : "${DATABASE_PASSWORD:?ephemeral database password missing}"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v database_password="$DATABASE_PASSWORD" <<'SQL'
+          SELECT format('CREATE ROLE sanad_subscription_test WITH LOGIN PASSWORD %L', :'database_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_subscription_test')\gexec
+          SELECT format('ALTER ROLE sanad_subscription_test WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS', :'database_password')\gexec
           SELECT 'CREATE DATABASE sanad_subscription_test OWNER sanad_subscription_test'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_subscription_test')\gexec
           ALTER DATABASE sanad_subscription_test OWNER TO sanad_subscription_test;
