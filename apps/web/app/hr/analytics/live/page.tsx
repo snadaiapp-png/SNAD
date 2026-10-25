@@ -21,15 +21,15 @@ export default function LiveHrAnalyticsPage() {
   const canAdmin = capabilities.includes("HRM.ATTENDANCE.ADMIN");
   const canTeamView = capabilities.includes("HRM.ATTENDANCE.TEAM_VIEW");
   const canView = canAdmin || canTeamView;
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  // Initialize the period after mount so render remains pure.
+  const [year, setYear] = useState(0);
+  const [month, setMonth] = useState(0);
   const [rows, setRows] = useState<G2MonthlyAttendanceReportRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
-  const [clock, setClock] = useState(Date.now());
+  const [clock, setClock] = useState(0);
   const inFlight = useRef(false);
   const mounted = useRef(true);
 
@@ -64,14 +64,25 @@ export default function LiveHrAnalyticsPage() {
 
   useEffect(() => {
     if (state !== "AUTHENTICATED" || !canView) return;
-    void load(true);
+    const initialTimer = window.setTimeout(() => {
+      const now = new Date();
+      setYear((current) => current || now.getFullYear());
+      setMonth((current) => current || now.getMonth() + 1);
+    }, 0);
     const refreshTimer = window.setInterval(() => void load(false), REFRESH_INTERVAL_MS);
     const clockTimer = window.setInterval(() => setClock(Date.now()), 5_000);
     return () => {
+      window.clearTimeout(initialTimer);
       window.clearInterval(refreshTimer);
       window.clearInterval(clockTimer);
     };
   }, [state, canView, load]);
+
+  useEffect(() => {
+    if (state !== "AUTHENTICATED" || !canView || year < 2000 || month < 1) return;
+    const timer = window.setTimeout(() => void load(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [state, canView, year, month, load]);
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) {
     return <AuthLoadingState phase="session" />;
