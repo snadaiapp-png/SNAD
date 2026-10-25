@@ -22,10 +22,19 @@ jobs:
       PGHOST: 127.0.0.1
       PGPORT: '5432'
       PGUSER: sanad_recovery
-      PGPASSWORD: recovery_ci_only
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Generate ephemeral recovery database password
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 32)"
+          test -n "$password"
+          echo "::add-mask::$password"
+          echo "PGPASSWORD=$password" >> "$GITHUB_ENV"
+          echo "RECOVERY_DB_PASSWORD=$password" >> "$GITHUB_ENV"
 
       - name: Start host-native PostgreSQL (no containers)
         shell: bash
@@ -42,11 +51,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          SELECT 'CREATE ROLE sanad_recovery WITH LOGIN PASSWORD ''recovery_ci_only'''
+          : "${RECOVERY_DB_PASSWORD:?ephemeral recovery password missing}"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v recovery_password="$RECOVERY_DB_PASSWORD" <<'SQL'
+          SELECT format('CREATE ROLE sanad_recovery WITH LOGIN PASSWORD %L', :'recovery_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_recovery')\gexec
-          ALTER ROLE sanad_recovery WITH LOGIN PASSWORD 'recovery_ci_only'
-            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_recovery WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS', :'recovery_password')\gexec
           SELECT 'CREATE DATABASE sanad_source OWNER sanad_recovery'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_source')\gexec
           \c sanad_source
