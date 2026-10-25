@@ -28,7 +28,7 @@ RULES = [
     ("oauth-client-secret", r'client[_-]?secret[_=:"\s]+["\']([a-zA-Z0-9_\-]{16,})["\']', "HIGH", "OAuth Client Secret"),
     ("webhook-secret", r'webhook[_-]?secret[_=:"\s]+["\']([a-zA-Z0-9_\-]{16,})["\']', "MEDIUM", "Webhook Secret"),
     ("generic-api-key", r'api[_-]?key[_=:"\s]+["\']([a-zA-Z0-9_\-]{20,})["\']', "MEDIUM", "Generic API Key"),
-    ("generic-password", r'(?i)password\s*[:=]\s*["\']([^"\']{8,})["\']', "MEDIUM", "Hardcoded Password"),
+    ("generic-password", r'(?i)password\s*(?:[:=]\s*|\s+(?!:))["\']([^"\']{8,})["\']', "MEDIUM", "Hardcoded Password"),
     ("google-api-key", r'AIza[0-9A-Za-z_\-]{35}', "HIGH", "Google API Key"),
     ("slack-token", r'xox[baprs]-[a-zA-Z0-9-]{10,}', "HIGH", "Slack Token"),
     ("stripe-key", r'sk_(live|test)_[a-zA-Z0-9]{24,}', "HIGH", "Stripe Secret Key"),
