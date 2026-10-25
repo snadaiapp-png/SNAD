@@ -63,7 +63,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ContactRlsPostgresTest {
 
     private static final String RLS_USER = "crm_contact_rls_test_user";
-    private static final String RLS_PASSWORD = "rls_contact_test_pass";
 
     private JdbcTemplate jdbc;
 
@@ -361,11 +360,20 @@ class ContactRlsPostgresTest {
         return new JdbcTemplate(ds);
     }
 
+    private static String requireRlsTestPassword() {
+        String password = System.getenv("CRM_RLS_TEST_PASSWORD");
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "CRM_RLS_TEST_PASSWORD must be provided by the PostgreSQL Direct test fixture.");
+        }
+        return password;
+    }
+
     private Connection rlsConnection() throws SQLException {
         return DriverManager.getConnection(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(
                         System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
-                RLS_USER, System.getenv().getOrDefault("CRM_RLS_TEST_PASSWORD", RLS_PASSWORD));
+                RLS_USER, requireRlsTestPassword());
     }
 
     private Connection ownerConnection() throws SQLException {
