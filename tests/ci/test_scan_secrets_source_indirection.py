@@ -64,6 +64,12 @@ class TestSecretSourceIndirection(unittest.TestCase):
         findings = self._scan_line('DB_PASSWORD="$(openssl rand -hex 24)"')
         self.assertEqual(findings, [])
 
+    def test_ephemeral_openssl_32byte_generation_is_not_hardcoded(self):
+        # Repository workflows generate 32-byte ephemeral credentials; the
+        # approved generator pattern covers both the 24- and 32-byte forms.
+        findings = self._scan_line('DB_PASSWORD="$(openssl rand -hex 32)"')
+        self.assertEqual(findings, [])
+
     def test_unapproved_openssl_password_generation_remains_detected(self):
         # Assemble the negative-control syntax at runtime so the repository
         # scanner does not flag its own test fixture as a credential.
@@ -77,6 +83,16 @@ class TestSecretSourceIndirection(unittest.TestCase):
 
     def test_psql_variable_interpolation_is_not_a_literal_password(self):
         findings = self._scan_line("ALTER ROLE sanad PASSWORD :'app_password';")
+        self.assertEqual(findings, [])
+
+    def test_psql_variable_interpolation_with_role_clauses_is_not_literal(self):
+        # The repository's PostgreSQL Direct provisioning uses ALTER ROLE with
+        # trailing role clauses after the :'variable' reference; the reference
+        # itself is never a literal regardless of clause suffixes.
+        findings = self._scan_line(
+            "ALTER ROLE sanad PASSWORD :'app_password' NOSUPERUSER "
+            "NOCREATEDB NOCREATEROLE NOBYPASSRLS;"
+        )
         self.assertEqual(findings, [])
 
     def test_psql_literal_password_remains_detected(self):

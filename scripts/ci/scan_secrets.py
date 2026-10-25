@@ -65,9 +65,10 @@ SAFE_GENERIC_PASSWORD_INDIRECTION = (
     re.compile(r'^\$\{[A-Za-z_][A-Za-z0-9_]*\}$'),
     re.compile(r'^\$\{\{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$'),
     re.compile(r'^\$\(get_render_var\s+[A-Za-z_][A-Za-z0-9_]*\)$'),
-    # Explicitly permit only the repository's ephemeral random credential generator.
+    # Explicitly permit only the repository's ephemeral random credential generator
+    # (24- and 32-byte hex forms, both used by repository workflows).
     # Arbitrary command substitutions and shell defaults remain findings.
-    re.compile(r'^\$\(openssl\s+rand\s+-hex\s+24\)$'),
+    re.compile(r'^\$\(openssl\s+rand\s+-hex\s+(?:24|32)\)$'),
 )
 
 
@@ -77,8 +78,9 @@ def is_safe_source_indirection(rule_id: str, secret_sample: str, source_line: st
         return False
     candidate = secret_sample.strip()
     # PostgreSQL psql uses :'variable' syntax to interpolate a variable value.
-    # Exempt only this exact SQL statement shape; quoted literal passwords remain findings.
-    if re.search(r"\bPASSWORD\s+:'[A-Za-z_][A-Za-z0-9_]*'\s*;", source_line, re.IGNORECASE):
+    # A :'reference' is never a literal, with or without trailing role clauses
+    # (e.g. NOSUPERUSER ...); quoted literal passwords remain findings.
+    if re.search(r"\bPASSWORD\s+:'[A-Za-z_][A-Za-z0-9_]*'", source_line, re.IGNORECASE):
         return True
     return any(pattern.fullmatch(candidate) for pattern in SAFE_GENERIC_PASSWORD_INDIRECTION)
 

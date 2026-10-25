@@ -39,9 +39,9 @@ jobs:
               f.write('public class GenHash {\n')
               f.write('    public static void main(String[] args) {\n')
               f.write('        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(10);\n')
-              f.write('        String hash = encoder.encode(\"SNad@2026\");\n')
+              f.write('        String hash = encoder.encode(\"${REDACTED_HISTORICAL_SECRET}\");\n')
               f.write('        System.out.println(hash);\n')
-              f.write('        System.err.println(\"Verify: \" + encoder.matches(\"SNad@2026\", hash));\n')
+              f.write('        System.err.println(\"Verify: \" + encoder.matches(\"${REDACTED_HISTORICAL_SECRET}\", hash));\n')
               f.write('    }\n')
               f.write('}\n')
           "
@@ -103,7 +103,7 @@ jobs:
           for i in 1 2 3 4 5; do
             RESULT=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
               -H "Content-Type: application/json" \
-              -d '{"email":"admin@snad.ai","password":"SNad@2026"}' \
+              -d '{"email":"admin@snad.ai","password":"${REDACTED_HISTORICAL_SECRET}"}' \
               -w "\n%{http_code}" 2>/dev/null || echo "timeout\n000")
             CODE=$(echo "$RESULT" | tail -1)
             echo "  Attempt $i: HTTP $CODE"

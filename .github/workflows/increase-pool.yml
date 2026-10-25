@@ -56,7 +56,7 @@ jobs:
           SUPABASE_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           pip3 install bcrypt > /dev/null 2>&1
-          HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'SNad@2026', bcrypt.gensalt(rounds=10)).decode())")
+          HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}', bcrypt.gensalt(rounds=10)).decode())")
           curl -sS --max-time 30 -X POST "https://api.supabase.com/v1/projects/hxhvfqxzigrqoxxnnzje/database/query" \
             -H "Authorization: Bearer ${SUPABASE_TOKEN}" \
             -H "Content-Type: application/json" \
@@ -68,7 +68,7 @@ jobs:
         run: |
           TOKEN=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
             -H "Content-Type: application/json" \
-            -d '{"email":"admin@snad.ai","password":"SNad@2026"}' 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null)
+            -d '{"email":"admin@snad.ai","password":"${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}"}' 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null)
           echo "Token: ${TOKEN:0:20}..."
           echo "=== Dashboard ==="
           curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/api/v1/control-plane/dashboard" \
