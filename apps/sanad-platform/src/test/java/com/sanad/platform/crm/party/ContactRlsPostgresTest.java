@@ -365,7 +365,7 @@ class ContactRlsPostgresTest {
         return DriverManager.getConnection(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(
                         System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
-                RLS_USER, RLS_PASSWORD);
+                RLS_USER, System.getenv().getOrDefault("CRM_RLS_TEST_PASSWORD", RLS_PASSWORD));
     }
 
     private Connection ownerConnection() throws SQLException {
