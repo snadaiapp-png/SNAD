@@ -40,7 +40,6 @@ jobs:
     env:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g1
       DATABASE_USERNAME: sanad_g1
-      DATABASE_PASSWORD: sanad_g1_pass
       DATABASE_NAME: sanad_g1
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -88,18 +87,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
+          db_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$db_password"
+          echo "DATABASE_PASSWORD=$db_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_password="$db_password" <<'SQL'
+          DO $
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g1') THEN
-              CREATE ROLE sanad_g1 WITH LOGIN PASSWORD 'sanad_g1_pass';
+              CREATE ROLE sanad_g1 WITH LOGIN;
             END IF;
-          END $$;
+          END $;
+          ALTER ROLE sanad_g1 PASSWORD :'db_password';
           ALTER ROLE sanad_g1 NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           SELECT 'CREATE DATABASE sanad_g1 OWNER sanad_g1'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_g1')\gexec
           ALTER DATABASE sanad_g1 OWNER TO sanad_g1;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad_g1'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          ALTER DATABASE test_migration OWNER TO sanad_g1;
           GRANT CONNECT ON DATABASE postgres TO sanad_g1;
 
           \c sanad_g1
