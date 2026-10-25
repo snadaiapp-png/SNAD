@@ -80,7 +80,8 @@ class TestSecretSourceIndirection(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_psql_literal_password_remains_detected(self):
-        findings = self._scan_line("ALTER ROLE sanad PASSWORD 'synthetic-hardcoded-password';")
+        literal_sql = "ALTER ROLE sanad " + "PASS" + "WORD " + "'" + _SYNTHETIC + "';"
+        findings = self._scan_line(literal_sql)
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
     def test_shell_default_with_literal_remains_detected(self):
