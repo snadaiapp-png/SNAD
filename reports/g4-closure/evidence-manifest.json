@@ -1,0 +1,384 @@
+{
+  "manifest_version": "1.0",
+  "manifest_type": "G4_CLOSURE_EVIDENCE_MANIFEST",
+  "generated_at_utc": "2026-10-25T01:55:00Z",
+  "generated_by": "execution agent (Z) — evidence collection only; no merge/deploy/issue-close performed",
+  "repository": {
+    "full_name": "snadaiapp-png/SNAD",
+    "default_branch": "main",
+    "evidence_branch": "governance/g4-closure-evidence-b1e22e20",
+    "evidence_branch_base_sha": "b1e22e20de17cadb17a875d8888a856980ff9419"
+  },
+  "sha_separation": {
+    "pr_head_sha_tested_by_run_40141730303": "952723e53bd8d3b434300bb7536f54b8bffffe20",
+    "merge_reference_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+    "exact_main_sha_at_execution": "b1e22e20de17cadb17a875d8888a856980ff9419",
+    "tested_sha_for_closure_evidence": "b1e22e20de17cadb17a875d8888a856980ff9419",
+    "manifest_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+    "deployed_sha": null,
+    "deployed_note": "No production deployment occurred. Y2 orchestrator run 40147266944: 'No production release authorization present; leaving main unchanged', 'Release dispatched: NO', PRODUCTION_RELEASE_AUTHORIZED=false.",
+    "release_artifact": {
+      "image": "ghcr.io/snadaiapp-png/snad-backend:b1e22e20de17cadb17a875d8888a856980ff9419",
+      "digest": "sha256:a53585dcc3ce00bb88a49970ee38fca1be9b707820ad349333a2d079fed41fdc",
+      "scope": "artifact only (build, publish, attest) — run 40147222826 'Build, publish, and attest backend image (artifact only)' SUCCESS; GitHub build-provenance attestation bound to the exact digest"
+    }
+  },
+  "workflow_runs": {
+    "40141730303": {
+      "workflow": "CI",
+      "event": "pull_request",
+      "head_sha": "952723e53bd8d3b434300bb7536f54b8bffffe20",
+      "conclusion": "success",
+      "jobs": {
+        "Maven Test Suite": "success",
+        "CRM Integration Tests": "success",
+        "PostgreSQL Acceptance Tests": "success",
+        "R0C-12 Canonical Gate G": "skipped (if: github.event_name == 'workflow_dispatch' — manual-only by design; zero steps, no runner; proven from workflow source + job record)"
+      }
+    },
+    "40147222757": {
+      "workflow": "Post-Merge Main Verification (PMV = G4-T12 JOB A-F)",
+      "event": "push",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success",
+      "jobs": {
+        "JOB A — Frontend verification": "success",
+        "JOB B — Backend compile": "success",
+        "JOB C — PostgreSQL Direct integration": "success",
+        "JOB D — HRM focused security/RLS": "success",
+        "JOB E — Security & governance scans": "success",
+        "JOB F — Final evidence aggregation": "success"
+      }
+    },
+    "40149954567": {
+      "workflow": "HRM G4 Payroll Data Isolation PostgreSQL Direct",
+      "event": "workflow_dispatch",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success"
+    },
+    "40149956367": {
+      "workflow": "HRM G4 T5 Payroll Lifecycle",
+      "event": "workflow_dispatch",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success"
+    },
+    "40149958050": {
+      "workflow": "HRM G4 T6 Payroll Authorization",
+      "event": "workflow_dispatch",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success"
+    },
+    "40149959660": {
+      "workflow": "HRM G4 T10 Authenticated Acceptance",
+      "event": "workflow_dispatch",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success"
+    },
+    "40149030737": {
+      "workflow": "CI (dispatched for R0C-12 Canonical Gate G)",
+      "event": "workflow_dispatch",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success",
+      "jobs": {
+        "Maven Test Suite": "success",
+        "PostgreSQL Acceptance Tests": "success",
+        "CRM Integration Tests": "success",
+        "R0C-12 Canonical Gate G": "success (GATE_G_STATUS=PASS)"
+      }
+    },
+    "40147222826": {
+      "workflow": "Publish Render Backend Image (artifact only)",
+      "event": "push",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success"
+    },
+    "40147266944": {
+      "workflow": "Workflow Y2 Production Release Orchestrator",
+      "event": "workflow_run",
+      "head_sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+      "conclusion": "success (fail-closed: no production authorization; nothing dispatched)"
+    }
+  },
+  "test_suites": [
+    {
+      "name": "Maven Test Suite (PR head)",
+      "sha": "952723e5",
+      "run": 40141730303,
+      "counting": "element-based",
+      "tests": 4722,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 37,
+      "skip_explanation": "5 profile-gated acceptance classes: CommerceOrderPostgresConcurrencyTest=6, RbacAccessCheckPostgresAcceptanceTest=15, ModuleRegistryUatPostgresAcceptanceTest=10, PlatformSessionInvalidationPostgresAcceptanceTest=3, PlatformUserPostgresAcceptanceTest=3 — all 37 executed green in the same run's PostgreSQL Acceptance Tests job",
+      "reconciliation": {
+        "xml_files": 637,
+        "parse_errors": 0,
+        "duplicate_reports": 0,
+        "console_aggregate": {
+          "tests": 4722,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 37
+        },
+        "element_based_total": {
+          "tests": 4722,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 37
+        },
+        "attribute_based_total": {
+          "tests": 4480,
+          "note": "known Surefire attribute undercount for nested/display-name containers; parent suites carry tests=0 with testcase children"
+        },
+        "surefire_reconciliation": "PASS"
+      },
+      "exit_status": "BUILD SUCCESS (mvn exit 0), total time 01:12h"
+    },
+    {
+      "name": "PostgreSQL Acceptance Tests (PR head)",
+      "sha": "952723e5",
+      "run": 40141730303,
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "per_class": {
+        "CommerceOrderPostgresConcurrencyTest": 6,
+        "ModuleRegistryUatPostgresAcceptanceTest": 10,
+        "PlatformSessionInvalidationPostgresAcceptanceTest": 3,
+        "PlatformUserPostgresAcceptanceTest": 3,
+        "RbacAccessCheckPostgresAcceptanceTest": 15
+      }
+    },
+    {
+      "name": "CRM Integration Tests (PR head)",
+      "sha": "952723e5",
+      "run": 40141730303,
+      "tests": 85,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "PMV JOB D — HRM focused security/RLS",
+      "sha": "b1e22e20",
+      "run": 40147222757,
+      "tests": 1042,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "notable": {
+        "HrRlsFailClosedIntegrationTest": 259,
+        "PayrollLifecyclePostgresTest": 13,
+        "PayrollLifecycleTest": 4,
+        "PayrollAuthorizationContractTest": 5,
+        "PayrollCalculationEngineTest": 9,
+        "PayrollApiContractTest": 4,
+        "PayrollAccountingExportContractTest": 5,
+        "CanonicalHrPayrollInputAdapterTest": 3,
+        "HrG4PayrollDataIsolationPostgresTest": 2,
+        "HrG4PayrollSnapshotPostgresTest": 1,
+        "HrAuditOutboxAtomicityIntegrationTest": 18,
+        "HrIdempotencyIntegrationTest": 12,
+        "HrApiV2AuthorizationTest": 6,
+        "HrTenantContextRegressionTest": 4,
+        "HrModuleBoundaryArchitectureTest": 8
+      }
+    },
+    {
+      "name": "G4 Payroll Data Isolation PostgreSQL Direct",
+      "sha": "b1e22e20",
+      "run": 40149954567,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "covers": [
+        "payrollTablesAreForcedRlsAndRoleHoldsNoBypass",
+        "tenantBCanNeitherReadNorModifyTenantAKnownOwnershipRecord"
+      ]
+    },
+    {
+      "name": "G4 T5 Payroll Lifecycle (unit + PostgreSQL Direct)",
+      "sha": "b1e22e20",
+      "run": 40149956367,
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "G4 T6 Payroll Authorization",
+      "sha": "b1e22e20",
+      "run": 40149958050,
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "G4 T10 Authenticated Acceptance",
+      "sha": "b1e22e20",
+      "run": 40149959660,
+      "playwright": {
+        "passed": 1,
+        "failed": 0,
+        "spec": "e2e/g4-payroll-authenticated.spec.ts:48:5 authenticated payroll operator: create, calculate, review, approve, export boundary; foreign tenant denied (3.6s)"
+      },
+      "vitest_contract": {
+        "files_passed": 1,
+        "tests_passed": 2
+      }
+    },
+    {
+      "name": "Local supporting unit run (agent sandbox)",
+      "sha": "b1e22e20",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "toolchain": "Maven 3.9.16 (sha512 verified) + Temurin JDK 21.0.13",
+      "scope": "PayrollLifecycleTest 4 + PayrollAuthorizationContractTest 5 + PayrollCalculationEngineTest 9",
+      "status": "SUPPORTING EVIDENCE ONLY — CI is authoritative; local canonical execution forbidden by workflow governance"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12581340701,
+      "name": "maven-test-console-log",
+      "run": 40141730303,
+      "sha": "952723e5",
+      "size_bytes": 205252004
+    },
+    {
+      "id": 12580857473,
+      "name": "surefire-reports",
+      "run": 40141730303,
+      "sha": "952723e5",
+      "size_bytes": 208442220
+    },
+    {
+      "id": 12579356549,
+      "name": "crm-surefire-reports",
+      "run": 40141730303,
+      "sha": "952723e5",
+      "size_bytes": 625750
+    },
+    {
+      "id": 12579042021,
+      "name": "pg-acceptance-surefire-reports",
+      "run": 40141730303,
+      "sha": "952723e5",
+      "size_bytes": 27430
+    },
+    {
+      "id": 12581559471,
+      "name": "verification-manifest-40147222757 (JOB F final manifest)",
+      "run": 40147222757,
+      "sha": "b1e22e20",
+      "size_bytes": 764,
+      "verified_content": "result=PASS, 23/23 checks SUCCESS, failed/skipped/cancelled/missing all empty"
+    },
+    {
+      "id": 12581578083,
+      "name": "hrm-surefire-reports",
+      "run": 40147222757,
+      "sha": "b1e22e20",
+      "size_bytes": 88095154
+    },
+    {
+      "id": 12580533623,
+      "name": "pmv-surefire-reports",
+      "run": 40147222757,
+      "sha": "b1e22e20",
+      "size_bytes": 207004016
+    },
+    {
+      "id": 12581228141,
+      "name": "secret-scan-report-40147222757",
+      "run": 40147222757,
+      "sha": "b1e22e20",
+      "size_bytes": 447,
+      "verified_content": "filesScanned=6259, findingsCount=0, scanErrors=[]"
+    },
+    {
+      "id": null,
+      "name": "playwright-g4-payroll-report (inside g4-t10-authenticated-acceptance artifact, 233276 B)",
+      "run": 40149959660,
+      "sha": "b1e22e20"
+    },
+    {
+      "id": null,
+      "name": "r0c12-canonical-gate-g-<short>-run-40149030737 (A6-GATE-G-VERDICT.txt + SHA256SUMS-FINAL.txt)",
+      "run": 40149030737,
+      "sha": "b1e22e20",
+      "status": "uploaded by the run (always, error-on-empty) — verify via the run's artifact list"
+    }
+  ],
+  "rls_evidence": {
+    "restricted_role_provisioning": "workflows provision NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOBYPASSRLS application roles with ephemeral masked credentials (sanad_g4_payroll, sanad, sanad_g3); bootstrap admin used only for provisioning (merged PRs #1424/#1426)",
+    "forced_rls": "payroll tables FORCE ROW LEVEL SECURITY asserted from inside the restricted connection (isolation run 2/2)",
+    "tenant_isolation": "Tenant A/B known-ownership isolation both directions; foreignTenantCannotObserveOrMutatePayrollRun; T10 foreign-tenant-denied browser flow",
+    "fail_closed_matrix": "HrRlsFailClosedIntegrationTest 259/259 (PMV JOB D)",
+    "superuser_only_proof": "none used — all isolation assertions execute as the restricted application role"
+  },
+  "payroll_lifecycle_evidence": {
+    "state_machine": "DRAFT -> CALCULATED -> REVIEWED -> APPROVED -> EXPORTED; CANCELLED terminal; recalculate only in CALCULATED",
+    "transitions": "legal/illegal asserted (PayrollLifecycleTest 4/4; invalidTransitionRollsBackEverySideEffect etc.)",
+    "idempotency_replay": "atomic mutation+audit+outbox+idempotency with replay; fingerprint mismatch fails closed 409",
+    "concurrency": "concurrentSameVersionTransitionsProduceExactlyOneWinner; staleVersionFailsClosedAndLeavesNoPartialIdempotencyEvidence",
+    "http_semantics": "403 = HRM_SCOPE_DENIED canonical envelope (RequireCapability + PayrollAuthorizationGuard); 409 = HRM_PAYROLL_VERSION_CONFLICT / HRM_IDEMPOTENCY_CONFLICT / HRM_CONCURRENCY_CONFLICT (fixed enum mapping)",
+    "cross_tenant": "foreign tenant observe/mutate denied (service + RLS + browser layers)",
+    "audit": "audit+outbox atomicity (failure rolls back mutation); reviewer/approver/export evidence persisted",
+    "ui": "T10 Playwright authenticated lifecycle acceptance PASSED (real browser, full stack)"
+  },
+  "gate_g_canonical_dispatch": {
+    "run_id": 40149030737,
+    "sha": "b1e22e20de17cadb17a875d8888a856980ff9419",
+    "dispatched_at_utc": "2026-10-25T01:02:10Z",
+    "authority": "workflow_dispatch is the execution authority per Amendment #6 (LOCAL_Z_CANONICAL_EXECUTION=FORBIDDEN)",
+    "skip_cause_for_run_40141730303": "job-level condition github.event_name == 'workflow_dispatch' false on pull_request event (zero steps, no runner — proven, not inferred)",
+    "prior_executions": [
+      {
+        "run": 39627497322,
+        "sha": "7dbd7b211",
+        "conclusion": "success",
+        "date": "2026-10-21"
+      }
+    ],
+    "result": "PASS",
+    "result_update": {
+      "completed_at_utc": "2026-10-25T02:12:33Z",
+      "job_conclusion": "success (fail-closed job — success == GATE_G_STATUS=PASS)",
+      "verdict_artifact": "r0c12-canonical-gate-g-b1e22e2-run-40149030737 (id 12583049586, 413415772 B) — A6-GATE-G-VERDICT.txt fields: GATE_G_STATUS=PASS; EXPECTED_SHA=ACTUAL_SHA=b1e22e20de17cadb17a875d8888a856980ff9419; PROCESS_PERSISTENCE_BINDING=PASS; SHA_BINDING=PASS; JAVA_VERSION=21.0.12.1 (Temurin); MAVEN_VERSION=3.9.16; POSTGRES_VERSION=16.2; MAVEN_EXIT_CODE=0; TESTS=4722; FAILURES=0; ERRORS=0; SKIPPED=37; UNEXPLAINED_SKIPS=0; CRITICAL_SKIPS=0; XML_COUNT=637; SUREFIRE_RECONCILIATION=PASS; FROZEN_EVIDENCE_BINDING=PASS; PG_ACCEPTANCE 37/0/0/0; CRITICAL_INVARIANTS=PASS; FAILED_CONDITIONS=NONE",
+      "provisioning_checks": "NOSUPERUSER=PASS, NOBYPASSRLS=PASS, APPLICATION_TABLE_COUNT=0 (clean start), STALE_SUREFIRE_XML=0",
+      "maven_test_suite_job": "success (ended 2026-10-25T02:16:57Z)"
+    }
+  },
+  "known_limitations": [
+    "Production UI acceptance intentionally unexecuted (requires protected-environment verification + explicit owner authorization for the read-only production test)",
+    "Reviewer approval on PR #1443 is an internal governance review by the designated trusted reviewer identity — not an external independent security certification",
+    "hrm-g4-t12-vercel-cli-preview.yml not dispatched (deploys a preview artifact; NO DEPLOY boundary)",
+    "Legal review PENDING_HUMAN; commercial_go_live = NOT_APPROVED"
+  ],
+  "unresolved_findings": [],
+  "defects_found_in_code": [],
+  "reviewer_record": {
+    "existing_review": {
+      "pr": 1443,
+      "reviewer": "abdulrhmansenan1985-creator",
+      "state": "APPROVED",
+      "submitted_at": "2026-10-24T23:22:53Z",
+      "commit_id": "952723e53bd8d3b434300bb7536f54b8bffffe20",
+      "independence_status": "repository-designated sole trusted reviewer identity; independent of the agent's implementation work; NOT independent of the project owner; not an external certification"
+    },
+    "package_review_status": "this reports package (branch governance/g4-closure-evidence-b1e22e20) is submitted as a Draft PR for review — no self-approval, no merge",
+    "authorized_decision_maker": "project owner (abdulrhmansenan1985-creator / snadaiapp-png, user id 294245491) — records the dated G4 engineering acceptance decision on Issue #1439"
+  },
+  "integrity": {
+    "evidence_collection_period_utc": "2026-10-24T23:11Z (Run #40141730303 start) to 2026-10-25T01:55Z (manifest generation)",
+    "counting_method": "element-based testcase enumeration per Gate G contract; attribute sums reported where relevant",
+    "verification": "all counts derived from downloaded raw artifacts parsed by the package scripts under /home/z/my-project/scripts/g4_chain/ (scripts retained); live API reads for run/job conclusions with captured timestamps",
+    "no_fabrication": "no signatures, approvals, attestations, deployment evidence, or evaluator independence claimed beyond what the cited artifacts prove"
+  }
+}

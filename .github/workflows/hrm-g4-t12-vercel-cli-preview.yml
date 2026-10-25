@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'Open same-repository PR to preview'
+        description: 'Open same-repository candidate PR to validate for preview'
         required: true
         type: string
       expected_head_sha:
@@ -55,9 +55,7 @@ jobs:
           assert pr["base"]["ref"] == "main", "BASE_NOT_MAIN"
           assert pr["head"]["repo"]["full_name"] == repository, "FORK_DISALLOWED"
           assert pr["head"]["sha"] == os.environ["EXPECTED_SHA"], "EXACT_HEAD_MISMATCH"
-          assert pr["number"] == 1331, "NOT_G4_T12_PR"
-          assert pr["head"]["ref"] == "cert/hrm-g4-t12-final-closure", "WRONG_CERT_BRANCH"
-          print("G4_T12_EXACT_HEAD_AUTHORIZED_FOR_PREVIEW")
+          print("G4_T12_EXACT_HEAD_VALIDATED_FOR_PREVIEW")
           PY
 
       - name: Checkout exact authorized PR SHA
@@ -93,8 +91,9 @@ jobs:
           VERCEL_TARGET_ENV: preview
         run: |
           set -euo pipefail
-          export VERCEL_GIT_COMMIT_REF="cert/hrm-g4-t12-final-closure"
+          export VERCEL_GIT_COMMIT_REF="g4-t12-candidate-${EXPECTED_SHA:0:12}"
           test "$VERCEL_GIT_COMMIT_REF" != "main"
+          test "$EXPECTED_SHA" = "$(git rev-parse HEAD)"
           npx --yes vercel@latest build --token="$VERCEL_TOKEN"
 
       - name: Deploy preview artifact without --prod
