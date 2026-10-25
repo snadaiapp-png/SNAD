@@ -75,6 +75,14 @@ class TestSecretSourceIndirection(unittest.TestCase):
         findings = self._scan_line(f'{_PASSWORD_KEY}="{_SYNTHETIC}"')
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
+    def test_psql_variable_interpolation_is_not_a_literal_password(self):
+        findings = self._scan_line("ALTER ROLE sanad PASSWORD :'app_password';")
+        self.assertEqual(findings, [])
+
+    def test_psql_literal_password_remains_detected(self):
+        findings = self._scan_line("ALTER ROLE sanad PASSWORD 'synthetic-hardcoded-password';")
+        self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
+
     def test_shell_default_with_literal_remains_detected(self):
         findings = self._scan_line(
             f'{_PASSWORD_KEY}="${{DATABASE_PASSWORD:-{_SYNTHETIC}}}"'
