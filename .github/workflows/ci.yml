@@ -583,7 +583,7 @@ jobs:
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
               CREATE ROLE sanad WITH LOGIN;
             END IF;
-          END $;
+          END $$;
           ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
