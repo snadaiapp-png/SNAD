@@ -232,6 +232,13 @@ jobs:
 
       - name: Run migration, history assertion, and behavioral tenant-isolation tests
         working-directory: apps/sanad-platform
+        env:
+          # These tests read Spring datasource variables; DATABASE_URL alone
+          # only configures the separate catalog-verification psql step.
+          SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g1
+          SPRING_DATASOURCE_USERNAME: sanad_g1
+          SPRING_DATASOURCE_PASSWORD: sanad_g1_pass
+          CI: "true"
         run: >-
           mvn --batch-mode --no-transfer-progress
           -Dtest=CrmPostgresMigrationTest,CrmFlywayHistoryAssertionTest,CrmG1TenantIsolationPostgresTest test
