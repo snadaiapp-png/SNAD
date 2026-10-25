@@ -110,7 +110,7 @@ class ContactRlsPostgresTest {
             throw new IllegalStateException(
                     "Pre-provisioned role 'crm_contact_rls_test_user' is missing. "
                             + "An environment/bootstrap actor must CREATE ROLE "
-                            + "crm_contact_rls_test_user WITH LOGIN PASSWORD '<redacted>' "
+                            + "crm_contact_rls_test_user WITH LOGIN password supplied at runtime "
                             + "before running ContactRlsPostgresTest. sanad does not have "
                             + "CREATEROLE under the least-privilege contract.");
         }
