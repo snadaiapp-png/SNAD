@@ -75,13 +75,16 @@ SAFE_GENERIC_PASSWORD_INDIRECTION = (
 )
 
 
-def is_safe_source_indirection(rule_id: str, secret_sample: str) -> bool:
+def is_safe_source_indirection(rule_id: str, secret_sample: str, source_line: str = "") -> bool:
     """Return True only for approved non-literal password source references."""
     if rule_id != "generic-password":
         return False
     candidate = secret_sample.strip()
+    # PostgreSQL psql uses :'variable' syntax to interpolate a variable value.
+    # Exempt only this exact SQL statement shape; quoted literal passwords remain findings.
+    if re.search(r"\bPASSWORD\s+:'[A-Za-z_][A-Za-z0-9_]*'\s*;", source_line, re.IGNORECASE):
+        return True
     return any(pattern.fullmatch(candidate) for pattern in SAFE_GENERIC_PASSWORD_INDIRECTION)
-
 
 def load_allowlist(repo_root: Path):
     """Load and validate allowlist. Fail-closed on any error."""
@@ -177,7 +180,7 @@ def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = 
                 for match in matches:
                     secret_value = match.group(0)
                     secret_sample = match.group(1) if match.lastindex else secret_value
-                    if is_safe_source_indirection(rule_id, secret_sample):
+                    if is_safe_source_indirection(rule_id, secret_sample, line):
                         continue
                     finding = {
                         "ruleId": rule_id,
@@ -245,7 +248,7 @@ def scan_repository(repo_root: Path):
                                     for match in re.finditer(pattern, line):
                                         secret_value = match.group(0)
                                         secret_sample = match.group(1) if match.lastindex else secret_value
-                                        if is_safe_source_indirection(rule_id, secret_sample):
+                                        if is_safe_source_indirection(rule_id, secret_sample, line):
                                             continue
                                         finding = {
                                             "ruleId": rule_id,
