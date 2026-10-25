@@ -13,7 +13,7 @@
 | Dimension | Status |
 |---|---|
 | Required tests have actual, inspectable results | **SATISFIED** — every count in this package is derived from raw Surefire XML artifacts, CI job logs, or live API reads; none copied from prior claims |
-| Gate G execution and final verdict understood and documented | **SATISFIED** — skip cause proven from workflow source (`if: github.event_name == 'workflow_dispatch'`, PR-run had zero steps/no runner/no logs); Gate G dispatched on `b1e22e20` (run `40149030737`) — verdict recorded in §2/evidence-manifest when the run completes |
+| Gate G execution and final verdict understood and documented | **SATISFIED — GATE_G_STATUS=PASS** on `b1e22e20` (dispatch run `40149030737`, completed 2026-10-25T02:12:33Z): SHA_BINDING=PASS, exact toolchain (Temurin 21.0.12.1 / Maven 3.9.16 / PG 16.2), NOSUPERUSER/NOBYPASSRLS=PASS, canonical Maven 4722/0F/0E/37S exit 0, SUREFIRE_RECONCILIATION=PASS, UNEXPLAINED_SKIPS=0, CRITICAL_INVARIANTS=PASS, PG-acceptance 37/0/0/0, FROZEN_EVIDENCE_BINDING=PASS, FAILED_CONDITIONS=NONE |
 | No unexplained failures/errors/skips/exclusions | **SATISFIED** — 37 Maven skips are exactly the five profile-gated acceptance classes (6+15+10+3+3), all of which executed green (37/37) in the same run's PostgreSQL Acceptance Tests job; element-vs-attribute Surefire delta fully explained and reconciled (§B) |
 | PostgreSQL/RLS tenant-isolation via restricted application role | **SATISFIED** — G4 Payroll Data Isolation PostgreSQL Direct: 2/2 (forced-RLS + no-bypass role contract; Tenant A/B known-ownership isolation, both directions); JOB D `HrRlsFailClosedIntegrationTest` 259/259; PMV JOB C role/DB provisioning contract SUCCESS |
 | HRM/payroll lifecycle and security acceptance | **SATISFIED** — T5 lifecycle 25/25 (atomic audit+outbox+idempotency, replay, stale-version fail-closed, concurrency single-winner, cross-tenant denial, recalculation, cancellation); T6 authorization 13/13 (capability fail-closed); T10 authenticated real-browser acceptance PASS (full operator flow + foreign-tenant denial); API 403/409 mapping verified in code + contract tests |
@@ -29,7 +29,7 @@ Formal closure is blocked only by items that are outside this mandate's authorit
 
 1. The owner's dated G4 engineering acceptance decision on Issue #1439 (must be recorded by the authorized owner).
 2. Production UI acceptance intentionally unexecuted (requires protected-environment verification + explicit owner authorization for the read-only production test).
-3. R0C-12 Canonical Gate G verdict for `b1e22e20` (dispatched run `40149030737`; results appended in evidence-manifest when complete — no local canonical execution is permitted by the workflow's own governance).
+3. ~~R0C-12 Canonical Gate G verdict~~ **RESOLVED: GATE_G_STATUS=PASS on `b1e22e20`** (run `40149030737`, verdict artifact `r0c12-canonical-gate-g-b1e22e2-run-40149030737`, fail-closed job succeeded — all A6-20 conditions true).
 4. Legal review remains `PENDING_HUMAN`; `commercial_go_live = NOT_APPROVED`.
 
 ## 2. What was actually inspected and changed

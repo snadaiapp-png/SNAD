@@ -69,7 +69,7 @@ Deliberately **not** dispatched: `hrm-g4-production-ui-acceptance.yml` (gated �
 
 ## 4. Remaining limitations
 
-1. Gate G verdict pending at package generation (B-3) — update path: append verdict fields to `evidence-manifest.json` (`gate_g_canonical_dispatch.result_update`) when run `40149030737` completes.
+1. ~~Gate G verdict pending~~ **RESOLVED**: run `40149030737` completed 2026-10-25T02:12:33Z — **GATE_G_STATUS=PASS** (all A6-20 conditions true; verdict fields appended to `evidence-manifest.json` §gate_g_canonical_dispatch.result_update; manifest/exec-summary/blockers updated in the follow-up commit).
 2. Production UI acceptance intentionally unexecuted (B-2) — owner-authority gated.
 3. Owner acceptance decision and legal review pending (B-1, B-4).
 4. All five provider tokens shared in chat require rotation (R-5).

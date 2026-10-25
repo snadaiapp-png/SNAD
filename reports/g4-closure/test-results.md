@@ -51,7 +51,7 @@ Jobs (live API, captured 2026-10-25T00:56:49Z):
 | `40149956367` | HRM G4 T5 Payroll Lifecycle | workflow_dispatch | **SUCCESS** | **25/25** — PostgreSQL Direct lifecycle suite |
 | `40149958050` | HRM G4 T6 Payroll Authorization | workflow_dispatch | **SUCCESS** | **13/13** — fail-closed capability authorization contracts |
 | `40149959660` | HRM G4 T10 Authenticated Acceptance | workflow_dispatch | **SUCCESS** (2 jobs) | Playwright: **1 passed (5.7 s)** — "authenticated payroll operator: create, calculate, review, approve, export boundary; foreign tenant denied"; vitest contract: **2/2 passed** |
-| `40149030737` | CI — dispatched for R0C-12 Canonical Gate G | workflow_dispatch | in progress → verdict recorded in evidence-manifest.json | PostgreSQL Acceptance: success; CRM: success; Maven Test Suite: running; R0C-12: running |
+| `40149030737` | CI — dispatched for R0C-12 Canonical Gate G | workflow_dispatch | **SUCCESS — GATE_G_STATUS=PASS** (2026-10-25T02:12:33Z) | PostgreSQL Acceptance: success; CRM: success; Maven Test Suite: **success** (4722/0F/0E/37S on `b1e22e20`); R0C-12: **PASS** — SHA_BINDING=PASS, reconciliation PASS, UNEXPLAINED_SKIPS=0, CRITICAL_INVARIANTS=PASS, FAILED_CONDITIONS=NONE (verdict artifact `r0c12-canonical-gate-g-b1e22e2-run-40149030737`, id 12583049586) |
 
 ### 2.1 PMV JOB A–F (run `40147222757`) — JOB F verification-manifest: **result PASS**
 
@@ -90,7 +90,7 @@ Total JOB D: **1042 tests, 0F/0E/0S** (element-based; payroll-specific subtotal:
 
 - **Run #40141730303** (pull_request): job record shows `conclusion=skipped`, **zero steps**, no runner, started=completed within the same second → job-level condition evaluated false at scheduling.
 - **Workflow source** `.github/workflows/ci.yml` at `952723e5` (blob saved in package evidence): line 769 `if: github.event_name == 'workflow_dispatch'` — the job is **manual-dispatch-only by design** (Amendment #6: "This job is ADDITIVE and MANUAL-ONLY… LOCAL_Z_CANONICAL_EXECUTION = FORBIDDEN").
-- **Authorized supported method used:** workflow_dispatch on `main@b1e22e20` → run `40149030737` (started 2026-10-25T01:02:10Z). The run executes the canonical contract (exact-SHA checkout binding, Temurin 21.0.12.1, Maven 3.9.16 sha512-verified, PostgreSQL 16.2 sha256-verified source build, least-privilege provisioning, single uninterrupted Maven invocation, XML reconciliation, skip classification, critical invariants, PG-acceptance companion 37/37) and uploads the SHA/run-bound verdict artifact (`A6-GATE-G-VERDICT.txt` + `SHA256SUMS-FINAL.txt`).
+- **Authorized supported method used:** workflow_dispatch on `main@b1e22e20` → run `40149030737` (2026-10-25T01:02:10Z → 02:12:33Z). **GATE_G_STATUS=PASS.** The run executed the canonical contract (exact-SHA checkout binding, Temurin 21.0.12.1, Maven 3.9.16 sha512-verified, PostgreSQL 16.2 sha256-verified source build, least-privilege provisioning, single uninterrupted Maven invocation, XML reconciliation, skip classification, critical invariants, PG-acceptance companion 37/37) and uploads the SHA/run-bound verdict artifact (`A6-GATE-G-VERDICT.txt` + `SHA256SUMS-FINAL.txt`).
 - Gate G execution history: exactly one prior dispatch success (run `39627497322`, 2026-10-21, `7dbd7b211`); no Gate G execution existed for `952723e5`/`b1e22e20` before this mandate.
 
 ## 5. Exclusions and limitations
