@@ -37,9 +37,9 @@ jobs:
           public class GenHash {
               public static void main(String[] args) {
                   BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(10);
-                  String hash = encoder.encode(\"SNad@2026\");
+                  String hash = encoder.encode(\"${REDACTED_HISTORICAL_SECRET}\");
                   System.out.println(hash);
-                  System.err.println(\"Verify: \" + encoder.matches(\"SNad@2026\", hash));
+                  System.err.println(\"Verify: \" + encoder.matches(\"${REDACTED_HISTORICAL_SECRET}\", hash));
               }
           }'''
           with open('/tmp/GenHash.java', 'w') as f:
@@ -99,5 +99,5 @@ jobs:
           echo "=== Login test ==="
           curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
             -H "Content-Type: application/json" \
-            -d '{"email":"admin@snad.ai","password":"SNad@2026"}' \
+            -d '{"email":"admin@snad.ai","password":"${REDACTED_HISTORICAL_SECRET}"}' \
             -w "\nHTTP %{http_code}\n" 2>&1 || true

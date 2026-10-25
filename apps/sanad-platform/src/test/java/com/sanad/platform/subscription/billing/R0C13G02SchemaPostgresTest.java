@@ -47,12 +47,8 @@ class R0C13G02SchemaPostgresTest {
     @BeforeAll
     static void migrateFreshPostgreSqlChain() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "R0C13G02SchemaPostgresTest");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is required for R13-G02 acceptance.");
         MigrationTestSchemaSupport.ensureDatabase(DB_URL, DB_USER, DB_PASSWORD);

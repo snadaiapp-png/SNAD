@@ -43,7 +43,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_PROFILES_ACTIVE: workflow-e2e
       SERVER_PORT: '8080'
       SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
@@ -56,14 +55,20 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Provision application role
+        shell: bash
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
+          set -euo pipefail
+          # Ephemeral PostgreSQL Direct credentials — generated per run,
+          # exported for the test runtime, masked in logs; never hardcoded.
+          sanad_password="$(openssl rand -hex 32)"
+          test -n "${sanad_password}"
+          echo "::add-mask::${sanad_password}"
+          export SPRING_DATASOURCE_PASSWORD="${sanad_password}"
+          echo "SPRING_DATASOURCE_PASSWORD=${sanad_password}" >> "$GITHUB_ENV"
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 \
+            -v sanad_password="${sanad_password}" <<'SQL'
+          SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           ALTER DATABASE sanad OWNER TO sanad;
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;

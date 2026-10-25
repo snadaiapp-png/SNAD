@@ -32,11 +32,7 @@ class CrmOwnershipRbacPostgresTest {
     @BeforeAll
     static void setup() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct required for acceptance");
 
         // Step 1: Run V14 baseline (creates tenants + roles + capabilities tables).

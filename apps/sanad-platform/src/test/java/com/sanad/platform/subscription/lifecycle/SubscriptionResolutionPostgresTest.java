@@ -49,12 +49,8 @@ class SubscriptionResolutionPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "SubscriptionResolutionPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping SubscriptionResolutionPostgresTest.");
         isolatedUrl = System.getenv().getOrDefault(

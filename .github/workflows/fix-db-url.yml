@@ -90,7 +90,7 @@ jobs:
           for i in 1 2 3 4 5; do
             RESULT=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
               -H "Content-Type: application/json" \
-              -d '{"email":"admin@snad.ai","password":"SNad@2026"}' \
+              -d '{"email":"admin@snad.ai","password":"${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}"}' \
               -w "\n%{http_code}" 2>/dev/null || echo "timeout\n000")
             CODE=$(echo "$RESULT" | tail -1)
             echo "  Login $i: HTTP $CODE"

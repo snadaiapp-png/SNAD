@@ -45,11 +45,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class ProductionProfileTest {
 
     static boolean postgresqlNotAvailable() {
-        try {
-            return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("ProductionProfileTest");
-        } catch (Exception e) {
-            return true;
-        }
+        return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("ProductionProfileTest");
     }
 
     @DynamicPropertySource

@@ -26,12 +26,8 @@ class TenantDirectoryCommercialStatePostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "TenantDirectoryCommercialStatePostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping TenantDirectoryCommercialStatePostgresTest.");
         isolatedUrl = System.getenv().getOrDefault(

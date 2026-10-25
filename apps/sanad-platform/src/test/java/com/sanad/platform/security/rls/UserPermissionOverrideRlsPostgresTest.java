@@ -33,12 +33,8 @@ class UserPermissionOverrideRlsPostgresTest {
     @BeforeAll
     static void requirePostgreSqlDirect() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "UserPermissionOverrideRlsPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(
                 available,
                 "PostgreSQL Direct is required for UserPermissionOverrideRlsPostgresTest");

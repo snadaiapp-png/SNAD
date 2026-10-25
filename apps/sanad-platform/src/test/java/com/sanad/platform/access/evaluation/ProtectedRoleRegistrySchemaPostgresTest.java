@@ -38,12 +38,8 @@ class ProtectedRoleRegistrySchemaPostgresTest {
     @BeforeAll
     static void requirePostgreSqlDirect() {
         boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "ProtectedRoleRegistrySchemaPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
         Assumptions.assumeTrue(
                 available,
                 "PostgreSQL Direct is required for ProtectedRoleRegistrySchemaPostgresTest");

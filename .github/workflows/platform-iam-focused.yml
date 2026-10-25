@@ -17,7 +17,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
@@ -74,7 +73,7 @@ jobs:
         # Connects as the `postgres` bootstrap SUPERUSER (peer auth over the
         # unix socket — no passwords in logs) to provision:
         #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
-        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD generated at runtime).
         #   2. The disposable `sanad` database, owned by `sanad` so Flyway
         #      tables are owned by the application role and FORCE RLS
         #      applies to the owner (the RC-1 security contract).
@@ -85,15 +84,29 @@ jobs:
         #   5. USAGE + CREATE on schema public for `sanad`.
         #   6. The `crm_contact_rls_test_user` role (C2 RLS test user).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        shell: bash
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          set -euo pipefail
+          set -euo pipefail
+          # Ephemeral PostgreSQL Direct credentials — generated per run,
+          # exported for the test runtime, masked in logs; never hardcoded.
+          sanad_password="$(openssl rand -hex 32)"
+          rls_password="$(openssl rand -hex 32)"
+          test -n "${sanad_password}"
+          test -n "${rls_password}"
+          test "$sanad_password" != "$rls_password"
+          echo "::add-mask::${sanad_password}"
+          echo "::add-mask::${rls_password}"
+          export SPRING_DATASOURCE_PASSWORD="${sanad_password}"
+          echo "SPRING_DATASOURCE_PASSWORD=${sanad_password}" >> "$GITHUB_ENV"
+          export CRM_RLS_TEST_PASSWORD="${rls_password}"
+          echo "CRM_RLS_TEST_PASSWORD=${rls_password}" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -v sanad_password="${sanad_password}" \
+            -v rls_password="${rls_password}" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
+          SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. The disposable application database, owned by `sanad`.
@@ -124,12 +137,8 @@ jobs:
           --    asserts presence and refuses to CREATE ROLE itself because
           --    the production least-privilege contract forbids CREATEROLE
           --    on the application role).
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
-            END IF;
-          END $$;
+          SELECT format('CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD %L', :'rls_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user')\gexec
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
 
@@ -197,7 +206,6 @@ jobs:
       # the production Supabase / Render managed DB markers.
       PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
       PG_ACCEPTANCE_USERNAME: sanad
-      PG_ACCEPTANCE_PASSWORD: sanad_pass
 
     defaults:
       run:
@@ -232,15 +240,22 @@ jobs:
         # provision the least-privilege `sanad` role and the dedicated,
         # idempotently re-created `pg_acceptance` database owned by `sanad`.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        shell: bash
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          set -euo pipefail
+          set -euo pipefail
+          # Ephemeral PostgreSQL Direct credentials — generated per run,
+          # exported for the test runtime, masked in logs; never hardcoded.
+          sanad_password="$(openssl rand -hex 32)"
+          test -n "${sanad_password}"
+          echo "::add-mask::${sanad_password}"
+          export PG_ACCEPTANCE_PASSWORD="${sanad_password}"
+          echo "PG_ACCEPTANCE_PASSWORD=${sanad_password}" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -v sanad_password="${sanad_password}" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
+          SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. Recreate the dedicated pg_acceptance database from scratch.

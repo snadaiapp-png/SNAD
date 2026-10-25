@@ -36,6 +36,7 @@ jobs:
           PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
           PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
           PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          ADMIN_BOOTSTRAP_PASSWORD: ${{ secrets.ADMIN_BOOTSTRAP_PASSWORD }}
           TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
         run: |
           set -euo pipefail
@@ -50,8 +51,10 @@ jobs:
           import psycopg2
 
           tenant_id = os.environ['TENANT_ID']
+          if not os.environ.get('ADMIN_BOOTSTRAP_PASSWORD'):
+              raise RuntimeError('ADMIN_BOOTSTRAP_PASSWORD is required; refusing to use a fallback credential')
           email = 'admin@snad.ai'
-          password = '<REDACTED>'
+          password = os.environ['ADMIN_BOOTSTRAP_PASSWORD']
 
           # Generate BCrypt hash
           pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(10)).decode()

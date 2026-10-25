@@ -112,11 +112,7 @@ class Crm008bFoundationAcceptanceTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping Crm008bFoundationAcceptanceTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL fail-closed invariants.");

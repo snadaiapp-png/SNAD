@@ -42,8 +42,7 @@ class TerritoryUseCasesPostgresTest {
     @BeforeAll
     static void setup() {
         boolean postgresAvailable;
-        try { postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName"); }
-        catch (Throwable ignored) { postgresAvailable = false; }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct required for acceptance");
 
         Flyway.configure()

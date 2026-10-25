@@ -101,7 +101,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
@@ -156,7 +155,7 @@ jobs:
         # Connects as the `postgres` bootstrap SUPERUSER (peer auth over the
         # unix socket — no passwords in logs) to provision:
         #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
-        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN with a per-run ephemeral password).
         #   2. The disposable `sanad` database, owned by `sanad` so Flyway
         #      tables are owned by the application role and FORCE RLS
         #      applies to the owner (the RC-1 security contract).
@@ -168,14 +167,24 @@ jobs:
         #   6. The `crm_contact_rls_test_user` role (C2 RLS test user).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          # Generate a per-run credential for the disposable RLS test role.
+          # It is never committed and is masked in Actions logs.
+          app_password="$(openssl rand -hex 24)"
+          rls_test_password="$(openssl rand -hex 24)"
+          test -n "$app_password" && test -n "$rls_test_password"
+          echo "::add-mask::$app_password"
+          echo "::add-mask::$rls_test_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. The disposable application database, owned by `sanad`.
@@ -209,9 +218,10 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE crm_contact_rls_test_user PASSWORD :'rls_test_password';
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
 
@@ -331,7 +341,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
@@ -366,18 +375,22 @@ jobs:
           pg_isready -h 127.0.0.1 -p 5432
 
       - name: Provision application role + databases + test RLS user
-        # Mirror of the test job's provisioning step (same least-privilege
-        # role separation so CRM Integration Tests run against the same
-        # non-superuser application role as the Maven Test Suite).
-        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        # Mirror the least-privilege provisioning contract with per-run credentials.
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          set -euo pipefail
+          app_password="$(openssl rand -hex 24)"
+          rls_test_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$app_password"
+          echo "::add-mask::$rls_test_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
@@ -392,9 +405,10 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE crm_contact_rls_test_user PASSWORD :'rls_test_password';
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
 
@@ -526,7 +540,6 @@ jobs:
       # the production Supabase / Render managed DB markers.
       PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
       PG_ACCEPTANCE_USERNAME: sanad
-      PG_ACCEPTANCE_PASSWORD: sanad_pass
 
     defaults:
       run:
@@ -560,14 +573,18 @@ jobs:
         # idempotently re-created `pg_acceptance` database owned by `sanad`.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          app_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$app_password"
+          echo "PG_ACCEPTANCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. Recreate the dedicated pg_acceptance database from scratch.
@@ -776,7 +793,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
@@ -978,9 +994,10 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. The disposable application database, owned by `sanad`.
@@ -1007,9 +1024,10 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN;
             END IF;
           END $$;
+          ALTER ROLE crm_contact_rls_test_user PASSWORD :'rls_test_password';
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
           attrs="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -tAc \
@@ -1037,7 +1055,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$PGHOME/bin:$PATH"
-          export PGPASSWORD=sanad_pass
+          export PGPASSWORD="$PG_ACCEPTANCE_PASSWORD"
           c1="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d sanad -tAc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
           c2="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d test_migration -tAc \
@@ -1237,7 +1255,6 @@ jobs:
           SPRING_PROFILES_ACTIVE: pg-acceptance
           PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
           PG_ACCEPTANCE_USERNAME: sanad
-          PG_ACCEPTANCE_PASSWORD: sanad_pass
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail

@@ -44,11 +44,7 @@ class CrmRlsTenantIsolationPostgresTest {
     @BeforeAll
     static void requirePostgreSql() {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmRlsTenantIsolationPostgresTest. "
                         + "Run with PostgreSQL Direct to exercise PostgreSQL RLS.");
@@ -70,9 +66,18 @@ class CrmRlsTenantIsolationPostgresTest {
     // cluster, so one pre-provisioned role can serve both RLS test classes.
     // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
     private static final String RLS_USER = "crm_contact_rls_test_user";
-    // Fixed credential belongs only to the disposable PostgreSQL Direct test fixture.
-    // Preserve the audited scanner fingerprint for SANAD-SC-023.
-    private static final String RLS_PASSWORD = "rls_contact_test_pass";
+    // The disposable CI fixture supplies an ephemeral credential through the
+    // environment. Never embed the role password in source control.
+    private static final String RLS_PASSWORD = requireRlsTestPassword();
+
+    private static String requireRlsTestPassword() {
+        String password = System.getenv("CRM_RLS_TEST_PASSWORD");
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "CRM_RLS_TEST_PASSWORD must be provided by the PostgreSQL Direct test fixture.");
+        }
+        return password;
+    }
 
     @BeforeEach
     void migrateAndSeed() {
@@ -102,7 +107,7 @@ class CrmRlsTenantIsolationPostgresTest {
             throw new IllegalStateException(
                     "Pre-provisioned role '" + RLS_USER + "' is missing. "
                             + "An environment/bootstrap actor must CREATE ROLE "
-                            + RLS_USER + " WITH LOGIN PASSWORD '<redacted>' "
+                            + RLS_USER + " with a runtime-provided credential "
                             + "before running CrmRlsTenantIsolationPostgresTest. sanad does not have "
                             + "CREATEROLE under the least-privilege contract.");
         }

@@ -51,12 +51,8 @@ class HrG1RlsFailClosedIntegrationTest {
     @BeforeAll
     void requireG1Schema() throws Exception {
         boolean postgresAvailable;
-        try {
-            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "HrG1RlsFailClosedIntegrationTest");
-        } catch (Throwable ignored) {
-            postgresAvailable = false;
-        }
         org.junit.jupiter.api.Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping HrG1RlsFailClosedIntegrationTest.");
 

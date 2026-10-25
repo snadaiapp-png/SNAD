@@ -28,7 +28,7 @@ RULES = [
     ("oauth-client-secret", r'client[_-]?secret[_=:"\s]+["\']([a-zA-Z0-9_\-]{16,})["\']', "HIGH", "OAuth Client Secret"),
     ("webhook-secret", r'webhook[_-]?secret[_=:"\s]+["\']([a-zA-Z0-9_\-]{16,})["\']', "MEDIUM", "Webhook Secret"),
     ("generic-api-key", r'api[_-]?key[_=:"\s]+["\']([a-zA-Z0-9_\-]{20,})["\']', "MEDIUM", "Generic API Key"),
-    ("generic-password", r'(?i)password\s*[:=]\s*["\']([^"\']{8,})["\']', "MEDIUM", "Hardcoded Password"),
+    ("generic-password", r'(?i)password\s*(?:[:=]\s*|\s+(?!:))["\']([^"\']{8,})["\']', "MEDIUM", "Hardcoded Password"),
     ("google-api-key", r'AIza[0-9A-Za-z_\-]{35}', "HIGH", "Google API Key"),
     ("slack-token", r'xox[baprs]-[a-zA-Z0-9-]{10,}', "HIGH", "Slack Token"),
     ("stripe-key", r'sk_(live|test)_[a-zA-Z0-9]{24,}', "HIGH", "Stripe Secret Key"),
@@ -38,13 +38,9 @@ SKIP_DIRS = {
     '.git', 'node_modules', '.next', 'target', '__pycache__',
     '.gradle', 'build', 'dist', '.cache', '.pytest_cache',
     'tool-results', 'upload', 'SNAD-https',
-    # Disabled workflows directory — workflows moved here via
-    # `git mv .github/workflows/{f} .github/workflows.disabled/{f}`
-    # are no longer loaded by GitHub Actions and are no longer
-    # scanned by the workflow security scanner. They are preserved
-    # as historical reference only. Skip them in the secret scanner
-    # too so their pre-existing test fixtures don't block post-merge.
-    'workflows.disabled',
+    # Do not exclude workflows.disabled: inactive files remain repository content
+    # and may contain credentials. Scan all repository-owned text regardless of
+    # whether GitHub currently executes the workflow.
 }
 
 SKIP_EXTS = {
@@ -69,16 +65,24 @@ SAFE_GENERIC_PASSWORD_INDIRECTION = (
     re.compile(r'^\$\{[A-Za-z_][A-Za-z0-9_]*\}$'),
     re.compile(r'^\$\{\{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$'),
     re.compile(r'^\$\(get_render_var\s+[A-Za-z_][A-Za-z0-9_]*\)$'),
+    # Explicitly permit only the repository's ephemeral random credential generator
+    # (24- and 32-byte hex forms, both used by repository workflows).
+    # Arbitrary command substitutions and shell defaults remain findings.
+    re.compile(r'^\$\(openssl\s+rand\s+-hex\s+(?:24|32)\)$'),
 )
 
 
-def is_safe_source_indirection(rule_id: str, secret_sample: str) -> bool:
+def is_safe_source_indirection(rule_id: str, secret_sample: str, source_line: str = "") -> bool:
     """Return True only for approved non-literal password source references."""
     if rule_id != "generic-password":
         return False
     candidate = secret_sample.strip()
+    # PostgreSQL psql uses :'variable' syntax to interpolate a variable value.
+    # A :'reference' is never a literal, with or without trailing role clauses
+    # (e.g. NOSUPERUSER ...); quoted literal passwords remain findings.
+    if re.search(r"\bPASSWORD\s+:'[A-Za-z_][A-Za-z0-9_]*'", source_line, re.IGNORECASE):
+        return True
     return any(pattern.fullmatch(candidate) for pattern in SAFE_GENERIC_PASSWORD_INDIRECTION)
-
 
 def load_allowlist(repo_root: Path):
     """Load and validate allowlist. Fail-closed on any error."""
@@ -174,7 +178,7 @@ def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = 
                 for match in matches:
                     secret_value = match.group(0)
                     secret_sample = match.group(1) if match.lastindex else secret_value
-                    if is_safe_source_indirection(rule_id, secret_sample):
+                    if is_safe_source_indirection(rule_id, secret_sample, line):
                         continue
                     finding = {
                         "ruleId": rule_id,
@@ -242,7 +246,7 @@ def scan_repository(repo_root: Path):
                                     for match in re.finditer(pattern, line):
                                         secret_value = match.group(0)
                                         secret_sample = match.group(1) if match.lastindex else secret_value
-                                        if is_safe_source_indirection(rule_id, secret_sample):
+                                        if is_safe_source_indirection(rule_id, secret_sample, line):
                                             continue
                                         finding = {
                                             "ruleId": rule_id,
@@ -255,8 +259,9 @@ def scan_repository(repo_root: Path):
                                         }
                                         if not is_allowlisted(finding, allowlist):
                                             all_findings.append(finding)
-                                except re.error:
-                                    pass
+                                except re.error as e:
+                                    scan_errors.append({"path": str(f.relative_to(repo_root)), "errorType": "REGEX_ERROR", "message": f"Rule {rule_id}: {e}"})
+                                    continue
                     files_scanned += 1
                 except Exception as e:
                     scan_errors.append({"path": str(f), "errorType": "STREAM_READ_ERROR", "message": str(e)})

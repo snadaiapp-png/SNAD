@@ -59,12 +59,8 @@ class ContactParticipantInvariantPostgresTest {
     @BeforeAll
     static void setup() {
         boolean ok;
-        try {
-            ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+        ok = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                     "ContactParticipantInvariantPostgresTest");
-        } catch (Throwable ignored) {
-            ok = false;
-        }
         Assumptions.assumeTrue(ok, "PostgreSQL Direct required");
         MigrationTestSchemaSupport.ensureDatabase(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),

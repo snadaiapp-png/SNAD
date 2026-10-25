@@ -39,7 +39,6 @@ jobs:
       PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_perf
       SPRING_DATASOURCE_USERNAME: sanad_perf
-      SPRING_DATASOURCE_PASSWORD: sanad_perf_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
@@ -71,13 +70,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $sanad_perf$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_perf') THEN
-              CREATE ROLE sanad_perf WITH LOGIN PASSWORD 'sanad_perf_pass';
-            END IF;
-          END $sanad_perf$;
+          set -euo pipefail
+          # Ephemeral PostgreSQL Direct credentials — generated per run,
+          # exported for the test runtime, masked in logs; never hardcoded.
+          perf_password="$(openssl rand -hex 32)"
+          test -n "${perf_password}"
+          echo "::add-mask::${perf_password}"
+          export SPRING_DATASOURCE_PASSWORD="${perf_password}"
+          echo "SPRING_DATASOURCE_PASSWORD=${perf_password}" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -v perf_password="${perf_password}" <<'SQL'
+          SELECT format('CREATE ROLE sanad_perf WITH LOGIN PASSWORD %L', :'perf_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_perf')\gexec
           ALTER ROLE sanad_perf NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- G1: provision the restricted policy role BEFORE Flyway on this
@@ -209,7 +213,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_health
       SPRING_DATASOURCE_USERNAME: sanad_health
-      SPRING_DATASOURCE_PASSWORD: sanad_health_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -241,13 +244,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $sanad_health$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_health') THEN
-              CREATE ROLE sanad_health WITH LOGIN PASSWORD 'sanad_health_pass';
-            END IF;
-          END $sanad_health$;
+          set -euo pipefail
+          # Ephemeral PostgreSQL Direct credentials — generated per run,
+          # exported for the test runtime, masked in logs; never hardcoded.
+          health_password="$(openssl rand -hex 32)"
+          test -n "${health_password}"
+          echo "::add-mask::${health_password}"
+          export SPRING_DATASOURCE_PASSWORD="${health_password}"
+          echo "SPRING_DATASOURCE_PASSWORD=${health_password}" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -v health_password="${health_password}" <<'SQL'
+          SELECT format('CREATE ROLE sanad_health WITH LOGIN PASSWORD %L', :'health_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_health')\gexec
           ALTER ROLE sanad_health NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- G1: provision the restricted policy role BEFORE Flyway on this
