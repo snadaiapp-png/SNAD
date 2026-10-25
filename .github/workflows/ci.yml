@@ -387,7 +387,7 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
           ALTER ROLE sanad PASSWORD :'app_password';
@@ -994,7 +994,7 @@ jobs:
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
           END $$;
           ALTER ROLE sanad PASSWORD :'app_password';
@@ -1055,7 +1055,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$PGHOME/bin:$PATH"
-          export PGPASSWORD=sanad_pass
+          export PGPASSWORD="$PG_ACCEPTANCE_PASSWORD"
           c1="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d sanad -tAc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
           c2="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d test_migration -tAc \
