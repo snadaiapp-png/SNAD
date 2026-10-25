@@ -69,6 +69,9 @@ SAFE_GENERIC_PASSWORD_INDIRECTION = (
     re.compile(r'^\$\{[A-Za-z_][A-Za-z0-9_]*\}$'),
     re.compile(r'^\$\{\{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$'),
     re.compile(r'^\$\(get_render_var\s+[A-Za-z_][A-Za-z0-9_]*\)$'),
+    # Explicitly permit only the repository's ephemeral random credential generator.
+    # Arbitrary command substitutions and shell defaults remain findings.
+    re.compile(r'^\$\(openssl\s+rand\s+-hex\s+24\)$'),
 )
 
 
