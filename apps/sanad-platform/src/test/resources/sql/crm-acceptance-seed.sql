@@ -17,7 +17,7 @@
 --   • Tenant A — "Tenant A (Acceptance)" — subdomain tenant-a-acceptance
 --   • Tenant B — "Tenant B (Acceptance)" — subdomain tenant-b-acceptance
 --
--- Users created (5 total, all with password "TestPass123!"):
+-- Users created (5 total, using the configured isolated CI test credential):
 --   Tenant A:
 --     • tenant-a-admin@snad-crm-acceptance.example      — ADMIN (full CRM access)
 --     • tenant-a-readonly@snad-crm-acceptance.example   — CRM_READ_ONLY (all *.READ)
@@ -97,7 +97,7 @@ ON CONFLICT (id) DO NOTHING;
 SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 -- ----------------------------------------------------------------------------
--- 3. Users (5 total, bcrypt-hashed password "TestPass123!")
+-- 3. Users (5 total, precomputed bcrypt hashes for isolated CI fixtures)
 -- ----------------------------------------------------------------------------
 -- crypt('TestPass123!', gen_salt('bf', 10)) yields a $2a$10$... hash that is
 -- directly verifiable by Spring's BCryptPasswordEncoder(10).
