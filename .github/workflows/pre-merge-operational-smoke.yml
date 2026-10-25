@@ -21,7 +21,6 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
@@ -63,18 +62,30 @@ jobs:
         with:
           maven-version: 3.9.9
 
+      - name: Generate ephemeral PostgreSQL test role passwords
+        shell: bash
+        run: |
+          set -euo pipefail
+          sanad_password="$(openssl rand -hex 32)"
+          rls_password="$(openssl rand -hex 32)"
+          test "$sanad_password" != "$rls_password"
+          echo "::add-mask::$sanad_password"
+          echo "::add-mask::$rls_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$sanad_password" >> "$GITHUB_ENV"
+          echo "CRM_RLS_TEST_PASSWORD=$rls_password" >> "$GITHUB_ENV"
+
       - name: Provision least-privilege PostgreSQL Direct roles
         shell: bash
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $sanad$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $sanad$;
-          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          : "${SPRING_DATASOURCE_PASSWORD:?ephemeral sanad password missing}"
+          : "${CRM_RLS_TEST_PASSWORD:?ephemeral RLS test password missing}"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -v sanad_password="$SPRING_DATASOURCE_PASSWORD" \
+            -v rls_password="$CRM_RLS_TEST_PASSWORD" <<'SQL'
+          SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
+          SELECT format('ALTER ROLE sanad WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS', :'sanad_password')\gexec
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
@@ -85,13 +96,9 @@ jobs:
           \c test_migration
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
           \c sanad
-          DO $sanad_rls$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
-            END IF;
-          END $sanad_rls$;
-          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD %L', :'rls_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user')\gexec
+          SELECT format('ALTER ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS', :'rls_password')\gexec
           SQL
 
           role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
