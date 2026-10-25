@@ -6,7 +6,11 @@ SELECT n.nspname AS schema_name, c.relname AS table_name,
        c.relforcerowsecurity AS force_rls,
        has_table_privilege('anon', c.oid, 'SELECT') AS anon_select,
        has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated_select,
-       has_table_privilege('public', c.oid, 'SELECT') AS public_select
+       EXISTS (
+         SELECT 1
+         FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS acl
+         WHERE acl.grantee = 0 AND acl.privilege_type = 'SELECT'
+       ) AS public_select
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
