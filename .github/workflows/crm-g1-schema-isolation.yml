@@ -112,7 +112,7 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_g1;
           SQL
 
-          PGPASSWORD="$DATABASE_PASSWORD" psql \
+          PGPASSWORD="$db_password" psql \
             -h 127.0.0.1 \
             -U "$DATABASE_USERNAME" \
             -d "$DATABASE_NAME" \
