@@ -101,7 +101,7 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_PASSWORD: ${{ env.SPRING_DATASOURCE_PASSWORD }}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
@@ -170,18 +170,22 @@ jobs:
         run: |
           # Generate a per-run credential for the disposable RLS test role.
           # It is never committed and is masked in Actions logs.
+          app_password="$(openssl rand -hex 24)"
           rls_test_password="$(openssl rand -hex 24)"
-          test -n "$rls_test_password"
+          test -n "$app_password" && test -n "$rls_test_password"
+          echo "::add-mask::$app_password"
           echo "::add-mask::$rls_test_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
           echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v rls_test_password="$rls_test_password" <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+              CREATE ROLE sanad WITH LOGIN;
             END IF;
-          END $$;
+          END $;
+          ALTER ROLE sanad PASSWORD :'app_password';
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
           -- 2. The disposable application database, owned by `sanad`.
