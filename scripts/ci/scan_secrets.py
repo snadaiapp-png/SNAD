@@ -176,7 +176,7 @@ def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = 
                     secret_sample = match.group(1) if match.lastindex else secret_value
                     if is_safe_source_indirection(rule_id, secret_sample) or (
                         rule_id == "generic-password"
-                        and re.search(r"(?i)\bpassword\s+:'[A-Za-z_][A-Za-z0-9_]*'\s*;", line)
+                        and re.search(r"(?i)\bpassword\b\s*:\s*'[A-Za-z_][A-Za-z0-9_]*'", line)
                     ):
                         continue
                     finding = {
@@ -247,7 +247,7 @@ def scan_repository(repo_root: Path):
                                         secret_sample = match.group(1) if match.lastindex else secret_value
                                         if is_safe_source_indirection(rule_id, secret_sample) or (
                                             rule_id == "generic-password"
-                                            and re.search(r"(?i)\bpassword\s+:'[A-Za-z_][A-Za-z0-9_]*'\s*;", line)
+                                            and re.search(r"(?i)\bpassword\b\s*:\s*'[A-Za-z_][A-Za-z0-9_]*'", line)
                                         ):
                                             continue
                                         finding = {
