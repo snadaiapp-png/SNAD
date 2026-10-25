@@ -38,13 +38,9 @@ SKIP_DIRS = {
     '.git', 'node_modules', '.next', 'target', '__pycache__',
     '.gradle', 'build', 'dist', '.cache', '.pytest_cache',
     'tool-results', 'upload', 'SNAD-https',
-    # Disabled workflows directory — workflows moved here via
-    # `git mv .github/workflows/{f} .github/workflows.disabled/{f}`
-    # are no longer loaded by GitHub Actions and are no longer
-    # scanned by the workflow security scanner. They are preserved
-    # as historical reference only. Skip them in the secret scanner
-    # too so their pre-existing test fixtures don't block post-merge.
-    'workflows.disabled',
+    # Do not exclude workflows.disabled: inactive files remain repository content
+    # and may contain credentials. Scan all repository-owned text regardless of
+    # whether GitHub currently executes the workflow.
 }
 
 SKIP_EXTS = {
@@ -261,8 +257,9 @@ def scan_repository(repo_root: Path):
                                         }
                                         if not is_allowlisted(finding, allowlist):
                                             all_findings.append(finding)
-                                except re.error:
-                                    pass
+                                except re.error as e:
+                                    scan_errors.append({"path": str(f.relative_to(repo_root)), "errorType": "REGEX_ERROR", "message": f"Rule {rule_id}: {e}"})
+                                    continue
                     files_scanned += 1
                 except Exception as e:
                     scan_errors.append({"path": str(f), "errorType": "STREAM_READ_ERROR", "message": str(e)})
