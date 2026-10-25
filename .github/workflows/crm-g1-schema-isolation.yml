@@ -243,7 +243,7 @@ jobs:
           # only configures the separate catalog-verification psql step.
           SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g1
           SPRING_DATASOURCE_USERNAME: sanad_g1
-          SPRING_DATASOURCE_PASSWORD: sanad_g1_pass
+          SPRING_DATASOURCE_PASSWORD: ${{ env.DATABASE_PASSWORD }}
           CI: "true"
         run: >-
           mvn --batch-mode --no-transfer-progress
