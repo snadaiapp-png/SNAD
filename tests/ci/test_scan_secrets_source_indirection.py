@@ -60,6 +60,14 @@ class TestSecretSourceIndirection(unittest.TestCase):
         findings = self._scan_line('password="${{ secrets.DATABASE_PASSWORD }}"')
         self.assertEqual(findings, [])
 
+    def test_ephemeral_openssl_random_password_generation_is_not_hardcoded(self):
+        findings = self._scan_line('DB_PASSWORD="$(openssl rand -hex 24)"')
+        self.assertEqual(findings, [])
+
+    def test_unapproved_openssl_password_generation_remains_detected(self):
+        findings = self._scan_line('DB_PASSWORD="$(openssl rand -hex 12)"')
+        self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
+
     def test_literal_password_remains_detected(self):
         findings = self._scan_line(f'{_PASSWORD_KEY}="{_SYNTHETIC}"')
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
