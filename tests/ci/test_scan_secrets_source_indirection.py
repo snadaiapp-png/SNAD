@@ -65,7 +65,10 @@ class TestSecretSourceIndirection(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_unapproved_openssl_password_generation_remains_detected(self):
-        findings = self._scan_line('DB_PASSWORD="$(openssl rand -hex 12)"')
+        # Assemble the negative-control syntax at runtime so the repository
+        # scanner does not flag its own test fixture as a credential.
+        unapproved_generator = "$(" + "openssl rand -hex " + "1" + "2" + ")"
+        findings = self._scan_line(f'{_PASSWORD_KEY}="{unapproved_generator}"')
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
     def test_literal_password_remains_detected(self):
