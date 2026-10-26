@@ -724,31 +724,6 @@ jobs:
             -DfailIfNoTests=true \
             -Dtest='com.sanad.platform.hr.**'
 
-      - name: Emit outcome fragment
-        id: fragment
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<PY
-          import json
-          fragment = {
-              'hrm_focused_tests': '${{ steps.hrm-focused-tests.outcome }}',
-          }
-          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
-              json.dump(fragment, f, indent=2)
-          print(json.dumps(fragment, indent=2))
-          PY
-
-      - name: Upload outcome fragment
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pmv-fragment-hrm
-          path: ${{ runner.temp }}/pmv-fragment.json
-          if-no-files-found: error
-          retention-days: 90
-
       - name: Upload HRM test reports
         id: upload-reports
         if: always()
@@ -760,6 +735,7 @@ jobs:
           retention-days: 14
 
       - name: HRM test summary
+        id: hrm-test-summary
         if: always()
         shell: bash
         working-directory: apps/sanad-platform
@@ -841,6 +817,33 @@ jobs:
           if parse_errors or totals["tests"] == 0 or totals["failures"] or totals["errors"]:
               sys.exit(1)
           PY
+
+      - name: Emit outcome fragment
+        id: fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'hrm_focused_tests': '${{ steps.hrm-focused-tests.outcome }}',
+              'hrm_test_summary': '${{ steps.hrm-test-summary.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-hrm
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
 
   # ============================================================
   # JOB E — security/governance scans
