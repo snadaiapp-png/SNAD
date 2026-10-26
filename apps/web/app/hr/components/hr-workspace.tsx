@@ -87,6 +87,7 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   { href: "/hr/attendance/admin", label: "إدارة الحضور", labelMessageId: "hrm.g2.landing.attendanceAdmin", Icon: AdminIcon, capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_ADMIN, HRM_CAPABILITIES.ATTENDANCE_CORRECT] },
   { href: "/hr/leave/policies", label: "سياسات الإجازات", labelMessageId: "hrm.g2.landing.leavePolicies", Icon: PolicyIcon, capability: HRM_CAPABILITIES.LEAVE_POLICY_ADMIN },
   { href: "/hr/reports/attendance", label: "تقرير الحضور", labelMessageId: "hrm.g2.landing.attendanceReport", Icon: ReportsIcon, capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN] },
+  { href: "/hr/analytics/live", label: "التحليلات الحية", labelMessageId: "hrm.g5.workspace.nav.liveAnalytics", Icon: ReportsIcon, capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN] },
   // GOVERNANCE
   { href: "/hr/execution", label: "لوحة التنفيذ", labelMessageId: "hrm.g2.workspace.nav.execution", Icon: ExecutionIcon },
 ];
@@ -125,7 +126,7 @@ const SECTION_LINKS: Record<(typeof SECTION_KEYS)[number], string[]> = {
   "hrm.g2.workspace.nav.section.talent": ["/hr/recruitment", "/hr/onboarding", "/hr/performance/goals", "/hr/performance/reviews", "/hr/payroll"],
   "hrm.g2.workspace.nav.section.timeLeave": ["/hr/attendance", "/hr/timesheets", "/hr/leave"],
   "hrm.g2.workspace.nav.section.management": ["/hr/team-attendance", "/hr/team-timesheets", "/hr/leave/approvals"],
-  "hrm.g2.workspace.nav.section.admin": ["/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/reports/attendance"],
+  "hrm.g2.workspace.nav.section.admin": ["/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/reports/attendance", "/hr/analytics/live"],
   "hrm.g2.workspace.nav.section.governance": ["/hr/execution"],
 };
 
