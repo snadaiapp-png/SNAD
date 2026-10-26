@@ -105,3 +105,92 @@ All were observed as non-SECURITY-DEFINER in the current catalog snapshot. Revie
 3. Test Tenant A/B, missing context, INSERT/UPDATE/DELETE, function ACLs, trigger behavior, and migrations.
 4. Re-run security advisors and the full relevant Maven/PostgreSQL Direct tests.
 5. Keep production unchanged, payments off, no merge, no deploy until explicit approval and all acceptance gates pass.
+
+---
+
+# Appendix — Execution & Acceptance Matrix Update (2026-10-26, SNAD-SEC-RLS-EXEC)
+
+Execution session performed after this audit was written, on the same branch
+(`security/rls-forensic-remediation`). Production was not touched: no DDL, no DML,
+no connection to the production database was made during this session.
+
+## What was executed
+
+1. **Migration staged:** `apps/sanad-platform/src/main/resources/db/migration/V20261026_4__rls_forensic_function_search_path_and_acl_hardening.sql`
+   — pins `search_path` for the 16 audited functions, revokes EXECUTE on
+   `public.sync_login_tenant_index()` from `PUBLIC`/`anon`/`authenticated`
+   (guarded: only for roles that exist), re-asserts the `service_role` grant,
+   and enforces fail-closed guards: G0 (all 17 audited functions must exist),
+   G1 (schema `public` must not grant CREATE to PUBLIC/anon/authenticated),
+   G4 (post-apply verification: 17/17 pinned, function remains SECURITY DEFINER,
+   trigger `users_sync_login_tenant_index` intact and enabled, client roles
+   denied). Naming note: `V20261026_1..3` were never persisted on any branch and
+   never applied to any database; this is the first migration of the RLS
+   forensic task in the chain (numbering follows the remediation owner's
+   instruction).
+2. **Chain-state discovery:** `V20261020_1__supabase_data_api_default_deny.sql`
+   (already in the chain) already revokes PUBLIC EXECUTE and pins
+   `search_path` on all non-extension public functions at its run time. The
+   production snapshot therefore predates `V20261020_1`: production has not
+   received it. Migration `V20261026_4` re-asserts the remediation explicitly
+   for the audited set with verification guards (order-independent,
+   audit-traceable per finding ID).
+3. **Disposable test environment (free, zero-cost, no Docker, no root):**
+   portable PostgreSQL 17.6 on localhost:5432 (databases `sanad` and
+   `sanad_parity`), Flyway CLI 11.7.2 (the version pinned by the repository's
+   Maven build), roles `sanad` (LOGIN, NOSUPERUSER, NOBYPASSRLS) and
+   `anon`/`authenticated`/`service_role` (NOLOGIN). The full 212-migration
+   chain (V2 → V20261021.1 + repeatable) applied successfully in both
+   databases — the repository's real DDL, not stubs.
+4. **Scenario A (chain integrity, DB `sanad`):** chain applied (exit 0) →
+   migration `V20261026_4` applied (exit 0; all guards passed) → `flyway
+   validate` 213/213 (exit 0) → second `migrate` run reported "up to date, no
+   migration necessary" (exit 0) → `flyway_schema_history` records
+   `20261026.4 | success = t`.
+5. **Scenario B (production-parity unification, DB `sanad_parity`):** the
+   production divergence was reproduced exactly (16/16 audited functions
+   unpinned; `sync_login_tenant_index()` `anon_execute = t`,
+   `authenticated_execute = t`), then `V20261026_4` was applied on top —
+   findings cleared (0 unpinned; `anon_execute = f`,
+   `authenticated_execute = f`). This demonstrates the production → chain
+   unification that the migration performs when deployment is authorized.
+6. **Verification suite (13 checks, run against both databases):** 13/13 PASS
+   on both. See the final execution report for the full command/exit-code
+   evidence: `docs/security/RLS_EXECUTION_AND_VERIFICATION_REPORT_2026-10-26.md`.
+
+## Acceptance matrix — updated status
+
+| ID | Test | Expected result | Status after execution session |
+|---|---|---|---|
+| RLS-01 | No tenant context on a tenant-scoped SELECT | No tenant rows visible | NOT RUN — policy remediation is out of scope of `V20261026_4`; deferred per the policy-phase guidance above |
+| RLS-02 | Tenant A reads its own rows | Only A rows visible | NOT RUN — same scope deferral |
+| RLS-03 | Tenant A attempts to read/update/delete Tenant B rows | Zero rows / permission denied | NOT RUN — same scope deferral |
+| RLS-04 | Missing, empty, malformed tenant context | Deny by default | NOT RUN — same scope deferral (81 candidate policies unchanged) |
+| RLS-05 | UPDATE changes tenant_id to B | Rejected by WITH CHECK | NOT RUN — same scope deferral |
+| RPC-01 | anon executes `sync_login_tenant_index()` | Permission denied | PASS (fixture, both scenarios) — `ERROR: permission denied for function sync_login_tenant_index` (exit 1) |
+| RPC-02 | authenticated executes RPC | Permission denied | PASS (fixture, both scenarios) — same error (exit 1) |
+| RPC-03 | Trigger INSERT/UPDATE/DELETE | Index rows remain correct | PASS (fixture, both scenarios) — INSERT → 2 index rows; UPDATE email → old gone/new present/username kept; DELETE → index empty; `service_role` EXECUTE retained; SECURITY DEFINER preserved |
+| RLS-06 | All public tables classified and reviewed | No unexplained RLS-disabled table | NOT RUN — 49-table classification not performed this session |
+| FN-01 | 16 functions have reviewed pinned search_path | Advisor finding cleared | PASS in fixture (both scenarios): 16/16 unpinned at prod-parity baseline → 0 after `V20261026_4`; 17/17 verified pinned post-apply. Production advisor re-check NOT PERFORMED (see PROD-RESCAN below) |
+| REG-01 | Full Maven/PostgreSQL Direct suite | Green, no new failures | NOT RUN — Maven not available in the execution sandbox; trigger-level regressions (users sync, partners updated_at + authorization event, partner memberships audit, HR append-only guard probe) all PASSED |
+
+Additional session items:
+
+| ID | Item | Status |
+|---|---|---|
+| PROD-RESCAN | Read-only production catalog rescan via Management API | BLOCKED — Supabase access token rejected (HTTP 401 Invalid access token); production state is therefore evidenced from the original 2026-10-26 snapshot in this document |
+| ACL-EDGE | anon SELECT on `login_tenant_index` (default-deny chain) | PASS (fixture) — `permission denied for table login_tenant_index` |
+| TRG-PARTNER | `trg_partners_updated_at` + `trg_partners_authorization_change_event` + `trg_partner_memberships_audit` real-path | PASS (fixture) — PARTNER_SUSPENDED and PARTNER_MEMBERSHIP_SUSPENDED audit rows written; updated_at advanced |
+| TRG-HR-GUARD | `hr_t7_offer_versions_append_only_guard` still immutable | PASS (fixture, function-level probe) — `HRM_OFFER_VERSION_IMMUTABLE` raised on UPDATE |
+
+## Remaining before the policy phase and deployment
+
+- Owner decisions per the policy-phase guidance in this document (RLS-01..05
+  remain open by design — do not mass-edit 81 policies without the context
+  tests described above).
+- 49-table classification (RLS-06) and the full Maven/PostgreSQL Direct suite
+  (REG-01) before any merge request.
+- Production read-only rescan and Supabase Security Advisor re-check once a
+  valid access token is provisioned (PROD-RESCAN).
+- All five plaintext-exposed platform tokens must be rotated before any
+  deployment authorization (governance rule: chat exposure = compromised).
