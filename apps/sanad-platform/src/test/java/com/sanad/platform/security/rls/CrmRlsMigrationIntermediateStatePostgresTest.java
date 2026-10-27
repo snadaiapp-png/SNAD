@@ -36,33 +36,25 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
     private static final String INTERMEDIATE_VERSION = "20261020.2";
     private static final String HARDENING_VERSION = "20261021.1";
     private static final String RLS_USER = "crm_contact_rls_test_user";
-    private static final String RLS_PASSWORD = requireRlsTestPassword();
     private static final List<String> PROTECTED_TABLES = List.of(
             "crm_capacity_plans", "crm_cases", "crm_email_logs",
             "crm_service_assignments", "crm_shift_assignments",
             "crm_shift_templates", "crm_staff_availability", "crm_staff_skills",
             "crm_workload_assignments");
 
-    private static String requireRlsTestPassword() {
+    @BeforeAll
+    static void requirePostgreSqlDirect() {
+        // In CI this helper throws on connectivity failure; do not catch it,
+        // otherwise the required PostgreSQL Direct gate could silently skip.
+        boolean available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+                "CrmRlsMigrationIntermediateStatePostgresTest");
+        Assumptions.assumeTrue(available, "PostgreSQL Direct required");
+        MigrationTestSchemaSupport.ensureDatabase(BASE_URL, USER, PASSWORD);
         String password = System.getenv("CRM_RLS_TEST_PASSWORD");
         if (password == null || password.isBlank()) {
             throw new IllegalStateException(
                     "CRM_RLS_TEST_PASSWORD must be provided by the PostgreSQL Direct test fixture.");
         }
-        return password;
-    }
-
-    @BeforeAll
-    static void requirePostgreSqlDirect() {
-        boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
-                    "CrmRlsMigrationIntermediateStatePostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
-        Assumptions.assumeTrue(available, "PostgreSQL Direct required");
-        MigrationTestSchemaSupport.ensureDatabase(BASE_URL, USER, PASSWORD);
     }
 
     @Test
@@ -160,7 +152,12 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
     }
 
     private static JdbcTemplate runtimeRoleJdbc() {
-        var dataSource = new DriverManagerDataSource(ISOLATED_URL, RLS_USER, RLS_PASSWORD);
+        String password = System.getenv("CRM_RLS_TEST_PASSWORD");
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "CRM_RLS_TEST_PASSWORD must be provided by the PostgreSQL Direct test fixture.");
+        }
+        var dataSource = new DriverManagerDataSource(ISOLATED_URL, RLS_USER, password);
         dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }
