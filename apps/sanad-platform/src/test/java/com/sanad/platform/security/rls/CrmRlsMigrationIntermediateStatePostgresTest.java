@@ -149,6 +149,10 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
                 "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",
                 Boolean.class, RLS_USER);
         assertThat(roleExists).as("CI must provision the non-owner RLS probe role").isTrue();
+        Boolean bypassRls = jdbc.queryForObject(
+                "SELECT rolbypassrls FROM pg_roles WHERE rolname = ?",
+                Boolean.class, RLS_USER);
+        assertThat(bypassRls).as("the runtime probe role must not bypass RLS").isFalse();
         jdbc.execute("GRANT CONNECT ON DATABASE \"" + MigrationTestSchemaSupport.ISOLATED_DB_NAME
                 + "\" TO " + RLS_USER);
         jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
