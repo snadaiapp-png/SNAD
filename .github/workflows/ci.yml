@@ -240,6 +240,32 @@ jobs:
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
+      - name: Explicit CRM intermediate RLS migration-order gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          class_name="CrmRlsMigrationIntermediateStatePostgresTest"
+          report="target/surefire-reports/TEST-com.sanad.platform.security.rls.${class_name}.xml"
+          rm -f "$report"
+          mvn test -B -ntp -Dtest="${class_name}" -Dsurefire.useFile=false
+          test -s "$report" || {
+            echo "::error::Required PostgreSQL Direct RLS intermediate-state Surefire report was not produced."
+            exit 1
+          }
+          python3 - "$report" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          root = ET.parse(path).getroot()
+          tests = int(root.attrib.get("tests", "0"))
+          failures = int(root.attrib.get("failures", "0"))
+          errors = int(root.attrib.get("errors", "0"))
+          skipped = int(root.attrib.get("skipped", "0"))
+          print(f"INTERMEDIATE_RLS_GATE tests={tests} failures={failures} errors={errors} skipped={skipped}")
+          if tests != 1 or failures or errors or skipped:
+              raise SystemExit("Required intermediate-state PostgreSQL test did not pass exactly once without skips.")
+          PY
+
       - name: Run tests (PostgreSQL Direct, host-native)
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
