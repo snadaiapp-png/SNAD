@@ -9,14 +9,20 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # ---------------------------------------------------------------
+  # Job 1 — ISOLATED VERIFICATION (Phase 6R secret containment).
+  #
+  # Runs WITHOUT the `production` environment and WITHOUT any
+  # production secrets. The backend test suite executes against a
+  # disposable loopback-only PostgreSQL database provisioned on the
+  # runner with the same host-native contract as ci.yml (no Docker,
+  # no Testcontainers). A fail-closed preflight proves containment
+  # before Maven runs: production-scoped release secrets must be
+  # invisible and the verification datasource must be loopback-only.
+  # ---------------------------------------------------------------
+  verify:
+    name: Isolated backend verification (loopback-only)
     runs-on: ubuntu-latest
-    environment: production
-
-    env:
-      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
-      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
-      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -46,8 +52,209 @@ jobs:
           fi
           echo "Test harness forensic: PASS (0 Docker/Testcontainers runtime files)"
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Provision isolated loopback PostgreSQL
+        # Host-native PostgreSQL (same contract as ci.yml): peer auth over
+        # the unix socket for provisioning, TCP loopback for the
+        # application. Ephemeral per-run credentials, masked in logs.
+        # Provisioned:
+        #   1. `sanad` application role (least-privilege, ephemeral password).
+        #   2. Disposable `sanad` database owned by `sanad`.
+        #   3. Disposable `test_migration` database owned by `sanad`.
+        #   4. CONNECT + schema grants for `sanad`.
+        #   5. `crm_contact_rls_test_user` C2 test RLS role.
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql >/dev/null
+          fi
+          sudo systemctl start postgresql 2>/dev/null || sudo service postgresql start
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432 >/dev/null
+          LISTEN="$(ss -ltn 2>/dev/null | grep ':5432 ' || true)"
+          echo "$LISTEN"
+          if [ -z "$LISTEN" ]; then
+            echo "FAIL: PostgreSQL is not listening on TCP 5432"
+            exit 1
+          fi
+          if echo "$LISTEN" | grep -Eq '0\.0\.0\.0:5432|\*:5432|\[::\]:5432'; then
+            echo "FAIL: PostgreSQL is listening on a non-loopback address"
+            exit 1
+          fi
+          app_password="$(openssl rand -hex 24)"
+          rls_test_password="$(openssl rand -hex 24)"
+          test -n "$app_password" && test -n "$rls_test_password"
+          echo "::add-mask::$app_password"
+          echo "::add-mask::$rls_test_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql --no-psqlrc -v ON_ERROR_STOP=1 \
+            -v app_password="$app_password" \
+            -v rls_test_password="$rls_test_password" <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN;
+            END IF;
+          END $$;
+          ALTER ROLE sanad PASSWORD :'app_password';
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. The disposable application database, owned by `sanad`.
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          ALTER DATABASE sanad OWNER TO sanad;
+
+          -- 3. The disposable `test_migration` database
+          --    (used by MigrationTestSchemaSupport-leveraging tests).
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+
+          -- 4. CONNECT on the maintenance DB for `sanad`.
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+
+          -- 5. Schema privileges for `sanad` on the `sanad` database.
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+
+          -- Mirror the schema privileges on the test_migration database.
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+
+          -- 6. The C2 test RLS user (ContactRlsPostgresTest asserts
+          --    presence and refuses to CREATE ROLE itself).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN;
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user PASSWORD :'rls_test_password';
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+          echo "Isolated loopback verification database: PROVISIONED"
+
+      - name: Export isolated test configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0"
+            echo "SPRING_DATASOURCE_USERNAME=sanad"
+            echo "SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver"
+            echo "SPRING_PROFILES_ACTIVE=default"
+            echo "FLYWAY_ENABLED=true"
+            echo "FLYWAY_BASELINE_ON_MIGRATE=true"
+            echo "FLYWAY_VALIDATE_ON_MIGRATE=false"
+            echo "JPA_DDL_AUTO=validate"
+          } >> "$GITHUB_ENV"
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Secret containment preflight (fail closed)
+        # Behavioral gate: refuses to run Maven unless the verification
+        # environment is provably isolated from production.
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for v in PRODUCTION_URL VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            val="${!v:-}"
+            if [ -n "$val" ]; then
+              echo "PREFLIGHT FAIL: release-scoped secret $v is visible in the isolated verification job" >&2
+              exit 1
+            fi
+          done
+          url="${SPRING_DATASOURCE_URL:-}"
+          if [ -z "$url" ]; then
+            echo "PREFLIGHT FAIL: SPRING_DATASOURCE_URL is not set" >&2
+            exit 1
+          fi
+          host="$(printf '%s' "$url" | sed -E 's|^jdbc:postgresql://([^:/]+).*|\1|')"
+          case "$host" in
+            127.0.0.1|localhost|::1) ;;
+            *)
+              echo "PREFLIGHT FAIL: verification datasource host '$host' is not loopback-only" >&2
+              exit 1
+              ;;
+          esac
+          if [ "${SPRING_PROFILES_ACTIVE:-}" = "prod" ]; then
+            echo "PREFLIGHT FAIL: production Spring profile is active in the verification job" >&2
+            exit 1
+          fi
+          echo "PREFLIGHT PASS: 0 release secrets visible; verification datasource is loopback-only"
+
+      - name: Compile
+        working-directory: apps/sanad-platform
+        run: |
+          chmod +x mvnw
+          ./mvnw clean test-compile
+
+      - name: Full backend verification (isolated loopback database)
+        working-directory: apps/sanad-platform
+        run: |
+          chmod +x mvnw
+          ./mvnw verify \
+            -Dspring.datasource.url="$SPRING_DATASOURCE_URL" \
+            -Dspring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
+            -Dspring.datasource.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dspring.datasource.driver-class-name=org.postgresql.Driver
+
+  # ---------------------------------------------------------------
+  # Job 2 — PRODUCTION RELEASE. Runs only after the isolated
+  # verification job succeeded. Requires the protected `production`
+  # environment. Production secrets are scoped per-step and are never
+  # present in any test execution.
+  # ---------------------------------------------------------------
+  release:
+    name: Production release (gated on isolated verification)
+    needs: verify
+    if: needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repository safety
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --check
+          git status --short
+
+      - name: Verify production branch SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
       - name: Verify PostgreSQL environment
         shell: bash
+        env:
+          SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
         run: |
           set -Eeuo pipefail
           test -n "$SPRING_DATASOURCE_URL"
@@ -57,6 +264,10 @@ jobs:
 
       - name: PostgreSQL connectivity
         shell: bash
+        env:
+          SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
         run: |
           set -Eeuo pipefail
           sudo apt-get update -qq
@@ -77,6 +288,10 @@ jobs:
       - name: Flyway
         shell: bash
         working-directory: apps/sanad-platform
+        env:
+          SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
         run: |
           set -Eeuo pipefail
           chmod +x mvnw
@@ -87,36 +302,12 @@ jobs:
             -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
             -Dflyway.baselineOnMigrate=true
 
-      - name: Compile
-        working-directory: apps/sanad-platform
-        run: |
-          chmod +x mvnw
-          ./mvnw clean test-compile
-
-      - name: Full backend verification
-        working-directory: apps/sanad-platform
-        run: |
-          chmod +x mvnw
-          ./mvnw verify \
-            -Dspring.profiles.active=prod \
-            -Dspring.datasource.url="$SPRING_DATASOURCE_URL" \
-            -Dspring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
-            -Dspring.datasource.password="$SPRING_DATASOURCE_PASSWORD" \
-            -Dspring.datasource.driver-class-name=org.postgresql.Driver
-
       - name: Final forensic verification
         shell: bash
         run: |
           set -Eeuo pipefail
           git diff --check
           git status --short
-
-      - name: Verify production branch SHA
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          git fetch origin main
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 
       - name: Deploy Vercel
         env:
@@ -156,6 +347,7 @@ jobs:
           echo "=========================================="
           echo "SNAD FINAL RELEASE CERTIFICATION"
           echo "=========================================="
+          echo "ISOLATED VERIFY = PASS (loopback-only, 0 production secrets)"
           echo "DATABASE        = CONFIGURED"
           echo "CI CONNECTIVITY = PASS"
           echo "FLYWAY          = PASS"

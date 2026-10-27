@@ -290,12 +290,16 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
     ALLOWLIST = REPO_ROOT / "scripts" / "ci" / "secret-scan-allowlist.json"
 
     # (ruleId, path, line) — verified false positives: shell variable references
-    # (no literal secret values) plus one synthetic JDBC fixture string used to
-    # prove GlobalDiagnosticExceptionHandler redacts credentials.
+    # (no literal secret values). Line numbers migrated by the Phase 6R secret
+    # containment fix: the release orchestrator was split into an isolated
+    # verification job (no production secrets) and a gated release job, which
+    # moved the PGPASSWORD (L283) and Flyway password (L301) references. The
+    # former L104 entry (-Dspring.datasource.password in `./mvnw verify`) was
+    # REMOVED by the same fix — production credentials no longer reach the
+    # test execution path at all.
     KNOWN_FPS = [
-        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 72),
-        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 86),
-        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 104),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 283),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 301),
         ("generic-password", ".github/workflows/show-admin-email.yml", 45),
         ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 42),
         ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 52),
