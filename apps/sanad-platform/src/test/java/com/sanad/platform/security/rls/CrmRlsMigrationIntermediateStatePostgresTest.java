@@ -99,8 +99,8 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
             String withCheck = policyExpression(jdbc, table, "with_check").toLowerCase();
             assertThat(qual).contains("nullif").contains("is not null");
             assertThat(withCheck).contains("nullif").contains("is not null");
-            assertThat(qual).doesNotContain("current_setting('app.tenant_id', true) is null");
-            assertThat(withCheck).doesNotContain("current_setting('app.tenant_id', true) is null");
+            assertThat(qual).doesNotContain("is null");
+            assertThat(withCheck).doesNotContain("is null");
         }
     }
 
