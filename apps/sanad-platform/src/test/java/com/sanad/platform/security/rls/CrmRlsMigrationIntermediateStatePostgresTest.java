@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,11 +35,22 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
             MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_URL);
     private static final String INTERMEDIATE_VERSION = "20261020.2";
     private static final String HARDENING_VERSION = "20261021.1";
+    private static final String RLS_USER = "crm_contact_rls_test_user";
+    private static final String RLS_PASSWORD = requireRlsTestPassword();
     private static final List<String> PROTECTED_TABLES = List.of(
             "crm_capacity_plans", "crm_cases", "crm_email_logs",
             "crm_service_assignments", "crm_shift_assignments",
             "crm_shift_templates", "crm_staff_availability", "crm_staff_skills",
             "crm_workload_assignments");
+
+    private static String requireRlsTestPassword() {
+        String password = System.getenv("CRM_RLS_TEST_PASSWORD");
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "CRM_RLS_TEST_PASSWORD must be provided by the PostgreSQL Direct test fixture.");
+        }
+        return password;
+    }
 
     @BeforeAll
     static void requirePostgreSqlDirect() {
@@ -83,11 +95,21 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
                     .contains("is null");
         }
 
+        seedRuntimeCases(jdbc);
+        grantRuntimeReadAccess(jdbc);
+        JdbcTemplate runtimeJdbc = runtimeRoleJdbc();
+        assertThat(runtimeJdbc.queryForObject("SELECT count(*) FROM public.crm_cases", Long.class))
+                .as("a non-owner role must see rows with the permissive intermediate policy and no tenant context")
+                .isEqualTo(2L);
+
         // Apply the next forward-only migration to the same isolated database.
         flyway(null).migrate();
         flyway(null).validate();
 
         assertThat(migrationApplied(jdbc, HARDENING_VERSION)).isTrue();
+        assertThat(runtimeJdbc.queryForObject("SELECT count(*) FROM public.crm_cases", Long.class))
+                .as("the same non-owner role must see no rows without tenant context after fail-closed hardening")
+                .isZero();
         for (String table : PROTECTED_TABLES) {
             assertThat(rlsEnabled(jdbc, table)).isTrue();
             assertThat(forceRlsEnabled(jdbc, table))
@@ -102,6 +124,41 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
             assertThat(qual).doesNotContain("is null");
             assertThat(withCheck).doesNotContain("is null");
         }
+    }
+
+    private static void seedRuntimeCases(JdbcTemplate jdbc) {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        jdbc.update("INSERT INTO public.tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', now(), now())",
+                tenantA, "RLS-Intermediate-A", "rls-intermediate-a-" + tenantA);
+        jdbc.update("INSERT INTO public.tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', now(), now())",
+                tenantB, "RLS-Intermediate-B", "rls-intermediate-b-" + tenantB);
+
+        for (UUID tenant : List.of(tenantA, tenantB)) {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
+            jdbc.update("INSERT INTO public.crm_cases (id, tenant_id, subject) VALUES (?, ?, ?)",
+                    UUID.randomUUID(), tenant, "Intermediate RLS case " + tenant);
+        }
+        jdbc.execute("RESET app.tenant_id");
+    }
+
+    private static void grantRuntimeReadAccess(JdbcTemplate jdbc) {
+        Boolean roleExists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",
+                Boolean.class, RLS_USER);
+        assertThat(roleExists).as("CI must provision the non-owner RLS probe role").isTrue();
+        jdbc.execute("GRANT CONNECT ON DATABASE \"" + MigrationTestSchemaSupport.ISOLATED_DB_NAME
+                + "\" TO " + RLS_USER);
+        jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
+        jdbc.execute("GRANT SELECT ON public.crm_cases TO " + RLS_USER);
+    }
+
+    private static JdbcTemplate runtimeRoleJdbc() {
+        var dataSource = new DriverManagerDataSource(ISOLATED_URL, RLS_USER, RLS_PASSWORD);
+        dataSource.setDriverClassName("org.postgresql.Driver");
+        return new JdbcTemplate(dataSource);
     }
 
     private static Flyway flyway(MigrationVersion target) {
