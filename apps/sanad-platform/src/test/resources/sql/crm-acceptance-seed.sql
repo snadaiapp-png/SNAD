@@ -70,6 +70,7 @@ ON CONFLICT (id) DO NOTHING;
 -- 2. Organizations (one per tenant)
 -- ----------------------------------------------------------------------------
 
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -82,6 +83,7 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -175,6 +177,7 @@ ON CONFLICT (id) DO NOTHING;
 -- 4. Organization memberships (link each user to their org)
 -- ----------------------------------------------------------------------------
 
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
     'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c1',
@@ -231,6 +234,7 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
     'd0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d1',
@@ -263,6 +267,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Defensive: ensure ADMIN roles exist for both tenants (V20260702_2 should
 -- have created them already, but this guards against a future migration
 -- ordering change).
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
     'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1',
@@ -281,6 +286,7 @@ WHERE tenant.id = '11111111-1111-4111-8111-111111111111'
   )
 ON CONFLICT (id) DO NOTHING;
 
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
     'e2e2e2e2-e2e2-4e2e-8e2e-e2e2e2e2e2e2',
@@ -300,6 +306,7 @@ WHERE tenant.id = '22222222-2222-4222-8222-222222222222'
 ON CONFLICT (id) DO NOTHING;
 
 -- 5b. ADMIN roles receive EVERY active capability (explicit, see note above).
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
@@ -508,6 +515,7 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- Tenant B admin → ADMIN
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
 SELECT
     'a0000000-0000-4000-8000-000000000005',
