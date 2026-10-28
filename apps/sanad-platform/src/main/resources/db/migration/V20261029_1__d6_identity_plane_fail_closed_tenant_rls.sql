@@ -67,10 +67,19 @@ CREATE POLICY roles_tenant_isolation ON public.roles
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS roles_tenant_isolation_runtime ON public.roles;
-CREATE POLICY roles_tenant_isolation_runtime ON public.roles
-  AS PERMISSIVE FOR ALL TO postgres
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- The postgres runtime policy is conditional: container-based environments
+-- (e.g. the CRM contract/architecture CI jobs boot postgres:16-alpine with
+-- POSTGRES_USER=sanad_contract / sanad_arch) have NO postgres role at all.
+-- Production (Supabase) does, per V20261019_1.
+DO $d6runtime$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'CREATE POLICY roles_tenant_isolation_runtime ON public.roles '
+         || 'AS PERMISSIVE FOR ALL TO postgres '
+         || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+         || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))';
+  END IF;
+END $d6runtime$;
 
 -- ============================================================================
 -- role_capabilities
@@ -93,10 +102,19 @@ CREATE POLICY role_capabilities_tenant_isolation ON public.role_capabilities
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS role_capabilities_tenant_isolation_runtime ON public.role_capabilities;
-CREATE POLICY role_capabilities_tenant_isolation_runtime ON public.role_capabilities
-  AS PERMISSIVE FOR ALL TO postgres
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- The postgres runtime policy is conditional: container-based environments
+-- (e.g. the CRM contract/architecture CI jobs boot postgres:16-alpine with
+-- POSTGRES_USER=sanad_contract / sanad_arch) have NO postgres role at all.
+-- Production (Supabase) does, per V20261019_1.
+DO $d6runtime$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'CREATE POLICY role_capabilities_tenant_isolation_runtime ON public.role_capabilities '
+         || 'AS PERMISSIVE FOR ALL TO postgres '
+         || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+         || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))';
+  END IF;
+END $d6runtime$;
 
 -- ============================================================================
 -- user_role_assignments
@@ -119,10 +137,19 @@ CREATE POLICY user_role_assignments_tenant_isolation ON public.user_role_assignm
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS user_role_assignments_tenant_isolation_runtime ON public.user_role_assignments;
-CREATE POLICY user_role_assignments_tenant_isolation_runtime ON public.user_role_assignments
-  AS PERMISSIVE FOR ALL TO postgres
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- The postgres runtime policy is conditional: container-based environments
+-- (e.g. the CRM contract/architecture CI jobs boot postgres:16-alpine with
+-- POSTGRES_USER=sanad_contract / sanad_arch) have NO postgres role at all.
+-- Production (Supabase) does, per V20261019_1.
+DO $d6runtime$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'CREATE POLICY user_role_assignments_tenant_isolation_runtime ON public.user_role_assignments '
+         || 'AS PERMISSIVE FOR ALL TO postgres '
+         || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+         || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))';
+  END IF;
+END $d6runtime$;
 
 -- ============================================================================
 -- organizations
@@ -145,10 +172,19 @@ CREATE POLICY organizations_tenant_isolation ON public.organizations
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS organizations_tenant_isolation_runtime ON public.organizations;
-CREATE POLICY organizations_tenant_isolation_runtime ON public.organizations
-  AS PERMISSIVE FOR ALL TO postgres
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- The postgres runtime policy is conditional: container-based environments
+-- (e.g. the CRM contract/architecture CI jobs boot postgres:16-alpine with
+-- POSTGRES_USER=sanad_contract / sanad_arch) have NO postgres role at all.
+-- Production (Supabase) does, per V20261019_1.
+DO $d6runtime$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'CREATE POLICY organizations_tenant_isolation_runtime ON public.organizations '
+         || 'AS PERMISSIVE FOR ALL TO postgres '
+         || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+         || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))';
+  END IF;
+END $d6runtime$;
 
 -- ============================================================================
 -- organization_memberships
@@ -171,7 +207,16 @@ CREATE POLICY organization_memberships_tenant_isolation ON public.organization_m
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS organization_memberships_tenant_isolation_runtime ON public.organization_memberships;
-CREATE POLICY organization_memberships_tenant_isolation_runtime ON public.organization_memberships
-  AS PERMISSIVE FOR ALL TO postgres
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- The postgres runtime policy is conditional: container-based environments
+-- (e.g. the CRM contract/architecture CI jobs boot postgres:16-alpine with
+-- POSTGRES_USER=sanad_contract / sanad_arch) have NO postgres role at all.
+-- Production (Supabase) does, per V20261019_1.
+DO $d6runtime$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'CREATE POLICY organization_memberships_tenant_isolation_runtime ON public.organization_memberships '
+         || 'AS PERMISSIVE FOR ALL TO postgres '
+         || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+         || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))';
+  END IF;
+END $d6runtime$;
