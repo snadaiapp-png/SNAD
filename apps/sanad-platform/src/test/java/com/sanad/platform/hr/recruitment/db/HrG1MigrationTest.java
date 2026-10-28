@@ -45,7 +45,9 @@ class HrG1MigrationTest {
     // PR #1420 (transfer of #1050/#1044) heads the ledger at 20261020.2 (Supabase Data API
     // default-deny + post-baseline CRM RLS, both in db/migration at the sequence tail);
     // PR #1422 heads it at 20261021.1 (forward-only fail-closed RLS on the nine post-baseline CRM tables).
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261021.1";
+    // SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at 20261028.1 (validation-only per-tenant
+    // role-template matrix revalidation under RLS context; re-derives V20260820_7's blind assertions).
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261028.1";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
