@@ -114,12 +114,19 @@ class OrganizationMembershipUserLinkRlsPropagationTest {
         SecurityContextHolder.clearContext();
         // FK-safe cleanup of committed fixture rows: memberships → organizations
         // → users (per-tenant GUC under FORCE RLS) → tenants.
+        // V20261029_1: organization_memberships / organizations are FORCE RLS —
+        // the deletes must run under each tenant's own GUC, otherwise the
+        // fail-closed policy deletes zero rows and the users delete hits the
+        // fk_org_memberships_tenant_user constraint.
         try {
-            tx.executeWithoutResult(s -> jdbc.update(
-                    "DELETE FROM organization_memberships WHERE tenant_id IN (?, ?)",
-                    tenantAId, tenantBId));
-            tx.executeWithoutResult(s -> jdbc.update(
-                    "DELETE FROM organizations WHERE tenant_id = ?", tenantAId));
+            for (UUID scopedTenant : java.util.List.of(tenantAId, tenantBId)) {
+                tx.executeWithoutResult(s -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, scopedTenant.toString());
+                    jdbc.update("DELETE FROM organization_memberships WHERE tenant_id = ?", scopedTenant);
+                    jdbc.update("DELETE FROM organizations WHERE tenant_id = ?", scopedTenant);
+                });
+            }
             deleteUserScoped(tenantAId);
             deleteUserScoped(tenantBId);
             tx.executeWithoutResult(s -> jdbc.update(

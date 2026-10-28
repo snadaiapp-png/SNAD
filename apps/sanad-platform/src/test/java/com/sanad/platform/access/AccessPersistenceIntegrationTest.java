@@ -12,6 +12,7 @@ import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,9 +72,12 @@ class AccessPersistenceIntegrationTest {
         // seedUserRaw's raw JdbcTemplate INSERT INTO users).
         tenantA = saveTenant("Access A");
         tenantB = saveTenant("Access B");
-        organizationA = organizationRepository.saveAndFlush(new Organization(
-                tenantRepository.findById(tenantA).orElseThrow(),
-                "Org A", "desc", OrganizationStatus.ACTIVE)).getId();
+        // V20261029_1: organizations / roles / role_capabilities /
+        // user_role_assignments are FORCE RLS. Seed via raw JDBC with an inline
+        // set_config per seed (the established seedUserRaw pattern) — repository
+        // saves would desync TenantRlsConnectionHandler's per-transaction
+        // bookkeeping after an external set_config flips the GUC mid-transaction.
+        organizationA = seedOrgRaw(tenantA, "Org A");
         // Cause A fix: use seedUserRaw (raw JdbcTemplate set_config + INSERT) for
         // multi-tenant user INSERTs. JPA userRepository.save() defers INSERTs via
         // Hibernate; at flush time all deferred INSERTs run with the LAST set GUC,
@@ -81,16 +85,21 @@ class AccessPersistenceIntegrationTest {
         // seedUserRaw executes each INSERT immediately with the correct GUC.
         userA = seedUserRaw(tenantA, "a@example.com", "A");
         userB = seedUserRaw(tenantB, "b@example.com", "B");
-        // Roles and capabilities don't have RLS — JPA save() (deferred) is fine.
-        // At flush time the handler fires on the first prepareStatement but returns
-        // early (currentTenantId()=NULL, no bindTenantContext), so no GUC is set.
-        // The INSERTs succeed because roles/access_capabilities have no RLS policy.
-        roleA = roleRepository.save(new Role(
-                tenantA, "ADMIN", "Admin A", null)).getId();
-        roleB = roleRepository.save(new Role(
-                tenantB, "ADMIN", "Admin B", null)).getId();
+        // V20261029_1: raw per-tenant seeding for the RBAC rows.
+        roleA = seedRoleRaw(tenantA, "ADMIN", "Admin A");
+        roleB = seedRoleRaw(tenantB, "ADMIN", "Admin B");
         capabilityId = capabilityRepository.save(new AccessCapability(
                 "TEST_PERSISTENCE.READ", "Test persistence read", null)).getId();
+        // Most test bodies act on tenantA: leave the transaction GUC scoped to
+        // tenantA so tenant-scoped body writes pass RLS WITH CHECK.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
+    }
+
+    @AfterEach
+    void clearBoundTenantContext() {
+        clearTenantContext();
+        org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
     }
 
     /**
@@ -113,7 +122,17 @@ class AccessPersistenceIntegrationTest {
     @Test
     void sameRoleCodeIsAllowedAcrossTenants() {
         assertThat(roleRepository.findByTenantIdAndCode(tenantA, "ADMIN")).isPresent();
-        assertThat(roleRepository.findByTenantIdAndCode(tenantB, "ADMIN")).isPresent();
+        // V20261029_1: roles is FORCE RLS — the tenantB read must run under
+        // tenant B's own GUC (this intentionally proves the SAME code is
+        // legibly provisioned in BOTH tenants, each within its own scope).
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantB.toString());
+        try {
+            assertThat(roleRepository.findByTenantIdAndCode(tenantB, "ADMIN")).isPresent();
+        } finally {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantA.toString());
+        }
     }
 
     @Test
@@ -187,6 +206,36 @@ class AccessPersistenceIntegrationTest {
         return tenantRepository.saveAndFlush(new Tenant(
                 name, name.toLowerCase().replace(' ', '-') + "-" + UUID.randomUUID(),
                 TenantStatus.ACTIVE)).getId();
+    }
+
+    /** Tenant-scoped org seeding: raw JDBC with an inline set_config, mirroring
+     *  seedUserRaw — required under FORCE RLS (V20261029_1). */
+    private UUID seedOrgRaw(UUID tenantId, String name) {
+        UUID orgId = UUID.randomUUID();
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update(
+                    "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    orgId, tenantId, name);
+        });
+        return orgId;
+    }
+
+    /** Tenant-scoped role seeding: raw JDBC with an inline set_config, mirroring
+     *  seedUserRaw — required under FORCE RLS (V20261029_1). */
+    private UUID seedRoleRaw(UUID tenantId, String code, String name) {
+        UUID roleId = UUID.randomUUID();
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update(
+                    "INSERT INTO roles (id, tenant_id, code, name, status, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                    roleId, tenantId, code, name);
+        });
+        return roleId;
     }
 
     /**

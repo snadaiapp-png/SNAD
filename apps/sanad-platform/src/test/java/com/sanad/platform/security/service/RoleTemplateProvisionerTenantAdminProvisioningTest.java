@@ -107,12 +107,15 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
         // ---- admin authority + an unrelated customer role.
         UUID tenantA = UUID.randomUUID();
         insertTenant(tenantA, "TenantAdmin Gap A", "uac-gap-a-" + suffix);
+        // V20261029_1: roles / role_capabilities are FORCE RLS. Session-level
+        // tenant GUC (is_local=false) so the raw-JDBC fixture writes AND the
+        // provisioner's own inserts (this test drives it without a Spring
+        // transaction) both satisfy the fail-closed policies.
+        setTenant(tenantA);
         UUID adminRole = insertRole(tenantA, "ADMIN", "Administrator", false);
         grantCapability(adminRole, tenantA, "CRM.ACCOUNT.READ");
         grantCapability(adminRole, tenantA, "HR.EMPLOYEE.READ");
         UUID customerRole = insertRole(tenantA, "SUPPORT", "Customer support", false);
-
-        setTenant(tenantA);
 
         // ---- Act: canonical runtime provisioning.
         new RoleTemplateProvisioner(jdbc).provision(tenantA);
@@ -160,8 +163,9 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
         // ---- silently taken over — provisioning aborts loudly instead.
         UUID tenantB = UUID.randomUUID();
         insertTenant(tenantB, "TenantAdmin Gap B", "uac-gap-b-" + suffix);
-        UUID hijackTarget = insertRole(tenantB, "TENANT_ADMIN", "Customer owned admin", false);
+        // V20261029_1: roles is FORCE RLS — bind tenant B before its fixture writes.
         setTenant(tenantB);
+        UUID hijackTarget = insertRole(tenantB, "TENANT_ADMIN", "Customer owned admin", false);
 
         assertThatThrownBy(() -> new RoleTemplateProvisioner(jdbc).provision(tenantB))
                 .as("customer-owned TENANT_ADMIN code must never be hijacked")

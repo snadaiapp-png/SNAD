@@ -108,24 +108,39 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
     void executiveViewRolesKeepTheBackwardCompatibleReadGrants() {
         JdbcTemplate template = jdbc();
 
-        Integer total = template.queryForObject(
-                "SELECT COUNT(*) FROM role_capabilities rc "
-                        + "JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW'",
-                Integer.class);
-        Integer withAudit = template.queryForObject(
-                "SELECT COUNT(DISTINCT (rc.tenant_id::text || ':' || rc.role_id::text)) FROM role_capabilities rc "
-                        + "JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW' "
-                        + "WHERE EXISTS (SELECT 1 FROM role_capabilities g "
-                        + "  JOIN access_capabilities gc ON gc.id = g.capability_id AND gc.code = 'AUDIT.READ' "
-                        + "  WHERE g.tenant_id = rc.tenant_id AND g.role_id = rc.role_id)",
-                Integer.class);
-        Integer withUsage = template.queryForObject(
-                "SELECT COUNT(DISTINCT (rc.tenant_id::text || ':' || rc.role_id::text)) FROM role_capabilities rc "
-                        + "JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW' "
-                        + "WHERE EXISTS (SELECT 1 FROM role_capabilities g "
-                        + "  JOIN access_capabilities gc ON gc.id = g.capability_id AND gc.code = 'USAGE.READ' "
-                        + "  WHERE g.tenant_id = rc.tenant_id AND g.role_id = rc.role_id)",
-                Integer.class);
+        // V20261029_1: role_capabilities is FORCE RLS with a fail-closed tenant
+        // policy, so the pairwise assertions must be evaluated per tenant under
+        // that tenant's GUC — the same pattern as V20261028_1 (D1). Each query
+        // is a fresh session (DriverManagerDataSource), so the GUC is set
+        // inline in the same statement via a volatile-function subquery.
+        List<String> tenantIds = template.query(
+                "SELECT id::text FROM tenants ORDER BY id",
+                (rs, i) -> rs.getString(1));
+
+        int total = 0;
+        int withAudit = 0;
+        int withUsage = 0;
+        for (String tenantId : tenantIds) {
+            Map<String, Object> counts = template.queryForMap(
+                    "SELECT "
+                    + "(SELECT COUNT(*) FROM role_capabilities rc "
+                    + "  JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW') AS total, "
+                    + "(SELECT COUNT(DISTINCT (rc.tenant_id::text || ':' || rc.role_id::text)) FROM role_capabilities rc "
+                    + "  JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW' "
+                    + "  WHERE EXISTS (SELECT 1 FROM role_capabilities g "
+                    + "    JOIN access_capabilities gc ON gc.id = g.capability_id AND gc.code = 'AUDIT.READ' "
+                    + "    WHERE g.tenant_id = rc.tenant_id AND g.role_id = rc.role_id)) AS with_audit, "
+                    + "(SELECT COUNT(DISTINCT (rc.tenant_id::text || ':' || rc.role_id::text)) FROM role_capabilities rc "
+                    + "  JOIN access_capabilities c ON c.id = rc.capability_id AND c.code = 'EXECUTIVE_VIEW' "
+                    + "  WHERE EXISTS (SELECT 1 FROM role_capabilities g "
+                    + "    JOIN access_capabilities gc ON gc.id = g.capability_id AND gc.code = 'USAGE.READ' "
+                    + "    WHERE g.tenant_id = rc.tenant_id AND g.role_id = rc.role_id)) AS with_usage "
+                    + "FROM (SELECT set_config('app.tenant_id', ?, true) AS g) ctx",
+                    tenantId);
+            total += ((Number) counts.get("total")).intValue();
+            withAudit += ((Number) counts.get("with_audit")).intValue();
+            withUsage += ((Number) counts.get("with_usage")).intValue();
+        }
 
         // The V20260830_2 grant promises zero regression: EVERY EXECUTIVE_VIEW
         // holder keeps the granular *.read capabilities. The smoke SCP admin

@@ -89,6 +89,9 @@ class OrganizationApiIntegrationTest {
     @Autowired
     private OrganizationRepository organizationRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     private UUID tenantId;
 
     @BeforeEach
@@ -98,6 +101,13 @@ class OrganizationApiIntegrationTest {
                 TenantStatus.ACTIVE);
         Tenant saved = tenantRepository.save(tenant);
         this.tenantId = saved.getId();
+        // V20261029_1: organizations is FORCE RLS and this suite drives the API
+        // without an authenticated principal (SecurityPermitAllTestConfig), so
+        // the TenantRlsConnectionHandler has no context to read. Scope the test
+        // transaction to the fixture tenant directly — every API call in the
+        // test joins this transaction and inherits the GUC.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
     }
 
     // ============================================================
