@@ -154,6 +154,37 @@ sanad:
       past-due-grace-hours: ${SANAD_PAST_DUE_GRACE_HOURS:72}
       suspend-grace-hours: ${SANAD_SUSPEND_GRACE_HOURS:168}
 
+  # Zid e-commerce integration (feature/zid-integration).
+  # Disabled by default: every controller 503s and schedulers no-op
+  # until an operator provisions SANAD_ZID_CLIENT_ID / SECRET and
+  # flips SANAD_ZID_ENABLED=true. No secret has a default value.
+  zid:
+    enabled: ${SANAD_ZID_ENABLED:false}
+    oauth-base-url: ${SANAD_ZID_OAUTH_BASE_URL:https://oauth.zid.sa}
+    api-base-url: ${SANAD_ZID_API_BASE_URL:https://api.zid.sa/v1}
+    # UNVERIFIED paths — confirm from the partner dashboard before prod (docs/zid-integration.md).
+    authorize-path: ${SANAD_ZID_AUTHORIZE_PATH:/oauth2/authorize}
+    token-path: ${SANAD_ZID_TOKEN_PATH:/oauth2/token}
+    client-id: ${SANAD_ZID_CLIENT_ID:}
+    client-secret: ${SANAD_ZID_CLIENT_SECRET:}
+    webhook-secret: ${SANAD_ZID_WEBHOOK_SECRET:}
+    webhook-signature-header: ${SANAD_ZID_WEBHOOK_SIGNATURE_HEADER:X-Zid-Signature}
+    link-redirect-url: ${SANAD_ZID_LINK_REDIRECT_URL:/integrations/zid}
+    redirect-url: ${SANAD_ZID_REDIRECT_URL:}
+    connect-timeout: ${SANAD_ZID_CONNECT_TIMEOUT:10s}
+    request-timeout: ${SANAD_ZID_REQUEST_TIMEOUT:25s}
+    page-size: ${SANAD_ZID_PAGE_SIZE:50}
+    max-pages-per-sync: ${SANAD_ZID_MAX_PAGES_PER_SYNC:40}
+    link-state-ttl: ${SANAD_ZID_LINK_STATE_TTL:15m}
+    webhook-max-attempts: ${SANAD_ZID_WEBHOOK_MAX_ATTEMPTS:5}
+    webhook-retry-base-delay: ${SANAD_ZID_WEBHOOK_RETRY_BASE_DELAY:1m}
+    webhook-worker-delay-ms: ${SANAD_ZID_WEBHOOK_WORKER_DELAY_MS:5000}
+    webhook-worker-initial-delay-ms: ${SANAD_ZID_WEBHOOK_WORKER_INITIAL_DELAY_MS:15000}
+    refresh-worker-delay-ms: ${SANAD_ZID_REFRESH_WORKER_DELAY_MS:3600000}
+    refresh-worker-initial-delay-ms: ${SANAD_ZID_REFRESH_WORKER_INITIAL_DELAY_MS:30000}
+    link-state-cleanup-delay-ms: ${SANAD_ZID_LINK_STATE_CLEANUP_DELAY_MS:900000}
+    link-state-cleanup-initial-delay-ms: ${SANAD_ZID_LINK_STATE_CLEANUP_INITIAL_DELAY_MS:60000}
+
 snad:
   security:
     notifications:
