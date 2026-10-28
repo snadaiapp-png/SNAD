@@ -15,7 +15,10 @@
 -- that tenant's RLS context, against the canonical matrices defined by
 -- V20260820_5/V20260820_2 (CRM_SALES=16, HR_MANAGER=3, ERP_PURCHASER=3,
 -- ERP_APPROVER=2, FINANCE_USER=2, FINANCE_APPROVER=2, STORE_MANAGER=3,
--- WORKFLOW_APPROVER=2, EXECUTIVE_VIEWER=4). The historical migration and its
+-- WORKFLOW_APPROVER=2). EXECUTIVE_VIEWER is asserted against its CURRENT
+-- canonical contract (4 executive capabilities + the '%.read' mirror granted
+-- by V20260820_2/V20260830_2 step 4b) rather than the stale 4-cap matrix,
+-- which V20260830_2 superseded. The historical migration and its
 -- Flyway checksum remain untouched.
 --
 -- Validation-only: changes no role, capability, or policy data. Fails closed
@@ -267,8 +270,19 @@ BEGIN
         RAISE EXCEPTION 'RBAC_EXACT_MATRIX_9_OF_9=FAIL: WORKFLOW_APPROVER has % roles with wrong cap count (expected %)', bad_count, expected_count;
     END IF;
 
-    -- EXECUTIVE_VIEWER expected: 4 capabilities
-    expected_count := 4;
+    -- EXECUTIVE_VIEWER current canonical contract (evolved after V20260820_7):
+    -- V20260830_2 step 4b turns every role holding EXECUTIVE_VIEW into a
+    -- read-only mirror of every '%.read' capability in the catalog, and
+    -- V20260901_1 canonicalized the codes to uppercase. The de-facto canonical
+    -- set is therefore: the 4 executive capabilities + every '%.read'
+    -- capability present at apply time. Asserted as:
+    --   (a) NO capability outside (4 executive codes OR '%.read' pattern,
+    --       case-insensitive: V20260901_1 upper-cased all codes)
+    --       — catches real privilege drift;
+    --   (b) all 4 executive capabilities present — catches removal drift.
+    -- A strict total-count equality is intentionally NOT asserted because the
+    -- mirror only includes '%.read' codes that existed when V20260830_2 ran,
+    -- so later-added '%.read' codes legitimately stay ungranted.
     SELECT COUNT(*) INTO bad_count
     FROM roles r
     JOIN role_template_bindings b ON b.tenant_id = r.tenant_id AND b.role_id = r.id
@@ -277,12 +291,18 @@ BEGIN
     WHERE b.tenant_id = tenant_record.id
       AND b.template_key = 'EXECUTIVE_VIEWER'
       AND rc.capability_id IS NOT NULL
-      AND (ac.code IS NULL OR ac.code NOT IN (
-          'EXECUTIVE_VIEW',
-          'EXECUTIVE_COMMAND_CENTER.VIEW',
-          'EXECUTIVE_MANAGEMENT.VIEW',
-          'EXECUTIVE_REPORT.VIEW'
-      ));
+      AND (
+        ac.code IS NULL
+        OR (
+          ac.code NOT IN (
+            'EXECUTIVE_VIEW',
+            'EXECUTIVE_COMMAND_CENTER.VIEW',
+            'EXECUTIVE_MANAGEMENT.VIEW',
+            'EXECUTIVE_REPORT.VIEW'
+          )
+          AND upper(ac.code) NOT LIKE '%.READ'
+        )
+      );
     IF bad_count > 0 THEN
         RAISE EXCEPTION 'RBAC_EXACT_MATRIX_9_OF_9=FAIL: EXECUTIVE_VIEWER has % rows with EXTRA capabilities', bad_count;
     END IF;
@@ -291,9 +311,20 @@ BEGIN
     JOIN role_template_bindings b ON b.tenant_id = r.tenant_id AND b.role_id = r.id
     WHERE b.tenant_id = tenant_record.id
       AND b.template_key = 'EXECUTIVE_VIEWER'
-      AND count_role_caps(r.tenant_id, r.id) != expected_count;
+      AND (
+        SELECT COUNT(*)
+        FROM role_capabilities rc
+        JOIN access_capabilities ac ON ac.id = rc.capability_id
+        WHERE rc.tenant_id = r.tenant_id AND rc.role_id = r.id
+          AND ac.code IN (
+            'EXECUTIVE_VIEW',
+            'EXECUTIVE_COMMAND_CENTER.VIEW',
+            'EXECUTIVE_MANAGEMENT.VIEW',
+            'EXECUTIVE_REPORT.VIEW'
+          )
+      ) != 4;
     IF bad_count > 0 THEN
-        RAISE EXCEPTION 'RBAC_EXACT_MATRIX_9_OF_9=FAIL: EXECUTIVE_VIEWER has % roles with wrong cap count (expected %)', bad_count, expected_count;
+        RAISE EXCEPTION 'RBAC_EXACT_MATRIX_9_OF_9=FAIL: EXECUTIVE_VIEWER has % roles missing executive capabilities (expected the 4 canonical executive codes)', bad_count;
     END IF;
 
     END LOOP;
