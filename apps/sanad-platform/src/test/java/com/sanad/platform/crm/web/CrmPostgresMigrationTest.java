@@ -263,7 +263,11 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: PR #1422 adds the forward-only fail-closed RLS hardening for the
     // nine post-baseline CRM tables (missing/empty tenant context must deny) at the sequence tail.
     private static final String POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION = "20261021.1";
-    private static final String LATEST_MIGRATION_VERSION = POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION;
+    // TEST_ALIGNMENT_REASON: SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) adds a forward-only,
+    // validation-only per-tenant revalidation of the role capability matrix under RLS context
+    // at the sequence tail (V20260820_7's global aggregation is blind under FORCE RLS).
+    private static final String ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION = "20261028.1";
+    private static final String LATEST_MIGRATION_VERSION = ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
