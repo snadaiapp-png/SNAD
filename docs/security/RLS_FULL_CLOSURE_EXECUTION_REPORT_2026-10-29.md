@@ -89,18 +89,29 @@ python3 tests/security/rls_catalog_acceptance_tests.py   # catalog/RPC/TX/NEG su
 
 ## 6. Remaining before COMPLETE (honest gaps)
 
-1. **REG-01 (partial):** targeted Maven verification could not run to completion in the
-   execution sandbox within this session; the CI Maven suite on the PR is the
-   authoritative application-compatibility gate for the FORCE changes (workflow engine
-   background jobs must use the trusted `TenantRlsTransactionContext` scoped path).
+1. **REG-01 (targeted, green):** backend compiles with the new migration (mvnw compile,
+   exit 0) and targeted PostgreSQL-Direct Java tests ran GREEN against the full chain
+   including V20261029_1: ContactRlsPostgresTest 12/12, HrRlsFailClosedIntegrationTest
+   259/259, CrmPostBaselineFailClosedRlsPostgresTest 5/5 (276 tests, 0 failures/errors/
+   skips). The CI Maven suite on PR #1460 remains the authoritative full-suite gate.
 2. **Independent review:** not yet performed. This report is implementer evidence and
-   must not be treated as independent assurance.
+   must not be treated as independent assurance. PR #1460 is opened for it.
 3. **T2 tables (6):** require the G1 pre-auth/credential contract work before RLS.
 4. **98 fixture-limited tables:** row-level A/B probes require domain-realistic
    fixtures (CI suite covers them with real fixtures).
-5. **PROD-RESCAN:** executed this session — production remains BEHIND the branch chain
-   (expected; deployment is not authorized). See the production section of the task
-   report; no production change was made.
+5. **PROD-RESCAN (executed this session, catalog SELECTs only):** production
+   `snad-prod-fresh` — 319 tables, 270 RLS-enabled, 114 FORCE, 49 without RLS (matches
+   the 2026-10-26 audit). Flyway history reaches 20261021.1 (installed 2026-10-28);
+   **20261026.4 is NOT in the history yet its effects are verified present** (0 unpinned
+   non-extension functions; sync_login_tenant_index anon/authenticated EXECUTE = false)
+   — a Flyway history divergence from an out-of-band application that must be
+   reconciled before the next deployment. **60 fail-open policies remain in production,
+   all on crm_* tables**, ~25 of which do not exist in the branch chain (production
+   schema drift) — closing them needs the drift reconciliation or a production-derived
+   hardening migration. Production `sanad` role verified NOBYPASSRLS; BYPASSRLS roles
+   present are Supabase-platform roles (service_role, supabase_admin,
+   supabase_read_only_user, supabase_etl_admin) — provider-owned, outside the SANAD
+   role contract, documented in V20261020_1 architecture.
 6. **Token rotation:** all five plaintext-exposed platform tokens must be rotated
    before any deployment authorization (governance rule: chat exposure = compromised).
 
