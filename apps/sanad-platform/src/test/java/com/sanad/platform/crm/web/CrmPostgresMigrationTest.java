@@ -566,6 +566,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
+                        MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -807,6 +808,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_RUNTIME_ROLE_TENANT_POLICY_VERSION),
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
+                        MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

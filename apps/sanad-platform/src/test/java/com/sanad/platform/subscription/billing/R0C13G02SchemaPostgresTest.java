@@ -118,7 +118,9 @@ class R0C13G02SchemaPostgresTest {
             // and post-baseline CRM RLS at the sequence tail (order-of-execution requirement).
             // V20261021_1 (PR #1422) adds the forward-only fail-closed RLS hardening for the
             // nine post-baseline CRM tables at the sequence tail.
-            assertThat(rs.getString(1)).isEqualTo("20261021.1");
+            // V20261028_1 (SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28, D1) heads the chain with the
+            // validation-only per-tenant role-template matrix revalidation under RLS context.
+            assertThat(rs.getString(1)).isEqualTo("20261028.1");
         }
     }
 

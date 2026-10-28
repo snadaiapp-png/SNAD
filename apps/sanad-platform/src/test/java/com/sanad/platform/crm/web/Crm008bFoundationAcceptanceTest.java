@@ -97,7 +97,7 @@ class Crm008bFoundationAcceptanceTest {
     //   V20261001_2..6 = Platform IAM membership/role/capability/bootstrap chain
     //   V20261001_7 = canonical Platform Owner executive-admin reconciliation
     //   V20261001_8..12 = forward-only UAC Wave 1 execution overlay
-    private static final String CRM_LATEST_VERSION = "20261021.1"; // PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables)
+    private static final String CRM_LATEST_VERSION = "20261028.1"; // PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables); SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at V20261028_1 (validation-only per-tenant role-template matrix revalidation under RLS context)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
