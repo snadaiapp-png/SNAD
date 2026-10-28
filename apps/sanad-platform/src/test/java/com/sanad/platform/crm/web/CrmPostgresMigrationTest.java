@@ -267,7 +267,11 @@ class CrmPostgresMigrationTest {
     // validation-only per-tenant revalidation of the role capability matrix under RLS context
     // at the sequence tail (V20260820_7's global aggregation is blind under FORCE RLS).
     private static final String ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION = "20261028.1";
-    private static final String LATEST_MIGRATION_VERSION = ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION;
+    // TEST_ALIGNMENT_REASON: SANAD-SEC-G1-D6-CLOSURE (D6 Batch 1) adds a forward-only
+    // pre-auth tenant discovery index for auth token flows + fail-closed FORCE RLS
+    // on refresh_tokens/password_reset_tokens at the sequence tail.
+    private static final String D6_AUTH_TOKEN_RLS_VERSION = "20261028.2";
+    private static final String LATEST_MIGRATION_VERSION = D6_AUTH_TOKEN_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -567,6 +571,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -809,6 +814,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

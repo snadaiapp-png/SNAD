@@ -6,6 +6,8 @@ import com.sanad.platform.security.domain.PasswordResetTokenRepository;
 import com.sanad.platform.security.domain.PasswordResetTokenStatus;
 import com.sanad.platform.security.exception.AccountInactiveException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
+import com.sanad.platform.security.rls.AuthTokenTenantScopeResolver;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
@@ -33,15 +35,33 @@ public class PasswordRecoveryNotificationCoordinator {
     private final PasswordResetTokenRepository tokenRepository;
     private final SecurityNotificationService notificationService;
     private PlatformAuditWriter credentialAuditWriter;
+    private final AuthTokenTenantScopeResolver authTokenTenantScopeResolver;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public PasswordRecoveryNotificationCoordinator(
+            UserRepository userRepository,
+            PasswordResetTokenRepository tokenRepository,
+            SecurityNotificationService notificationService,
+            @org.springframework.lang.Nullable
+            AuthTokenTenantScopeResolver authTokenTenantScopeResolver
+    ) {
+        this.userRepository = userRepository;
+        this.tokenRepository = tokenRepository;
+        this.notificationService = notificationService;
+        this.authTokenTenantScopeResolver = authTokenTenantScopeResolver;
+    }
+
+    /**
+     * Backward-compatible constructor for legacy unit tests: no pre-auth
+     * resolver (V20261028_2 contract disabled). Production Spring wiring
+     * always supplies the resolver.
+     */
     public PasswordRecoveryNotificationCoordinator(
             UserRepository userRepository,
             PasswordResetTokenRepository tokenRepository,
             SecurityNotificationService notificationService
     ) {
-        this.userRepository = userRepository;
-        this.tokenRepository = tokenRepository;
-        this.notificationService = notificationService;
+        this(userRepository, tokenRepository, notificationService, null);
     }
 
     /** Optional Phase 7 audit writer for administrative reset-link issuance. */
@@ -59,7 +79,19 @@ public class PasswordRecoveryNotificationCoordinator {
         // Bind delivery to the exact persisted reset token rather than
         // re-resolving by email. Email can be duplicated across tenants, while
         // the token carries the authoritative tenant/user tuple.
-        PasswordResetToken token = tokenRepository.findByTokenHashForUpdate(hash(rawToken))
+        // D6 (V20261028_2): scope the transaction from the audited pre-auth
+        // hash mapping BEFORE the FORCE-RLS'd lookup (fail-closed).
+        String tokenHash = hash(rawToken);
+        if (authTokenTenantScopeResolver != null) {
+            java.util.UUID scopedTenant = authTokenTenantScopeResolver
+                    .resolveTokenTenant(AuthTokenTenantScopeResolver.KIND_PASSWORD_RESET, tokenHash)
+                    .orElse(null);
+            if (scopedTenant == null) {
+                return;
+            }
+            applyTenantScope(scopedTenant);
+        }
+        PasswordResetToken token = tokenRepository.findByTokenHashForUpdate(tokenHash)
                 .filter(PasswordResetToken::isUsable)
                 .orElse(null);
         if (token == null) {
@@ -85,9 +117,38 @@ public class PasswordRecoveryNotificationCoordinator {
 
     @Transactional
     public void deliverResetConfirmation(String rawToken, String locale) {
-        tokenRepository.findByTokenHashForUpdate(hash(rawToken)).ifPresent(token ->
+        // D6 (V20261028_2): pre-auth tenant discovery before the scoped lookup.
+        String tokenHash = hash(rawToken);
+        if (authTokenTenantScopeResolver != null) {
+            java.util.UUID scopedTenant = authTokenTenantScopeResolver
+                    .resolveTokenTenant(AuthTokenTenantScopeResolver.KIND_PASSWORD_RESET, tokenHash)
+                    .orElse(null);
+            if (scopedTenant == null) {
+                return;
+            }
+            applyTenantScope(scopedTenant);
+        }
+        tokenRepository.findByTokenHashForUpdate(tokenHash).ifPresent(token ->
                 userRepository.findByTenantIdAndId(token.getTenantId(), token.getUserId())
                         .ifPresent(user -> notificationService.deliverPasswordChanged(user, locale)));
+    }
+
+    /**
+     * Applies the discovered tenant scope inside the current transaction.
+     * Mirrors AuthService#applyTrustedUserScope without a hard dependency:
+     * the coordinator may be used in test wirings without the RLS context bean.
+     */
+    private void applyTenantScope(java.util.UUID tenantId) {
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
+    }
+
+    private TenantRlsTransactionContext tenantRlsContext;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setTenantRlsContext(TenantRlsTransactionContext context) {
+        this.tenantRlsContext = context;
     }
 
     @Transactional

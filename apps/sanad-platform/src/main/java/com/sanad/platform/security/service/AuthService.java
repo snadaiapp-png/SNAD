@@ -25,6 +25,7 @@ import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.security.rls.AuthTokenTenantScopeResolver;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
 import com.sanad.platform.tenant.domain.TenantStatus;
@@ -77,6 +78,7 @@ public class AuthService {
     private PlatformAuditWriter credentialAuditWriter;
     private TenantRlsTransactionContext loginTenantRlsContext;
     private PreAuthTenantResolver preAuthTenantResolver;
+    private AuthTokenTenantScopeResolver authTokenTenantScopeResolver;
 
     @Autowired
     public AuthService(
@@ -137,6 +139,16 @@ public class AuthService {
     @Autowired
     void setPreAuthTenantResolver(PreAuthTenantResolver resolver) {
         this.preAuthTenantResolver = resolver;
+    }
+
+    /**
+     * D6 Batch 1 (V20261028_2): pre-auth tenant discovery for the refresh and
+     * password-reset flows. Optional injection keeps legacy direct-instantiation
+     * unit tests working; the Spring context always supplies the resolver.
+     */
+    @Autowired
+    void setAuthTokenTenantScopeResolver(AuthTokenTenantScopeResolver resolver) {
+        this.authTokenTenantScopeResolver = resolver;
     }
 
     /**
@@ -370,6 +382,20 @@ public class AuthService {
     })
     public AuthResponse refresh(RefreshRequest request) {
         String tokenHash = hashToken(request.getRefreshToken());
+        // D6 (V20261028_2): discover the owning tenant from the audited pre-auth
+        // index BEFORE the scoped lookup — fail-closed FORCE RLS denies hash-only
+        // lookups without a tenant context. The tenant id comes from the
+        // DB-verified hash mapping, never from client-supplied parameters.
+        if (authTokenTenantScopeResolver != null) {
+            java.util.UUID scopedTenant = authTokenTenantScopeResolver
+                    .resolveTokenTenant(AuthTokenTenantScopeResolver.KIND_REFRESH, tokenHash)
+                    .orElse(null);
+            if (scopedTenant == null) {
+                log.warn("Refresh failed: token not found");
+                throw new InvalidCredentialsException("رمز التحديث غير صالح");
+            }
+            applyTrustedUserScope(scopedTenant);
+        }
         Optional<RefreshToken> tokenOpt = refreshTokenRepository.findByTokenHashForUpdate(tokenHash);
         if (tokenOpt.isEmpty()) {
             log.warn("Refresh failed: token not found");
@@ -655,7 +681,19 @@ public class AuthService {
     @Transactional
     public void completePasswordReset(ResetPasswordRequest request) {
         String tokenHash = hashToken(request.getToken());
-
+        // D6 (V20261028_2): same pre-auth tenant discovery contract as refresh()
+        // — scope the transaction from the DB-verified hash mapping before the
+        // FORCE-RLS'd FOR UPDATE lookup.
+        if (authTokenTenantScopeResolver != null) {
+            java.util.UUID scopedTenant = authTokenTenantScopeResolver
+                    .resolveTokenTenant(AuthTokenTenantScopeResolver.KIND_PASSWORD_RESET, tokenHash)
+                    .orElse(null);
+            if (scopedTenant == null) {
+                log.warn("Password reset failed: token not found");
+                throw new InvalidResetTokenException("رمز إعادة التعيين غير صالح أو منتهي الصلاحية");
+            }
+            applyTrustedUserScope(scopedTenant);
+        }
         Optional<PasswordResetToken> tokenOpt = passwordResetTokenRepository.findByTokenHashForUpdate(tokenHash);
         if (tokenOpt.isEmpty()) {
             log.warn("Password reset failed: token not found");
