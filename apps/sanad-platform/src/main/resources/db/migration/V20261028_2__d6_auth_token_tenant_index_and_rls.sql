@@ -113,6 +113,7 @@ CREATE OR REPLACE FUNCTION public.sync_auth_token_tenant_index()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
+SET search_path = pg_catalog, public
 AS $fn$
 BEGIN
     IF TG_OP = 'INSERT' THEN

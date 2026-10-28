@@ -177,9 +177,17 @@ class CredentialRotationIntegrationTest {
         User persisted = persistedHolder[0];
         assertThat(persisted.isMustChangePassword()).isFalse();
         assertThat(persisted.getPasswordSetBy()).isEqualTo("self-service");
-        assertThat(refreshTokenRepository
-                .findAllByTenantIdAndUserId(tenant.getId(), persisted.getId()))
-                .isNotEmpty();
+        // D6 (V20261028_2): refresh_tokens is FORCE RLS fail-closed — the family
+        // read must establish the trusted tenant scope explicitly. Assertion
+        // intent unchanged (the rotated-credential family must still exist).
+        bindTenantContext(tenant.getId());
+        try {
+            tx.executeWithoutResult(txStatus -> assertThat(refreshTokenRepository
+                    .findAllByTenantIdAndUserId(tenant.getId(), persisted.getId()))
+                    .isNotEmpty());
+        } finally {
+            clearTenantContext();
+        }
     }
 
     /**

@@ -192,7 +192,16 @@ class G1GDynamic403ForensicPostgresTest {
             // the test with different email patterns). The FK constraint
             // fk_refresh_tokens_user blocks the DELETE if refresh_tokens still
             // reference the user. Fix: delete refresh_tokens by tenant_id first.
-            jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
+            // D6 (V20261028_2): refresh_tokens is FORCE RLS fail-closed — the owned
+            // purge must run under the tenant scope or it would silently filter to
+            // zero rows and block the users DELETE below.
+            final UUID scopedTenantId = tenantId;
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, scopedTenantId.toString());
+                jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", scopedTenantId);
+            });
             jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
