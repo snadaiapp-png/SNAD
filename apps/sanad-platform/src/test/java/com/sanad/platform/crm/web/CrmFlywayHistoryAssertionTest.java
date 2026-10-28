@@ -325,6 +325,10 @@ class CrmFlywayHistoryAssertionTest {
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
             // enabled FORCE RLS on role_template_bindings).
             , "20261028.1"   // role-template matrix revalidation under tenant RLS context
+            // SANAD-SEC-G1-D6-CLOSURE (D6 Batch 1): pre-auth tenant discovery index
+            // for auth token flows + fail-closed FORCE RLS on refresh_tokens and
+            // password_reset_tokens (identity plane, mandate §5.2 priority).
+            , "20261028.2"   // D6 auth token tenant index + fail-closed token-table RLS
     );
 
 

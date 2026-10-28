@@ -142,14 +142,23 @@ class RefreshTokenConcurrencyPostgresTest {
                     second.get(20, TimeUnit.SECONDS));
             assertThat(outcomes).containsExactlyInAnyOrder(true, false);
 
-            List<RefreshToken> family =
-                    refreshTokenRepository.findAllByTenantIdAndUserId(tenantId, userId);
-            assertThat(family.stream()
-                    .filter(token -> token.getStatus() == RefreshTokenStatus.ACTIVE)).isEmpty();
-            assertThat(family.stream()
-                    .filter(token -> token.getStatus() == RefreshTokenStatus.USED)).hasSize(1);
-            assertThat(family.stream()
-                    .filter(token -> token.getStatus() == RefreshTokenStatus.REVOKED)).hasSize(1);
+            // D6 (V20261028_2): refresh_tokens is now FORCE RLS fail-closed, so the
+            // family read must establish the trusted tenant scope explicitly — the
+            // same contract production callers follow. The assertion intent is
+            // unchanged (USED x1, REVOKED x1, ACTIVE x0 after concurrent rotation).
+            tx.executeWithoutResult(txStatus -> {
+                jdbcTemplate.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                List<RefreshToken> family =
+                        refreshTokenRepository.findAllByTenantIdAndUserId(tenantId, userId);
+                assertThat(family.stream()
+                        .filter(token -> token.getStatus() == RefreshTokenStatus.ACTIVE)).isEmpty();
+                assertThat(family.stream()
+                        .filter(token -> token.getStatus() == RefreshTokenStatus.USED)).hasSize(1);
+                assertThat(family.stream()
+                        .filter(token -> token.getStatus() == RefreshTokenStatus.REVOKED)).hasSize(1);
+            });
         } finally {
             executor.shutdownNow();
         }
@@ -178,10 +187,19 @@ class RefreshTokenConcurrencyPostgresTest {
         if (tenantId == null) {
             return;
         }
-        jdbcTemplate.update(
-                "UPDATE refresh_tokens SET replaced_by_id = NULL WHERE tenant_id = ?",
-                tenantId);
-        jdbcTemplate.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
+        // D6 (V20261028_2): refresh_tokens is FORCE RLS fail-closed — the owned
+        // cleanup must run under the tenant scope or it would silently filter to
+        // zero rows and block the users DELETE via fk_refresh_tokens_user.
+        UUID cleanupTenantId = tenantId;
+        tx.executeWithoutResult(txStatus -> {
+            jdbcTemplate.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, cleanupTenantId.toString());
+            jdbcTemplate.update(
+                    "UPDATE refresh_tokens SET replaced_by_id = NULL WHERE tenant_id = ?",
+                    cleanupTenantId);
+            jdbcTemplate.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", cleanupTenantId);
+        });
         jdbcTemplate.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
         if (planId != null) {
             jdbcTemplate.update("DELETE FROM saas_plans WHERE id = ?", planId);
