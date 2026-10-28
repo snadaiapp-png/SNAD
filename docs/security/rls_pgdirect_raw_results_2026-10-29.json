@@ -1,0 +1,1401 @@
+{
+ "tests": [
+  {
+   "id": "RLS-06a",
+   "test": "No non-postgres BYPASSRLS roles",
+   "status": "PASS",
+   "detail": "[]"
+  },
+  {
+   "id": "RLS-06b",
+   "test": "Zero PUBLIC/anon/authenticated table grants",
+   "status": "PASS",
+   "detail": "grants=0"
+  },
+  {
+   "id": "RPC-01a",
+   "test": "No anon/authenticated-callable SECURITY DEFINER functions",
+   "status": "PASS",
+   "detail": "count=0"
+  },
+  {
+   "id": "RLS-04a",
+   "test": "Zero NULL-allow tenant-context policies in catalog",
+   "status": "PASS",
+   "detail": "count=0"
+  },
+  {
+   "id": "FN-01",
+   "test": "All non-extension public functions have pinned search_path",
+   "status": "PASS",
+   "detail": "count=0 []"
+  },
+  {
+   "id": "RLS-06c",
+   "test": "Tables without RLS remaining (must be platform/reference/T2 only)",
+   "status": "INFO",
+   "detail": "count=29"
+  },
+  {
+   "id": "RPC-01",
+   "test": "anon cannot execute sync_login_tenant_index()",
+   "status": "PASS",
+   "detail": "set-role denied: permission denied to set role \"anon\""
+  },
+  {
+   "id": "RPC-02",
+   "test": "authenticated cannot execute sync_login_tenant_index()",
+   "status": "PASS",
+   "detail": "set-role denied: permission denied to set role \"authenticated\""
+  },
+  {
+   "id": "RPC-03",
+   "test": "users trigger maintains login_tenant_index (insert+delete)",
+   "status": "PASS",
+   "detail": "insert=True delete=True"
+  },
+  {
+   "id": "TX-01",
+   "test": "GUC does not persist after commit (SET LOCAL scope)",
+   "status": "PASS",
+   "detail": "after_commit=''"
+  },
+  {
+   "id": "TX-02",
+   "test": "GUC does not persist after rollback",
+   "status": "PASS",
+   "detail": "after_rollback=''"
+  },
+  {
+   "id": "TX-03",
+   "test": "In-transaction context switch is immediate (last wins)",
+   "status": "PASS",
+   "detail": "A=(1,) thenA=(0,)"
+  },
+  {
+   "id": "TX-04",
+   "test": "B cannot update A rows on a FORCE-RLS table",
+   "status": "PASS",
+   "detail": "rowcount=0"
+  },
+  {
+   "id": "NEG-01",
+   "test": "Negative control: fail-open policy DETECTED (missing ctx leaks row)",
+   "status": "PASS",
+   "detail": "leak=True"
+  }
+ ],
+ "summary": {
+  "per_table_status": {
+   "SYNTH-INSERT-BLOCKED": 98,
+   "PASS": 156,
+   "DOMAIN-GUARD-LIMITED": 6
+  },
+  "per_table_total": 260,
+  "catalog_tests_failed": 0,
+  "catalog_failures": [],
+  "overall": "PASS"
+ },
+ "per_table": [
+  {
+   "table": "access_scope_grants",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"access_scope_grants\" violates check constraint \"ck_access_scope_principal\""
+  },
+  {
+   "table": "ai_agents",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "ai_inference_log",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "analytics_dashboards",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "analytics_data_sources",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"analytics_data_sources\" violates check constraint \"ck_analytics_ds_type\""
+  },
+  {
+   "table": "analytics_reports",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "authorization_change_events",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "billing_invoices",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"billing_invoices\" violates check constraint \"ck_billing_invoices_status\""
+  },
+  {
+   "table": "bp_analytics_snapshots",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "bp_inventory_balances",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/DENIED-RLS swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "bp_inventory_movements",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_inventory_movements\" violates check constraint \"ck_bp_inventory_movements_type\""
+  },
+  {
+   "table": "bp_ledger_entries",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_ledger_entries\" violates check constraint \"ck_bp_ledger_entries_sides\""
+  },
+  {
+   "table": "bp_payment_events",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_payment_events\" violates check constraint \"ck_bp_payment_events_direction\""
+  },
+  {
+   "table": "bp_process_runs",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_process_runs\" violates check constraint \"ck_bp_process_runs_code\""
+  },
+  {
+   "table": "bp_process_steps",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_process_steps\" violates check constraint \"ck_bp_process_steps_domain\""
+  },
+  {
+   "table": "bp_workflow_approvals",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"bp_workflow_approvals\" violates check constraint \"ck_bp_workflow_approval_status\""
+  },
+  {
+   "table": "commerce_cart_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_carts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_collection_products",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_collections",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_order_finance_links",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_order_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_order_number_sequences",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/DENIED-RLS swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_order_status_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_orders",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_prices",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_product_variants",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_products",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_store_domains",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "commerce_stores",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_account_addresses",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_account_addresses\" violates check constraint \"chk_crm_account_address_type\""
+  },
+  {
+   "table": "crm_account_identifiers",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_account_identifiers\" violates check constraint \"chk_crm_account_identifier_type\""
+  },
+  {
+   "table": "crm_account_merge_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_account_relationships",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_account_relationships\" violates check constraint \"chk_crm_account_relationship_type\""
+  },
+  {
+   "table": "crm_account_status_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_accounts",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_accounts\" violates check constraint \"ck_crm_accounts_type\""
+  },
+  {
+   "table": "crm_activities",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_activities\" violates check constraint \"ck_crm_activities_type\""
+  },
+  {
+   "table": "crm_assignments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_assignments\" violates check constraint \"ck_crm_assignments_subject_type\""
+  },
+  {
+   "table": "crm_audit_logs",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_audit_logs\" violates check constraint \"ck_crm_audit_logs_entity_type\""
+  },
+  {
+   "table": "crm_call_events",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_call_events\" violates check constraint \"ck_crm_call_events_direction\""
+  },
+  {
+   "table": "crm_capacity_plans",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_cases",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_communication_method_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_communication_methods",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_communication_methods\" violates check constraint \"ck_crm_communication_methods_owner\""
+  },
+  {
+   "table": "crm_communication_policies",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_contact_account_relationships",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_contact_account_relationships\" violates check constraint \"ck_crm_contact_relationship_role\""
+  },
+  {
+   "table": "crm_contact_lookup_index",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_contact_ownership_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_contact_relationship_history",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_contact_relationship_history\" violates check constraint \"ck_crm_contact_relationship_history_event\""
+  },
+  {
+   "table": "crm_contact_relationship_roles",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_contacts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_custom_field_definitions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_custom_field_definitions\" violates check constraint \"ck_crm_custom_field_data_type\""
+  },
+  {
+   "table": "crm_custom_field_values",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_custom_field_values\" violates check constraint \"ck_crm_custom_field_value_entity\""
+  },
+  {
+   "table": "crm_email_logs",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_entity_participants",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_entity_participants\" violates check constraint \"ck_crm_entity_participants_entity_type\""
+  },
+  {
+   "table": "crm_event_outbox",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_idempotency_records",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_import_errors",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_import_files",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_import_jobs",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_leads",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_notes",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_notes\" violates check constraint \"ck_crm_notes_subject_type\""
+  },
+  {
+   "table": "crm_opportunities",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_opportunities\" violates check constraint \"ck_crm_opportunities_currency\""
+  },
+  {
+   "table": "crm_opportunity_stage_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_party_address_history",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_party_addresses",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_party_addresses\" violates check constraint \"ck_crm_party_addresses_owner\""
+  },
+  {
+   "table": "crm_phone_numbers",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_phone_numbers\" violates check constraint \"ck_crm_phone_numbers_e164\""
+  },
+  {
+   "table": "crm_pipeline_stages",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_pipelines",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_reports",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_service_assignments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_shift_assignments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_shift_templates",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "invalid input syntax for type time: \"SANADSYN\""
+  },
+  {
+   "table": "crm_staff_availability",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_staff_skills",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_tag_assignments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_tag_assignments\" violates check constraint \"ck_crm_tag_assignments_subject_type\""
+  },
+  {
+   "table": "crm_tags",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_tasks",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_timeline_events",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "crm_transfers",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"crm_transfers\" violates check constraint \"ck_crm_transfers_subject_type\""
+  },
+  {
+   "table": "crm_workload_assignments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "decision_actions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "decision_participants",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"decision_participants\" violates check constraint \"ck_participant_role\""
+  },
+  {
+   "table": "effective_permission_projection",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_goods_receipt_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_goods_receipts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_inventory_adjustments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_inventory_balances",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_inventory_movements",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"erp_inventory_movements\" violates check constraint \"ck_erp_im_type\""
+  },
+  {
+   "table": "erp_inventory_reservations",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_inventory_transfer_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_inventory_transfers",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_purchase_order_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_purchase_orders",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_purchase_requisition_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_purchase_requisitions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_suppliers",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "erp_warehouses",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "escalations",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"escalations\" violates check constraint \"ck_escalation_source\""
+  },
+  {
+   "table": "executive_alerts",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"executive_alerts\" violates check constraint \"ck_alert_source\""
+  },
+  {
+   "table": "executive_decisions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "executive_health_snapshots",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "executive_insights",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"executive_insights\" violates check constraint \"ck_insight_type\""
+  },
+  {
+   "table": "finance_accounts",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"finance_accounts\" violates check constraint \"ck_finance_account_type\""
+  },
+  {
+   "table": "finance_invoice_lines",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "finance_invoice_number_sequences",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/DENIED-RLS swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "finance_invoices",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"finance_invoices\" violates check constraint \"ck_finance_invoice_customer\""
+  },
+  {
+   "table": "finance_journal_entries",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "finance_journal_lines",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"finance_journal_lines\" violates check constraint \"ck_finance_jl_amounts\""
+  },
+  {
+   "table": "finance_payments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"finance_payments\" violates check constraint \"ck_finance_payment_method\""
+  },
+  {
+   "table": "governance_configurations",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_application_stage_periods",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_application_stage_periods\" violates check constraint \"ck_hr_application_stage_periods_stage\""
+  },
+  {
+   "table": "hr_applications",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_attendance_events",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_attendance_events\" violates check constraint \"ck_hr_attendance_events_type\""
+  },
+  {
+   "table": "hr_attendance_records",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_audit_delivery",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_audit_delivery\" violates check constraint \"ck_hr_audit_delivery_status\""
+  },
+  {
+   "table": "hr_audit_ledger",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_audit_ledger\" violates check constraint \"ck_hr_audit_result\""
+  },
+  {
+   "table": "hr_candidates",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_compensation_components",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_compensation_components\" violates check constraint \"ck_hr_comp_amount_or_percentage\""
+  },
+  {
+   "table": "hr_compensation_packages",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "value too long for type character(3)"
+  },
+  {
+   "table": "hr_compliance_decisions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_compliance_decisions\" violates check constraint \"ck_hr_compliance_decision_type\""
+  },
+  {
+   "table": "hr_compliance_override_requests",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_departments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_domain_event_outbox",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_employee_assignments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_employee_assignments\" violates check constraint \"ck_hr_assignments_occupancy\""
+  },
+  {
+   "table": "hr_employees",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_employment_contract_versions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_employment_contract_versions\" violates check constraint \"ck_hr_contract_status\""
+  },
+  {
+   "table": "hr_employment_contracts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_employment_jurisdiction_periods",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "value too long for type character(2)"
+  },
+  {
+   "table": "hr_employment_status_periods",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_employment_status_periods\" violates check constraint \"ck_hr_employment_status\""
+  },
+  {
+   "table": "hr_g2_idempotency_records",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_hire_conversions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_iam_access_bindings",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_iam_access_bindings\" violates check constraint \"ck_hr_iam_access_subject\""
+  },
+  {
+   "table": "hr_idempotency_records",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_interview_feedback",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_interview_participants",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_interviews",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_interviews\" violates check constraint \"ck_hr_interviews_mode\""
+  },
+  {
+   "table": "hr_job_opening_periods",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_job_opening_periods\" violates check constraint \"ck_hr_job_opening_periods_state\""
+  },
+  {
+   "table": "hr_job_openings",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_job_versions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_jobs",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_leave_balances",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_leave_ledger_entries",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_leave_ledger_entries\" violates check constraint \"ck_hr_leave_ledger_entries_type\""
+  },
+  {
+   "table": "hr_leave_policies",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_leave_requests",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_leave_requests\" violates check constraint \"ck_hr_leave_requests_state\""
+  },
+  {
+   "table": "hr_leave_types",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_legacy_employee_mappings",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_legacy_employee_mappings\" violates check constraint \"ck_hr_legacy_employee_mappings_class\""
+  },
+  {
+   "table": "hr_migration_review_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_migration_tenant_state",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_offer_versions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-IMMUTABLE-GUARD noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_offers",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_onboarding_checklist_templates",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_onboarding_checklists",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_onboarding_plans",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_onboarding_tasks",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_onboarding_workflow_transitions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_onboarding_workflow_transitions\" violates check constraint \"ck_hr_onboarding_workflow_outcome\""
+  },
+  {
+   "table": "hr_org_unit_versions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_org_unit_versions\" violates check constraint \"ck_hr_org_unit_type\""
+  },
+  {
+   "table": "hr_org_units",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_payroll_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_payroll_runs",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "value too long for type character(3)"
+  },
+  {
+   "table": "hr_people",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_performance_goals",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_performance_reviews",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_performance_reviews\" violates check constraint \"ck_hr_performance_reviews_source\""
+  },
+  {
+   "table": "hr_person_identifiers",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"hr_person_identifiers\" violates check constraint \"ck_hr_person_identifiers_type\""
+  },
+  {
+   "table": "hr_person_private",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_position_versions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_positions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_schedule_assignments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_schedule_versions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_tenant_policies",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_timesheet_entries",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_timesheets",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "hr_work_schedules",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "invalid input syntax for type time: \"SANADSYN\""
+  },
+  {
+   "table": "issues",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "key_results",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "kpi_definitions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "kpi_measurements",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"kpi_measurements\" violates check constraint \"ck_kpi_meas_status\""
+  },
+  {
+   "table": "kpi_targets",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "legal_entities",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "value too long for type character(2)"
+  },
+  {
+   "table": "management_audit_trail",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"management_audit_trail\" violates check constraint \"ck_audit_action\""
+  },
+  {
+   "table": "mobile_conflict_log",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"mobile_conflict_log\" violates check constraint \"mobile_conflict_log_conflict_class_check\""
+  },
+  {
+   "table": "mobile_device_registry",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"mobile_device_registry\" violates check constraint \"mobile_device_registry_device_platform_check\""
+  },
+  {
+   "table": "mobile_sync_cursor",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "mobile_sync_log",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"mobile_sync_log\" violates check constraint \"mobile_sync_log_direction_check\""
+  },
+  {
+   "table": "organization_legal_entities",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"organization_legal_entities\" violates check constraint \"ck_org_legal_entity_status\""
+  },
+  {
+   "table": "organization_memberships",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"organization_memberships\" violates check constraint \"ck_org_memberships_status\""
+  },
+  {
+   "table": "organizations",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"organizations\" violates check constraint \"ck_organizations_status\""
+  },
+  {
+   "table": "partner_delegation_grants",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/INCONCLUSIVE(PARTNER_DELEGATION_GRANT_BINDING_INACTIVE) swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "partner_tenant_bindings",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/DENIED-RLS swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "platform_files",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "risks",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "role_capabilities",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "role_template_bindings",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "roles",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "strategic_initiatives",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "strategic_objectives",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subject_relationships",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subscription_billing_finance_links",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_finance_links\" violates check constraint \"ck_subscription_billing_finance_links_external_reference\""
+  },
+  {
+   "table": "subscription_billing_outbox",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_outbox\" violates check constraint \"ck_subscription_billing_outbox_event_type\""
+  },
+  {
+   "table": "subscription_billing_payment_attempts",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_payment_attempts\" violates check constraint \"ck_subscription_billing_payment_attempts_currency\""
+  },
+  {
+   "table": "subscription_billing_profiles",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_profiles\" violates check constraint \"ck_sub_billing_profile_currency\""
+  },
+  {
+   "table": "subscription_billing_provider_customers",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subscription_billing_provider_events",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_provider_events\" violates check constraint \"ck_subscription_billing_provider_events_hash\""
+  },
+  {
+   "table": "subscription_billing_reconciliation_items",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_billing_reconciliation_items\" violates check constraint \"ck_subscription_billing_reconciliation_items_classification\""
+  },
+  {
+   "table": "subscription_billing_reconciliation_runs",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subscription_change_events",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subscription_items",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_items\" violates check constraint \"ck_subscription_items_product_ref\""
+  },
+  {
+   "table": "subscription_operating_units",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "subscription_resource_bindings",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"subscription_resource_bindings\" violates check constraint \"ck_sub_resource_binding_type\""
+  },
+  {
+   "table": "subscription_unit_applications",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "tenant_domains",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"tenant_domains\" violates check constraint \"ck_tenant_domains_domain_type\""
+  },
+  {
+   "table": "tenant_quota",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"tenant_quota\" violates check constraint \"chk_tenant_quota_dimension\""
+  },
+  {
+   "table": "tenant_subscriptions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"tenant_subscriptions\" violates check constraint \"ck_tenant_subscriptions_cycle\""
+  },
+  {
+   "table": "usage_aggregates",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"usage_aggregates\" violates check constraint \"ck_usage_agg_period\""
+  },
+  {
+   "table": "usage_events",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "usage_operating_unit_aggregates",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"usage_operating_unit_aggregates\" violates check constraint \"ck_usage_ou_agg_period\""
+  },
+  {
+   "table": "user_permission_overrides",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "user_role_assignments",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "users",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"users\" violates check constraint \"ck_users_status\""
+  },
+  {
+   "table": "website_domains",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "website_navigation",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "website_navigation_items",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "website_pages",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "website_publications",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "website_theme_settings",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "websites",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "work_locations",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "value too long for type character(2)"
+  },
+  {
+   "table": "workflow_analytics_process_facts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_analytics_step_facts",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_approval_requests",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_attachments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_attachments\" violates check constraint \"ck_wf_attachment_class\""
+  },
+  {
+   "table": "workflow_branch_tokens",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_business_calendars",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_calendar_holidays",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_customer_feedback",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_definitions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_delegations",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_event_inbox",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_event_outbox",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_execution_attempts",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_execution_attempts\" violates check constraint \"ck_wf_attempt_outcome\""
+  },
+  {
+   "table": "workflow_external_actions",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_external_actions\" violates check constraint \"ck_wf_ext_action_type\""
+  },
+  {
+   "table": "workflow_external_participants",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_external_participants\" violates check constraint \"ck_wf_ext_participant_type\""
+  },
+  {
+   "table": "workflow_incidents",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_instances",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_journey",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-IMMUTABLE-GUARD noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_notification_intents",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_notification_policies",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_notification_policies\" violates check constraint \"ck_wf_np_channel\""
+  },
+  {
+   "table": "workflow_portal_access_log",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_portal_access_log\" violates check constraint \"ck_wf_portal_access_outcome\""
+  },
+  {
+   "table": "workflow_portal_otp_challenges",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_responsibility_segments",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_responsibility_segments\" violates check constraint \"ck_wf_resp_segment_type\""
+  },
+  {
+   "table": "workflow_step_instances",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_step_transitions",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_steps",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_steps\" violates check constraint \"ck_wf_step_type\""
+  },
+  {
+   "table": "workflow_timers",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_timers\" violates check constraint \"ck_wf_timer_purpose\""
+  },
+  {
+   "table": "workflow_transition_audit",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_transition_audit\" violates check constraint \"ck_wf_audit_action\""
+  },
+  {
+   "table": "workflow_user_notifications",
+   "status": "PASS",
+   "detail": "A_reads=True B_block=True/True/True/DENIED-RLS swap=DENIED-RLS noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_webhook_endpoints",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_webhook_endpoints\" violates check constraint \"ck_wf_webhook_https\""
+  },
+  {
+   "table": "workflow_work_item_candidates",
+   "status": "DOMAIN-GUARD-LIMITED",
+   "detail": "A_reads=False B_block=True/True/True/DENIED-RLS swap=rows=0 noctx=True empty=True malformed=True"
+  },
+  {
+   "table": "workflow_work_items",
+   "status": "SYNTH-INSERT-BLOCKED",
+   "detail": "new row for relation \"workflow_work_items\" violates check constraint \"ck_work_item_assignment_mode\""
+  }
+ ]
+}
