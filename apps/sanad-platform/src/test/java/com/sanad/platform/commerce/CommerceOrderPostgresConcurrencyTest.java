@@ -88,6 +88,7 @@ class CommerceOrderPostgresConcurrencyTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
     @Autowired private org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate namedJdbc;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager txManager;
     @MockBean private EntitlementResolver entitlementResolver;
 
     @BeforeEach
@@ -382,6 +383,11 @@ class CommerceOrderPostgresConcurrencyTest {
         assertThat(successfulReplays.get()).as("at least one success").isGreaterThanOrEqualTo(1);
 
         // ===== Count side effects at the DB level =====
+        // commerce_* tables are FORCE RLS (V20261029_1): the main thread's
+        // read-back MUST bind app.tenant_id on the same transaction, otherwise
+        // the fail-closed policy hides every committed row and the counts
+        // collapse to zero even though the concurrent checkouts succeeded.
+        withTenantDb(tenantId, () -> {
         Integer orderRows = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND idempotency_key = ?",
                 Integer.class, tenantId, idempotencyKey);
@@ -414,6 +420,8 @@ class CommerceOrderPostgresConcurrencyTest {
 
         assertThat(distinctOrderIds).as("DISTINCT_ORDER_IDS=1 (same logical order returned to all winners)").hasSize(1);
         assertThat(distinctOrderNumbers).as("DISTINCT_ORDER_NUMBERS=1").hasSize(1);
+        return null;
+        });
     }
 
     // ===== Test 5: Same key + DIFFERENT cart → 409 IDEMPOTENCY_KEY_REUSE_MISMATCH =====
@@ -538,9 +546,12 @@ class CommerceOrderPostgresConcurrencyTest {
         assertThat(unexpectedErrors.get()).as("UNEXPECTED_ERRORS=0").isEqualTo(0);
 
         // CART_SINGLE_CHECKOUT_DB_INVARIANT — exactly ONE order for this cart
-        Integer orderCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND cart_id = ?",
-                Integer.class, tenantId, sharedCartId);
+        // FORCE RLS read-back: bind the tenant GUC on the same transaction,
+        // otherwise the fail-closed policy hides the committed order (0 rows).
+        Integer orderCount = withTenantDb(tenantId, () ->
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND cart_id = ?",
+                        Integer.class, tenantId, sharedCartId));
         assertThat(orderCount).as("CONCURRENT_SAME_CART_NO_KEY=ONE_ORDER").isEqualTo(1);
         assertThat(distinctOrderIds).as("DISTINCT_ORDER_IDS=1").hasSize(1);
     }
@@ -596,6 +607,19 @@ class CommerceOrderPostgresConcurrencyTest {
         } finally {
             RlsTestSupport.clearSecurityContext();
         }
+    }
+
+    /** FORCE-RLS read-back: run the reads inside a transaction whose connection
+     * carries the transaction-local {@code app.tenant_id} GUC. Bare pooled-
+     * connection reads are fail-closed filtered to zero rows even when the
+     * rows were committed by properly scoped worker transactions. */
+    private <T> T withTenantDb(UUID tenantId, java.util.function.Supplier<T> reads) {
+        var tt = new org.springframework.transaction.support.TransactionTemplate(txManager);
+        return tt.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return reads.get();
+        });
     }
 
     private com.sanad.platform.commerce.api.CommerceDtos.CheckoutResponse checkout(

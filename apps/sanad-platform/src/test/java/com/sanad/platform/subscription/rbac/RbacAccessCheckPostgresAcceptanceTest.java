@@ -178,6 +178,16 @@ class RbacAccessCheckPostgresAcceptanceTest {
                 });
     }
 
+    /** Supplier variant of {@link #inTenantContext} returning the write's result. */
+    private <T> T inTenantContextResult(UUID tenantId, java.util.function.Supplier<T> write) {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return write.get();
+                });
+    }
+
     /** Grants a capability to a role through the REAL access_capabilities catalog.
      *
      * <p>Capability codes are stored UPPERCASE (V20260901_1 canonicalization);
@@ -483,11 +493,15 @@ class RbacAccessCheckPostgresAcceptanceTest {
         UUID userId = seedUser(tenantId, "rb09-" + UUID.randomUUID() + "@rbac-acc.test");
         UUID roleId = seedRole(tenantId, "SHOP_VIEWER");
         // Unrelated, non-SCP capability only (stored UPPERCASE — USER.READ).
-        jdbc.update("""
+        // role_capabilities is FORCE RLS (V20261029_1): the grant must run inside
+        // the tenant GUC-bound transaction — a bare pooled-connection write is
+        // rejected by the fail-closed WITH CHECK (42501).
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
                 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
                 SELECT gen_random_uuid(), ?, ?, c.id, NOW()
                 FROM access_capabilities c WHERE c.code = 'USER.READ'
-                """, tenantId, roleId);
+                """, tenantId, roleId));
         assignRole(tenantId, userId, roleId, "ACTIVE");
 
         ControlPlaneAccessService.AccessCheckV2 result =
@@ -555,9 +569,18 @@ class RbacAccessCheckPostgresAcceptanceTest {
                 accessService.accessCheck(stringDetailsAuth(identity.tenantId(), identity.userId()));
         assertThat(before.capabilities()).containsEntry("subscription.read", true);
 
-        jdbc.update(
-                "UPDATE user_role_assignments SET status = 'REVOKED', updated_at = NOW() WHERE user_id = ?",
-                identity.userId());
+        // user_role_assignments is FORCE RLS (V20261029_1): the revocation must
+        // run inside the tenant GUC-bound transaction. A bare pooled-connection
+        // UPDATE is fail-closed filtered to zero rows, leaving the grant ACTIVE
+        // and the post-revocation assertion green-when-should-be-red.
+        Integer revoked = inTenantContextResult(identity.tenantId(), () ->
+                jdbc.update(
+                        "UPDATE user_role_assignments SET status = 'REVOKED', updated_at = NOW() "
+                                + "WHERE user_id = ? AND tenant_id = ?",
+                        identity.userId(), identity.tenantId()));
+        org.assertj.core.api.Assertions.assertThat(revoked)
+                .as("revocation must match exactly the viewer's assignment row")
+                .isEqualTo(1);
 
         ControlPlaneAccessService.AccessCheckV2 after =
                 accessService.accessCheck(stringDetailsAuth(identity.tenantId(), identity.userId()));
