@@ -320,6 +320,7 @@ class CrmFlywayHistoryAssertionTest {
             // PR #1422: forward-only fail-closed RLS hardening for the nine post-baseline CRM
             // tables (missing/empty app.tenant_id must deny) at the sequence tail.
             , "20261021.1"   // fail-closed RLS on post-baseline CRM tables
+            , "20261026.4"   // RLS forensic function search_path and ACL hardening
             // SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1): forward-only, validation-only
             // per-tenant revalidation of the role capability matrix under RLS context
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
