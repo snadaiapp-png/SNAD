@@ -78,11 +78,14 @@ class WorkflowR2ExternalPortalTest {
         jdbc = new JdbcTemplate(dataSource);
         transactionManager = new DataSourceTransactionManager(dataSource);
         tx = new TransactionTemplate(transactionManager);
-        actionService = new WorkflowExternalActionService(jdbc,
-                new com.fasterxml.jackson.databind.ObjectMapper());
         WorkflowJourneyService journeyService = new WorkflowJourneyService(jdbc, new com.fasterxml.jackson.databind.ObjectMapper());
         com.sanad.platform.security.rls.TenantRlsTransactionContext tenantContext =
                 new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+        // V20261029_3: the action service resolves the pre-auth token through
+        // the token index and re-reads the authoritative row under the
+        // resolved tenant's RLS scope.
+        actionService = new WorkflowExternalActionService(jdbc,
+                new com.fasterxml.jackson.databind.ObjectMapper(), tenantContext);
         portal = new WorkflowExternalPortalService(actionService, journeyService,
                 tenantContext, jdbc, false);
         portalWithOtp = new WorkflowExternalPortalService(actionService, journeyService,
@@ -97,6 +100,15 @@ class WorkflowR2ExternalPortalTest {
     private WorkflowExternalPortalService.PortalView inTxView(PortalFixture fx,
                                                               String ip) {
         return tx.execute(s -> portal.view(fx.token(), ip));
+    }
+
+    /** Tenant-scoped read (FORCE RLS - V20261029_1). */
+    private <T> T inTenantScope(UUID tenantId, java.util.function.Supplier<T> body) {
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return body.get();
+        });
     }
 
     private WorkflowExternalPortalService.PortalResponse inTxRespond(
@@ -190,36 +202,42 @@ class WorkflowR2ExternalPortalTest {
                 "203.0.113.10", null);
         assertThat(response.status()).isEqualTo("RESPONDED");
         assertThat(response.responsePayload()).containsEntry("decision", "APPROVE");
-        Integer journeyEvents = jdbc.queryForObject("""
+        // FORCE RLS (V20261029_1): verification reads run under the tenant scope.
+        inTenantScope(fx.tenant(), () -> {
+            Integer journeyEvents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_journey
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                    AND event_type = 'EXTERNAL_RESPONSE'
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(journeyEvents).isEqualTo(1);
+            assertThat(journeyEvents).isEqualTo(1);
+        });
         // REPLAY: repeated valid response is idempotent — no second advance
         WorkflowExternalPortalService.PortalResponse replay = inTxRespond(portal,
                 fx, "APPROVE", Map.of("decision", "REJECT"), "203.0.113.10", null);
         assertThat(replay.status()).isEqualTo("RESPONDED");
-        Map<String, Object> persisted = jdbc.queryForMap("""
+        inTenantScope(fx.tenant(), () -> {
+            Map<String, Object> persisted = jdbc.queryForMap("""
                 SELECT response_payload::text AS payload_text
                   FROM workflow_external_actions WHERE tenant_id = ? AND id = ?
                 """, fx.tenant(), fx.actionId());
-        assertThat(String.valueOf(persisted.get("payload_text")))
-                .contains("APPROVE").doesNotContain("REJECT");
-        Integer journeyAfterReplay = jdbc.queryForObject("""
+            assertThat(String.valueOf(persisted.get("payload_text")))
+                    .contains("APPROVE").doesNotContain("REJECT");
+            Integer journeyAfterReplay = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_journey
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                    AND event_type = 'EXTERNAL_RESPONSE'
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(journeyAfterReplay).isEqualTo(1);
+            assertThat(journeyAfterReplay).isEqualTo(1);
+        });
     }
 
     @Test
     void expiredAndRevokedActionsAreDenied() {
         PortalFixture fx = fixture("expired", Instant.now().plusSeconds(3600),
                 Map.of("APPROVE", true), false);
-        // force EXPIRED state
-        actionService.transition(fx.tenant(), fx.actionId(), "EXPIRED", Map.of());
+        // force EXPIRED state (FORCE RLS — scoped transition)
+        inTenantScope(fx.tenant(), () -> actionService.transition(
+                fx.tenant(), fx.actionId(), "EXPIRED", Map.of()));
         assertThatThrownBy(() -> tx.execute(s -> portal.respond(fx.token(), "APPROVE",
                 Map.of(), "203.0.113.10", null)))
                 .isInstanceOf(WorkflowExternalPortalService.PortalDeniedException.class)
@@ -230,7 +248,8 @@ class WorkflowR2ExternalPortalTest {
 
         PortalFixture fx2 = fixture("revoked", Instant.now().plusSeconds(3600),
                 Map.of("APPROVE", true), false);
-        actionService.transition(fx2.tenant(), fx2.actionId(), "REVOKED", Map.of());
+        inTenantScope(fx2.tenant(), () -> actionService.transition(
+                fx2.tenant(), fx2.actionId(), "REVOKED", Map.of()));
         assertThatThrownBy(() -> tx.execute(s -> portal.respond(fx2.token(), "APPROVE",
                 Map.of(), "203.0.113.10", null)))
                 .isInstanceOf(WorkflowExternalPortalService.PortalDeniedException.class)
@@ -245,35 +264,43 @@ class WorkflowR2ExternalPortalTest {
                 Map.of(), "203.0.113.10", null)))
                 .isInstanceOf(WorkflowExternalPortalService.PortalDeniedException.class)
                 .hasMessageContaining("ACTION_NOT_ALLOWED");
-        Map<String, Object> action = jdbc.queryForMap(
+        inTenantScope(fx.tenant(), () -> {
+            Map<String, Object> action = jdbc.queryForMap(
                 "SELECT status FROM workflow_external_actions WHERE tenant_id = ? AND id = ?",
                 fx.tenant(), fx.actionId());
-        assertThat(action.get("status")).isNotEqualTo("RESPONDED");
+            assertThat(action.get("status")).isNotEqualTo("RESPONDED");
+        });
     }
 
     @Test
     void tokenAndFingerprintRateLimitsFailClosed() {
         PortalFixture fx = fixture("ratelimit", Instant.now().plusSeconds(3600),
                 Map.of("ACKNOWLEDGE", true), false);
-        actionService.transition(fx.tenant(), fx.actionId(), "VIEWED", Map.of());
-        // pre-seed the durable counters to the limit boundary
-        for (int i = 0; i < 10; i++) {
-            jdbc.update("""
+        inTenantScope(fx.tenant(), () -> actionService.transition(
+                fx.tenant(), fx.actionId(), "VIEWED", Map.of()));
+        // pre-seed the durable counters to the limit boundary (FORCE RLS —
+        // workflow_portal_access_log is tenant-scoped, V20261029_1)
+        inTenantScope(fx.tenant(), () -> {
+            for (int i = 0; i < 10; i++) {
+                jdbc.update("""
                     INSERT INTO workflow_portal_access_log (
                         tenant_id, external_action_id, access_type, outcome,
                         remote_fingerprint, created_at)
                     VALUES (?, ?, 'VIEW', 'ALLOWED', ?, NOW() - INTERVAL '5 minutes')
                     """, fx.tenant(), fx.actionId(), "198.51.100.7");
-        }
+            }
+        });
         assertThatThrownBy(() -> tx.execute(s -> portal.respond(fx.token(), "ACKNOWLEDGE",
                 Map.of(), "198.51.100.7", null)))
                 .isInstanceOf(WorkflowExternalPortalService.PortalDeniedException.class)
                 .hasMessageContaining("RATE_LIMITED");
         // action remains un-responded (fail closed)
-        Map<String, Object> action = jdbc.queryForMap(
+        inTenantScope(fx.tenant(), () -> {
+            Map<String, Object> action = jdbc.queryForMap(
                 "SELECT status FROM workflow_external_actions WHERE tenant_id = ? AND id = ?",
                 fx.tenant(), fx.actionId());
-        assertThat(action.get("status")).isEqualTo("VIEWED");
+            assertThat(action.get("status")).isEqualTo("VIEWED");
+        });
     }
 
     @Test
@@ -288,10 +315,10 @@ class WorkflowR2ExternalPortalTest {
         // issue OTP (plaintext returned exactly once; only hash stored)
         String otp = tx.execute(s -> portalWithOtp.issueOtp(fx.token(), "203.0.113.20"));
         assertThat(otp).hasSize(6);
-        String storedOtp = jdbc.queryForObject("""
+        String storedOtp = inTenantScope(fx.tenant(), () -> jdbc.queryForObject("""
                 SELECT otp_hash FROM workflow_portal_otp_challenges
                  WHERE external_action_id = ? ORDER BY created_at DESC LIMIT 1
-                """, String.class, fx.actionId());
+                """, String.class, fx.actionId()));
         assertThat(storedOtp).isNotEqualTo(otp);
         assertThat(storedOtp).hasSize(64);
         // wrong OTP -> OTP_INVALID
@@ -333,25 +360,28 @@ class WorkflowR2ExternalPortalTest {
             setDetails(Map.of("tenant_id", fx.tenant().toString(),
                     "user_id", UUID.randomUUID().toString()));
         }};
-        // rating out of bounds -> 400, nothing persisted
-        var rejected = feedback.record(auth, Map.of(
-                "workflowInstanceId", fx.instance().toString(), "rating", 6));
+        // rating out of bounds -> 400, nothing persisted (FORCE RLS —
+        // workflow_customer_feedback writes run under the tenant scope)
+        var rejected = inTenantScope(fx.tenant(), () -> feedback.record(auth, Map.of(
+                "workflowInstanceId", fx.instance().toString(), "rating", 6)));
         assertThat(rejected.getStatusCode().value()).isEqualTo(400);
         // valid rating -> 200 + evidence row + journey event
-        var ok = feedback.record(auth, Map.of(
+        var ok = inTenantScope(fx.tenant(), () -> feedback.record(auth, Map.of(
                 "workflowInstanceId", fx.instance().toString(),
-                "rating", 5, "comment", "great service"));
+                "rating", 5, "comment", "great service")));
         assertThat(ok.getStatusCode().is2xxSuccessful()).isTrue();
-        Integer feedbackRows = jdbc.queryForObject("""
+        inTenantScope(fx.tenant(), () -> {
+            Integer feedbackRows = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_customer_feedback
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(feedbackRows).isEqualTo(1);
-        Integer journeyEvents = jdbc.queryForObject("""
+            assertThat(feedbackRows).isEqualTo(1);
+            Integer journeyEvents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_journey
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                    AND event_type = 'EXTERNAL_RESPONSE' AND reason LIKE 'Customer feedback%'
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(journeyEvents).isEqualTo(1);
+            assertThat(journeyEvents).isEqualTo(1);
+        });
     }
 }

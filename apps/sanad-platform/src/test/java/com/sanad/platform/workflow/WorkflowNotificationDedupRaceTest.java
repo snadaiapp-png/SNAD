@@ -103,14 +103,16 @@ class WorkflowNotificationDedupRaceTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "T15Dedup-" + tag,
                 "t15-dedup-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
-        // FIXED: TransactionTemplate — set_config + INSERT on same connection
+        // FIXED: TransactionTemplate — set_config + INSERT on same connection.
+        // workflow_definitions / workflow_instances are FORCE RLS (V20261029_1):
+        // the definition + instance seeds share the SAME transaction-local
+        // tenant scope as the user seed.
         tx.executeWithoutResult(txStatus -> {
             jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                     + "VALUES (?, ?, ?, 'Dedup User', 'ACTIVE', 'dummy', ?, ?)",
                     user, tenant, "t15-dedup-" + user.toString().substring(0, 8) + "@test", now, now);
-        });
-        jdbc.update("""
+            jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,
                     trigger_type, created_by, version_lock, engine_generation, publication_state,
@@ -118,7 +120,7 @@ class WorkflowNotificationDedupRaceTest {
                 ) VALUES (?, ?, ?, 'WF15-DEDUP', 'Dedup', 'GENERAL', 1, 'ACTIVE',
                           'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
                 """, definition, tenant, definition, user, now, now);
-        jdbc.update("""
+            jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
                     business_entity_id, status, started_by, started_at, engine_generation,
@@ -126,6 +128,7 @@ class WorkflowNotificationDedupRaceTest {
                 ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
                           CAST('{}' AS jsonb), 1, 0, ?, ?)
                 """, instance, tenant, definition, user, now, now);
+        });
         createdTenants.add(tenant);
         return new Fixture(tenant, user, definition, instance);
     }

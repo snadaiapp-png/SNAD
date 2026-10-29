@@ -236,26 +236,39 @@ class WorkflowParallelEndToEndTest {
         try {
             for (int r = 0; r < rounds; r++) {
                 instance("start");
-                graph.advance(tenantId, instanceId, "SUCCESS", userId);
+                // FORCE RLS (V20261029_1): the NOT_SUPPORTED method has no
+                // ambient transaction — every runtime advance and every read
+                // runs under an explicit transaction-local tenant scope.
+                scopedAdvance(tenantId, instanceId, "SUCCESS", userId);
                 // REAL arrival of branch_a first: marks A, creates the join step instance,
                 // parks the pointer at the fork — all state produced by the real runtime
-                graph.advance(tenantId, instanceId, "branch_a", userId);
-                graph.advance(tenantId, instanceId, null, userId);
+                scopedAdvance(tenantId, instanceId, "branch_a", userId);
+                scopedAdvance(tenantId, instanceId, null, userId);
                 UUID joinInstanceId = joinInstanceId();
-                // two concurrent branch_b arrivals race the atomic join grant
+                // two concurrent branch_b arrivals race the atomic join grant;
+                // each pool thread carries its own tenant scope
                 CountDownLatch ready = new CountDownLatch(1);
                 var grant = (java.util.function.Supplier<Boolean>) () ->
-                        graph.grantJoinIfComplete(tenantId, instanceId, joinInstanceId, joinId(), 2, "branch_b");
+                        tx.execute(status -> {
+                            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                                    String.class, tenantId.toString());
+                            return graph.grantJoinIfComplete(tenantId, instanceId, joinInstanceId, joinId(), 2, "branch_b");
+                        });
                 Future<Boolean> f1 = pool.submit(() -> { ready.await(); return grant.get(); });
                 Future<Boolean> f2 = pool.submit(() -> { ready.await(); return grant.get(); });
                 ready.countDown();
                 boolean w1 = f1.get(30, TimeUnit.SECONDS);
                 boolean w2 = f2.get(30, TimeUnit.SECONDS);
                 int winners = (w1 ? 1 : 0) + (w2 ? 1 : 0);
-                int completed = jdbc.queryForObject(
+                Integer completed = tx.execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return jdbc.queryForObject(
                         "SELECT COUNT(*) FROM workflow_branch_tokens WHERE tenant_id=? AND workflow_instance_id=? AND status='COMPLETED'",
                         Integer.class, tenantId, instanceId);
-                if (winners != 1 || joinAttempts() != 1 || completed != 2) failures.incrementAndGet();
+                });
+                Integer attempts = joinAttempts();
+                if (winners != 1 || (attempts == null || attempts != 1) || (completed == null || completed != 2)) failures.incrementAndGet();
                 cleanupTenantData();
             }
         } finally {
@@ -352,7 +365,12 @@ class WorkflowParallelEndToEndTest {
     private void instance(String stepKey) {
         instanceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
-        jdbc.update("""
+        // FORCE RLS (V20261029_1): joins the ambient test transaction when one
+        // exists; under NOT_SUPPORTED it opens its own tenant-scoped tx.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
                 INSERT INTO workflow_instances (id, tenant_id, workflow_definition_id, workflow_version,
                     business_entity_type, business_entity_id, status, current_step_key, started_by, started_at,
                     engine_generation, definition_family_id, definition_version_id, context_json,
@@ -360,11 +378,21 @@ class WorkflowParallelEndToEndTest {
                 VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, ?, ?, 'Y2', ?, ?,
                         CAST('{}' AS jsonb), 1, 0, ?, ?)
                 """, instanceId, tenantId, defId, stepKey, userId, now, defId, defId, now, now);
-        jdbc.update("""
+            jdbc.update("""
                 INSERT INTO workflow_step_instances (id, tenant_id, workflow_instance_id, workflow_step_id,
                     step_key, status, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'PENDING', 0, ?, ?)
                 """, UUID.randomUUID(), tenantId, instanceId, startId, stepKey, now, now);
+        });
+    }
+
+    /** Tenant-scoped graph advance for no-ambient-tx (NOT_SUPPORTED) paths. */
+    private void scopedAdvance(UUID tenant, UUID instance, String action, UUID actor) {
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenant.toString());
+            graph.advance(tenant, instance, action, actor);
+        });
     }
 
     private String currentStepKey() {
@@ -392,16 +420,25 @@ class WorkflowParallelEndToEndTest {
     }
 
     private int joinAttempts() {
-        Integer n = jdbc.queryForObject(
+        // FORCE RLS (V20261029_1): scoped read (joins ambient tx when present).
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            Integer n = jdbc.queryForObject(
                 "SELECT attempt_count FROM workflow_step_instances WHERE tenant_id=? AND workflow_instance_id=? AND step_key='join'",
                 Integer.class, tenantId, instanceId);
-        return n == null ? 0 : n;
+            return n == null ? 0 : n;
+        });
     }
 
     private UUID joinInstanceId() {
-        return jdbc.queryForObject(
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return jdbc.queryForObject(
                 "SELECT id FROM workflow_step_instances WHERE tenant_id=? AND workflow_instance_id=? AND step_key='join'",
                 UUID.class, tenantId, instanceId);
+        });
     }
 
     private UUID joinId() {
@@ -409,9 +446,14 @@ class WorkflowParallelEndToEndTest {
     }
 
     private void cleanupTenantData() {
-        jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM workflow_instances WHERE tenant_id=?", tenantId);
+        // FORCE RLS (V20261029_1): sweep inside the owning tenant's scope.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM workflow_instances WHERE tenant_id=?", tenantId);
+        });
     }
 
     private UUID publishedDefinition(UUID familyId, int version) {

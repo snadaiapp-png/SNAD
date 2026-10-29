@@ -59,6 +59,25 @@ class WorkflowR2AnalyticsTest {
         }
     }
 
+    /** Runs a body inside a transaction-local app.tenant_id scope
+     *  (workflow tables are FORCE RLS - V20261029_1). */
+    private void inTenantScope(UUID tenantId, Runnable body) {
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            body.run();
+        });
+    }
+
+    /** Result-bearing variant of {@link #inTenantScope(UUID, Runnable)}. */
+    private <T> T inTenantScopeWithResult(UUID tenantId, java.util.function.Supplier<T> body) {
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return body.get();
+        });
+    }
+
     @BeforeAll
     static void setup() {
         String url = System.getenv().getOrDefault(
@@ -91,7 +110,12 @@ class WorkflowR2AnalyticsTest {
         timerWorker = new WorkflowTimerNotificationWorker(jdbc, notifications,
                 journeyService, true, 72, 24);
         projectionService = new WorkflowAnalyticsProjectionService(jdbc);
-        projectionWorker = new WorkflowAnalyticsProjectionWorker(jdbc, projectionService, true);
+        // FORCE RLS (V20261029_1): the projection worker needs the trusted
+        // transaction-local tenant scope for its per-tenant pass.
+        com.sanad.platform.security.rls.TenantRlsTransactionContext workerRls =
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+        projectionWorker = new WorkflowAnalyticsProjectionWorker(jdbc, projectionService,
+                transactionManager, workerRls, true);
         queryService = new WorkflowAnalyticsQueryService(jdbc);
         metricsService = new WorkflowPerformanceMetricsService(jdbc);
     }
@@ -252,6 +276,9 @@ class WorkflowR2AnalyticsTest {
     @Test
     void projectionsReconcileExactlyToJourneySegmentAndTimerEvidence() {
         Fixture fx = reconciliationFixture("reconcile");
+        // FORCE RLS (V20261029_1): the @Transactional projection service and the
+        // facts verification run under the fixture tenant's transaction-local scope.
+        inTenantScope(fx.tenant(), () -> {
         projectionService.projectInstance(fx.tenant(), fx.instance());
         Map<String, Object> facts = jdbc.queryForMap("""
                 SELECT sla_breach_count, timeout_count, reassignment_count,
@@ -299,6 +326,7 @@ class WorkflowR2AnalyticsTest {
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                 """, Integer.class, fx.tenant(), fx.instance());
         assertThat(rows).isEqualTo(1);
+        });
     }
 
     // ===== MATRIX F: dashboards aggregate the reconciled facts =====
@@ -306,26 +334,33 @@ class WorkflowR2AnalyticsTest {
     @Test
     void dashboardsAggregateReconciledFactsWithoutCrossTenantLeakage() {
         Fixture fx = reconciliationFixture("dashboard");
-        projectionService.projectInstance(fx.tenant(), fx.instance());
-        Map<String, Object> service = queryService.serviceDashboard(
-                fx.tenant(), Instant.now().minusSeconds(86400), Instant.now());
-        assertThat(((Number) service.get("total_instances")).longValue()).isEqualTo(1);
-        assertThat(((Number) service.get("sla_breaches")).longValue()).isEqualTo(1);
-        // a different tenant sees ZERO (no cross-tenant aggregation)
+        inTenantScope(fx.tenant(), () -> {
+            projectionService.projectInstance(fx.tenant(), fx.instance());
+            Map<String, Object> service = queryService.serviceDashboard(
+                    fx.tenant(), Instant.now().minusSeconds(86400), Instant.now());
+            assertThat(((Number) service.get("total_instances")).longValue()).isEqualTo(1);
+            assertThat(((Number) service.get("sla_breaches")).longValue()).isEqualTo(1);
+        });
+        // a different tenant sees ZERO (no cross-tenant aggregation); each
+        // dashboard read runs under ITS OWN tenant's RLS scope.
         UUID otherTenant = UUID.randomUUID();
-        Map<String, Object> isolated = queryService.serviceDashboard(
-                otherTenant, Instant.now().minusSeconds(86400), Instant.now());
-        assertThat(((Number) isolated.get("total_instances")).longValue()).isEqualTo(0);
-        Map<String, Object> sla = queryService.slaDashboard(
-                fx.tenant(), Instant.now().minusSeconds(86400), Instant.now());
-        assertThat(((Number) sla.get("compliance_percent")).doubleValue()).isEqualTo(0.0);
-        Map<String, Object> bottleneck = queryService.bottleneckDashboard(
-                fx.tenant(), Instant.now().minusSeconds(86400), Instant.now(), 10);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bottlenecks =
-                (List<Map<String, Object>>) bottleneck.get("bottlenecks");
-        assertThat(bottlenecks).hasSize(1);
-        assertThat(bottlenecks.get(0).get("step_key")).isEqualTo("review-step");
+        inTenantScope(otherTenant, () -> {
+            Map<String, Object> isolated = queryService.serviceDashboard(
+                    otherTenant, Instant.now().minusSeconds(86400), Instant.now());
+            assertThat(((Number) isolated.get("total_instances")).longValue()).isEqualTo(0);
+        });
+        inTenantScope(fx.tenant(), () -> {
+            Map<String, Object> sla = queryService.slaDashboard(
+                    fx.tenant(), Instant.now().minusSeconds(86400), Instant.now());
+            assertThat(((Number) sla.get("compliance_percent")).doubleValue()).isEqualTo(0.0);
+            Map<String, Object> bottleneck = queryService.bottleneckDashboard(
+                    fx.tenant(), Instant.now().minusSeconds(86400), Instant.now(), 10);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> bottlenecks =
+                    (List<Map<String, Object>>) bottleneck.get("bottlenecks");
+            assertThat(bottlenecks).hasSize(1);
+            assertThat(bottlenecks.get(0).get("step_key")).isEqualTo("review-step");
+        });
     }
 
     // ===== MATRIX G: explainable metrics =====
@@ -333,8 +368,11 @@ class WorkflowR2AnalyticsTest {
     @Test
     void performanceMetricsAreExplainableAndCarryNoAutomatedDecision() {
         Fixture fx = reconciliationFixture("metrics");
-        var result = metricsService.employeeMetrics(fx.tenant(), fx.employee(),
-                Instant.now().minusSeconds(86400), Instant.now());
+        // FORCE RLS (V20261029_1): the metrics read runs under the fixture
+        // tenant's transaction-local scope (workflow_responsibility_segments,
+        // workflow_work_items).
+        var result = inTenantScopeWithResult(fx.tenant(), () -> metricsService.employeeMetrics(
+                fx.tenant(), fx.employee(), Instant.now().minusSeconds(86400), Instant.now()));
         Map<String, Object> metrics = result.metrics();
         assertThat(((Number) metrics.get("totalResponsibilitySeconds")).longValue())
                 .isEqualTo(1800L);
@@ -355,6 +393,10 @@ class WorkflowR2AnalyticsTest {
     @Test
     void timerNotificationsFirePerStageWithDedupAndNeverMutateState() {
         Fixture fx = reconciliationFixture("timer");
+        // FORCE RLS (V20261029_1): timer seeds, the notification worker scan,
+        // the dispatcher pass and every verification read run under the fixture
+        // tenant's transaction-local scope.
+        inTenantScope(fx.tenant(), () -> {
         // WARNING window: due in 1 hour (within 24h warning window)
         UUID warningTimer = UUID.randomUUID();
         jdbc.update("""
@@ -424,6 +466,7 @@ class WorkflowR2AnalyticsTest {
                        'DEADLINE_REMINDER', 'DEADLINE_BREACH')
                 """, Integer.class, fx.tenant());
         assertThat(feedRows).isEqualTo(3);
+        });
     }
 
     // ===== staleness-driven projection worker =====
@@ -431,20 +474,27 @@ class WorkflowR2AnalyticsTest {
     @Test
     void projectionWorkerRebuildsStaleInstances() {
         Fixture fx = reconciliationFixture("worker");
+        // FORCE RLS (V20261029_1): the worker pass runs inside a transaction and
+        // self-scopes app.tenant_id per tenant; verification reads run under the
+        // fixture tenant's scope.
         tx.execute(s -> projectionWorker.runProjectionPass());
-        Integer facts = jdbc.queryForObject("""
+        inTenantScope(fx.tenant(), () -> {
+            Integer facts = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_analytics_process_facts
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(facts).isEqualTo(1);
+            assertThat(facts).isEqualTo(1);
+        });
         // new journey evidence -> worker projects again (staleness detected)
-        appendJourney(fx.tenant(), fx.instance(), "TASK_REASSIGNED",
-                "tr2:" + fx.instance(), Instant.now());
+        inTenantScope(fx.tenant(), () -> appendJourney(fx.tenant(), fx.instance(),
+                "TASK_REASSIGNED", "tr2:" + fx.instance(), Instant.now()));
         tx.execute(s -> projectionWorker.runProjectionPass());
-        Integer reassignments = jdbc.queryForObject("""
+        inTenantScope(fx.tenant(), () -> {
+            Integer reassignments = jdbc.queryForObject("""
                 SELECT reassignment_count FROM workflow_analytics_process_facts
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                 """, Integer.class, fx.tenant(), fx.instance());
-        assertThat(reassignments).isEqualTo(2);
+            assertThat(reassignments).isEqualTo(2);
+        });
     }
 }
