@@ -336,70 +336,6 @@ WHERE role.tenant_id = '22222222-2222-4222-8222-222222222222'
         AND existing.capability_id = cap.id
   );
 
--- Fail fast for each tenant independently, using a top-level session GUC
--- rather than changing tenant scope inside a multi-tenant query.
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
-DO $admin_capability_contract_a$
-DECLARE required_code TEXT;
-BEGIN
-    FOREACH required_code IN ARRAY ARRAY[
-        'CRM.ACCOUNT.READ', 'CRM.ACCOUNT.WRITE', 'EXECUTIVE_VIEW'
-    ]
-    LOOP
-        IF NOT EXISTS (
-            SELECT 1
-            FROM roles role
-            JOIN user_role_assignments assignment
-              ON assignment.tenant_id = role.tenant_id
-             AND assignment.role_id = role.id
-             AND assignment.status = 'ACTIVE'
-            JOIN role_capabilities grant_row
-              ON grant_row.tenant_id = role.tenant_id
-             AND grant_row.role_id = role.id
-            JOIN access_capabilities cap ON cap.id = grant_row.capability_id
-            WHERE role.tenant_id = '11111111-1111-4111-8111-111111111111'
-              AND role.code = 'ADMIN'
-              AND cap.code = required_code
-              AND cap.status = 'ACTIVE'
-        ) THEN
-            RAISE EXCEPTION
-                'CRM_ACCEPTANCE_RBAC_SEED_INCOMPLETE: Tenant A ADMIN missing active capability %',
-                required_code;
-        END IF;
-    END LOOP;
-END $admin_capability_contract_a$;
-
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
-DO $admin_capability_contract_b$
-DECLARE required_code TEXT;
-BEGIN
-    FOREACH required_code IN ARRAY ARRAY[
-        'CRM.ACCOUNT.READ', 'CRM.ACCOUNT.WRITE', 'EXECUTIVE_VIEW'
-    ]
-    LOOP
-        IF NOT EXISTS (
-            SELECT 1
-            FROM roles role
-            JOIN user_role_assignments assignment
-              ON assignment.tenant_id = role.tenant_id
-             AND assignment.role_id = role.id
-             AND assignment.status = 'ACTIVE'
-            JOIN role_capabilities grant_row
-              ON grant_row.tenant_id = role.tenant_id
-             AND grant_row.role_id = role.id
-            JOIN access_capabilities cap ON cap.id = grant_row.capability_id
-            WHERE role.tenant_id = '22222222-2222-4222-8222-222222222222'
-              AND role.code = 'ADMIN'
-              AND cap.code = required_code
-              AND cap.status = 'ACTIVE'
-        ) THEN
-            RAISE EXCEPTION
-                'CRM_ACCEPTANCE_RBAC_SEED_INCOMPLETE: Tenant B ADMIN missing active capability %',
-                required_code;
-        END IF;
-    END LOOP;
-END $admin_capability_contract_b$;
-
 SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 -- Tenant A — CRM_READ_ONLY
@@ -612,6 +548,71 @@ WHERE role.tenant_id = '22222222-2222-4222-8222-222222222222'
         AND existing.organization_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   )
 ON CONFLICT (id) DO NOTHING;
+
+-- Fail fast for each tenant independently, using a top-level session GUC
+-- rather than changing tenant scope inside a multi-tenant query.
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+DO $admin_capability_contract_a$
+DECLARE required_code TEXT;
+BEGIN
+    FOREACH required_code IN ARRAY ARRAY[
+        'CRM.ACCOUNT.READ', 'CRM.ACCOUNT.WRITE', 'EXECUTIVE_VIEW'
+    ]
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1
+            FROM roles role
+            JOIN user_role_assignments assignment
+              ON assignment.tenant_id = role.tenant_id
+             AND assignment.role_id = role.id
+             AND assignment.status = 'ACTIVE'
+            JOIN role_capabilities grant_row
+              ON grant_row.tenant_id = role.tenant_id
+             AND grant_row.role_id = role.id
+            JOIN access_capabilities cap ON cap.id = grant_row.capability_id
+            WHERE role.tenant_id = '11111111-1111-4111-8111-111111111111'
+              AND role.code = 'ADMIN'
+              AND cap.code = required_code
+              AND cap.status = 'ACTIVE'
+        ) THEN
+            RAISE EXCEPTION
+                'CRM_ACCEPTANCE_RBAC_SEED_INCOMPLETE: Tenant A ADMIN missing active capability %',
+                required_code;
+        END IF;
+    END LOOP;
+END $admin_capability_contract_a$;
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+DO $admin_capability_contract_b$
+DECLARE required_code TEXT;
+BEGIN
+    FOREACH required_code IN ARRAY ARRAY[
+        'CRM.ACCOUNT.READ', 'CRM.ACCOUNT.WRITE', 'EXECUTIVE_VIEW'
+    ]
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1
+            FROM roles role
+            JOIN user_role_assignments assignment
+              ON assignment.tenant_id = role.tenant_id
+             AND assignment.role_id = role.id
+             AND assignment.status = 'ACTIVE'
+            JOIN role_capabilities grant_row
+              ON grant_row.tenant_id = role.tenant_id
+             AND grant_row.role_id = role.id
+            JOIN access_capabilities cap ON cap.id = grant_row.capability_id
+            WHERE role.tenant_id = '22222222-2222-4222-8222-222222222222'
+              AND role.code = 'ADMIN'
+              AND cap.code = required_code
+              AND cap.status = 'ACTIVE'
+        ) THEN
+            RAISE EXCEPTION
+                'CRM_ACCEPTANCE_RBAC_SEED_INCOMPLETE: Tenant B ADMIN missing active capability %',
+                required_code;
+        END IF;
+    END LOOP;
+END $admin_capability_contract_b$;
+
 
 -- ----------------------------------------------------------------------------
 -- 8. Seed a single Tenant A CRM account, contact, lead, pipeline, opportunity,
