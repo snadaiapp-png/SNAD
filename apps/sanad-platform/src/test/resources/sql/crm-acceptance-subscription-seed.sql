@@ -2,6 +2,11 @@
 -- This file is intentionally separate from crm-acceptance-seed.sql because the
 -- subscription-control-plane E2E composes that identity seed with its own exact
 -- subscription fixture. CRM workflows load this file explicitly.
+--
+-- tenant_subscriptions is fail-closed FORCE RLS (V20261029_1): each
+-- subscription insert re-binds the session GUC to its owning tenant; the GUC
+-- is reset at the end of the file (repo seed convention).
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 INSERT INTO saas_plans (
     id, code, name, status, currency_code,
@@ -68,6 +73,8 @@ WHERE NOT EXISTS (
       AND status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')
 )
 ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 
 INSERT INTO tenant_subscriptions (
     id, tenant_id, plan_id, status, billing_cycle,
