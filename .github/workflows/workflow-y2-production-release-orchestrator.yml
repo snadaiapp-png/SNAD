@@ -4,6 +4,17 @@ on:
   workflow_run:
     workflows: ["Publish Render Backend Image"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Exact current main SHA to authorize and verify'
+        required: true
+        type: string
+      authorize_production_release:
+        description: 'Explicitly authorize the production release attempt; all existing safeguards still apply'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   actions: write
@@ -11,28 +22,52 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: workflow-y2-production-release-${{ github.event.workflow_run.head_sha }}
+  group: workflow-y2-production-release-${{ github.event.workflow_run.head_sha || inputs.commit_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   authorize-dispatch-and-watch:
     name: Authorize exact main, dispatch canonical release, and watch
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 70
     env:
       GH_TOKEN: ${{ github.token }}
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || inputs.commit_sha || github.sha }}
+      MANUAL_AUTHORIZATION: ${{ inputs.authorize_production_release || false }}
+      MANUAL_COMMIT_SHA: ${{ inputs.commit_sha || '' }}
     steps:
       - name: Verify exact current main and classify production authorization
         shell: bash
         run: |
           set -euo pipefail
           echo "PRODUCTION_RELEASE_AUTHORIZED=false" >> "$GITHUB_ENV"
+
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            [ "$MANUAL_AUTHORIZATION" = 'true' ] || {
+              echo 'Manual Y2 run did not explicitly authorize a production release; no release will be dispatched.'
+              exit 0
+            }
+            [[ "$MANUAL_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo '::error::Manual Y2 run requires commit_sha as a 40-character SHA'
+              exit 1
+            }
+            [ "$MANUAL_COMMIT_SHA" = "$HEAD_SHA" ] || {
+              echo '::error::Resolved manual SHA mismatch'
+              exit 1
+            }
+          else
+            [ "$GITHUB_EVENT_NAME" = 'workflow_run' ] || { echo '::error::Unsupported Y2 trigger'; exit 1; }
+            [ "${{ github.event.workflow_run.conclusion }}" = 'success' ] || { echo '::error::Image publication did not succeed'; exit 1; }
+            [ "${{ github.event.workflow_run.event }}" = 'push' ] || { echo '::error::Image publication was not triggered by push'; exit 1; }
+            [ "${{ github.event.workflow_run.head_branch }}" = 'main' ] || { echo '::error::Image publication was not from main'; exit 1; }
+            [ "${{ github.event.workflow_run.head_repository.full_name }}" = "$GITHUB_REPOSITORY" ] || { echo '::error::Image publication repository mismatch'; exit 1; }
+          fi
 
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Image publication head SHA is not a canonical commit SHA"
