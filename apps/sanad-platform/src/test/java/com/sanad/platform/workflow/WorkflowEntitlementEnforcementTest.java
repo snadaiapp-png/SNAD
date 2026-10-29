@@ -107,6 +107,15 @@ class WorkflowEntitlementEnforcementTest {
         });
     }
 
+    private <T> T inTenantResult(UUID tenantId, java.util.function.Supplier<T> read) {
+        return tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return read.get();
+        });
+    }
+
     private UUID newTenant(String label) {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (?,?,?,?,NOW(),NOW())",
@@ -169,8 +178,10 @@ class WorkflowEntitlementEnforcementTest {
     }
 
     private void removeWorkflowEntitlement(UUID tenantId) {
-        jdbc.update("DELETE FROM plan_module_entitlements WHERE module_id = ? AND plan_id IN "
-                + "(SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?)", workflowModuleId, tenantId);
+        inTenant(tenantId, () -> jdbc.update(
+                "DELETE FROM plan_module_entitlements WHERE module_id = ? AND plan_id IN "
+                        + "(SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?)",
+                workflowModuleId, tenantId));
     }
 
     private UUID newY2PublishedDefinition(UUID tenantId, String code) {
@@ -204,8 +215,8 @@ class WorkflowEntitlementEnforcementTest {
     @Test
     void GUARD_FAIL_CLOSED_FOR_NEVER_PURCHASED_TENANT() {
         UUID tenant = newTenant("never");
-        assertThat(guard.isWorkflowEnabled(tenant)).isFalse();
-        assertThatThrownBy(() -> guard.requireWorkflowEnabled(tenant))
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isFalse();
+        assertThatThrownBy(() -> inTenantResult(tenant, () -> { guard.requireWorkflowEnabled(tenant); return null; }))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("WORKFLOW_MODULE_NOT_ENTITLED");
     }
@@ -214,8 +225,8 @@ class WorkflowEntitlementEnforcementTest {
     void GUARD_ALLOWS_ENTITLED_TENANT() {
         UUID tenant = newTenant("granted");
         grantWorkflow(tenant);
-        assertThat(guard.isWorkflowEnabled(tenant)).isTrue();
-        guard.requireWorkflowEnabled(tenant); // no exception
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isTrue();
+        inTenantResult(tenant, () -> { guard.requireWorkflowEnabled(tenant); return null; }); // no exception
     }
 
     @Test
@@ -229,7 +240,7 @@ class WorkflowEntitlementEnforcementTest {
         // guarded by requireWorkflowEnabled in the API layer (authoritative).
         // Engine-level proof: the guard deny code is the documented contract.
         UUID tenant = newTenant("nostart");
-        assertThat(guard.isWorkflowEnabled(tenant)).isFalse();
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isFalse();
         assertThat(WorkflowEntitlementGuard.DENIED_REASON).isEqualTo("WORKFLOW_MODULE_NOT_ENTITLED");
     }
 
@@ -237,7 +248,7 @@ class WorkflowEntitlementEnforcementTest {
     void ENTITLEMENT_REMOVAL_BLOCKS_NEW_START_AND_PRESERVES_HISTORY() {
         UUID tenant = newTenant("removed");
         grantWorkflow(tenant);
-        assertThat(guard.isWorkflowEnabled(tenant)).isTrue();
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isTrue();
 
         // History created while entitled:
         UUID defId = newY2PublishedDefinition(tenant, "R1-REMOVAL");
@@ -247,17 +258,17 @@ class WorkflowEntitlementEnforcementTest {
         removeWorkflowEntitlement(tenant);
 
         // New product use fails closed after removal:
-        assertThat(guard.isWorkflowEnabled(tenant)).isFalse();
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isFalse();
         assertThatThrownBy(() -> guard.requireWorkflowEnabled(tenant))
                 .isInstanceOf(AccessDeniedException.class);
 
         // Business history is preserved (NO data erasure, DRAIN semantics):
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_definitions WHERE id = ?", Integer.class, defId)).isEqualTo(1);
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?", Integer.class, instId)).isEqualTo(1);
-        assertThat(jdbc.queryForObject(
-                "SELECT status FROM workflow_instances WHERE id = ?", String.class, instId)).isEqualTo("RUNNING");
+        assertThat(inTenantResult(tenant, () -> jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow_definitions WHERE id = ?", Integer.class, defId))).isEqualTo(1);
+        assertThat(inTenantResult(tenant, () -> jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?", Integer.class, instId))).isEqualTo(1);
+        assertThat(inTenantResult(tenant, () -> jdbc.queryForObject(
+                "SELECT status FROM workflow_instances WHERE id = ?", String.class, instId))).isEqualTo("RUNNING");
     }
 
     @Test
@@ -268,7 +279,7 @@ class WorkflowEntitlementEnforcementTest {
         grantWorkflow(tenant);
         UUID defId = newY2PublishedDefinition(tenant, "R1-HISTORY");
         removeWorkflowEntitlement(tenant);
-        assertThat(guard.isWorkflowEnabled(tenant)).isFalse();
+        assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isFalse();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_definitions WHERE id = ?", Integer.class, defId)).isEqualTo(1);
     }
@@ -281,7 +292,7 @@ class WorkflowEntitlementEnforcementTest {
         newY2Instance(tenant, defId, "RUNNING");
         UUID paused = newY2Instance(tenant, defId, "PAUSED");
 
-        Map<String, Long> counts = counter.countRuntime(tenant);
+        Map<String, Long> counts = inTenantResult(tenant, () -> counter.countRuntime(tenant));
         assertThat(counts.get("ACTIVE_INSTANCES")).isEqualTo(1L);
         assertThat(counts.get("PAUSED_INSTANCES")).isEqualTo(1L);
         assertThat(counts.get("PENDING_WORK_ITEMS")).isEqualTo(0L);
@@ -297,7 +308,8 @@ class WorkflowEntitlementEnforcementTest {
                 """, targetPlan, "R1ENF_T_" + UUID.randomUUID().toString().substring(0, 8),
                 "R1 target plan", "ACTIVE");
         planIds.add(targetPlan);
-        SubscriptionImpactPreview preview = impactService.previewPlanChange(tenant, targetPlan);
+        SubscriptionImpactPreview preview = inTenantResult(
+                tenant, () -> impactService.previewPlanChange(tenant, targetPlan));
         assertThat(preview.workflowRuntimeImpact()).isNotNull();
         assertThat(preview.workflowRuntimeImpact().get("ACTIVE_INSTANCES")).isEqualTo(1L);
         assertThat(preview.workflowRuntimeImpact().get("PAUSED_INSTANCES")).isEqualTo(1L);
