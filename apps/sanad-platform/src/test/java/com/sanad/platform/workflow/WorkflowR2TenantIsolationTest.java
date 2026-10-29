@@ -117,27 +117,39 @@ class WorkflowR2TenantIsolationTest {
         return new TenantFixture(tenant, user);
     }
 
+    /** Runs a FORCE-RLS seed write inside a transaction-local app.tenant_id
+     * context (workflow_user_notifications / workflow_customer_feedback /
+     * workflow_webhook_endpoints are FORCE RLS — V20261029_1). */
+    private void seedInTenant(UUID tenantId, Runnable write) {
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            write.run();
+        });
+    }
+
     // ===== 1. IN_APP feed: service-level (tenant, recipient) predicates =====
 
     @Test
     void notificationFeedDeniesCrossTenantRecipientReads() {
         TenantFixture a = seedTenant("feed-a");
         TenantFixture b = seedTenant("feed-b");
-        // tenant A feed rows for recipient Ua (unread)
-        jdbc.update("""
+        // tenant A feed rows for recipient Ua (unread) — FORCE RLS scoped seed
+        seedInTenant(a.tenant(), () -> {
+            jdbc.update("""
                 INSERT INTO workflow_user_notifications (
                     id, tenant_id, recipient_user_id, event_type, title, priority,
                     dedup_key, created_at)
                 VALUES (?, ?, ?, 'TASK_ASSIGNED', 'A feed row 1', 'NORMAL', ?, NOW())
                 """, UUID.randomUUID(), a.tenant(), a.user(),
                 "iso-feed:" + UUID.randomUUID());
-        jdbc.update("""
+            jdbc.update("""
                 INSERT INTO workflow_user_notifications (
                     id, tenant_id, recipient_user_id, event_type, title, priority,
                     dedup_key, created_at)
                 VALUES (?, ?, ?, 'TASK_ASSIGNED', 'A feed row 2', 'NORMAL', ?, NOW())
                 """, UUID.randomUUID(), a.tenant(), a.user(),
                 "iso-feed:" + UUID.randomUUID());
+        });
 
         // the exact service-level feed predicate of
         // WorkflowNotificationController.myNotifications:
@@ -262,21 +274,43 @@ class WorkflowR2TenantIsolationTest {
     void webhookEndpointResolutionDeniesCrossTenantTargeting() {
         TenantFixture a = seedTenant("hook-a");
         TenantFixture b = seedTenant("hook-b");
-        WorkflowWebhookEndpointService.CreatedEndpoint created =
-                webhookEndpoints.create(a.tenant(), "iso-hook-a",
-                        "https://example.invalid/iso-hook", "R2-K fixture",
-                        List.of("INSTANCE_COMPLETED"), a.user());
+        // Direct service invocation: install the tenant identity so the
+        // @Transactional create boundary derives the FORCE-RLS GUC
+        // (workflow_webhook_endpoints — V20261029_1).
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(a.tenant(), a.user());
+        WorkflowWebhookEndpointService.CreatedEndpoint created;
+        try {
+            created = webhookEndpoints.create(a.tenant(), "iso-hook-a",
+                    "https://example.invalid/iso-hook", "R2-K fixture",
+                    List.of("INSTANCE_COMPLETED"), a.user());
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
 
-        // tenant B resolves endpoints for the same event type -> nothing
-        List<Map<String, Object>> foreign = webhookEndpoints.activeEndpointsFor(
-                b.tenant(), "INSTANCE_COMPLETED");
+        // tenant B resolves endpoints for the same event type -> nothing.
+        // Each read runs under ITS tenant identity (Service-level tenant
+        // parameter + SecurityContext-derived GUC inside @Transactional).
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(b.tenant(), b.user());
+        List<Map<String, Object>> foreign;
+        List<Map<String, Object>> bList;
+        try {
+            foreign = webhookEndpoints.activeEndpointsFor(b.tenant(), "INSTANCE_COMPLETED");
+            bList = webhookEndpoints.list(b.tenant());
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
         assertThat(foreign).isEmpty();
         // tenant B's registry listing is empty (no leak through list either)
-        assertThat(webhookEndpoints.list(b.tenant())).isEmpty();
+        assertThat(bList).isEmpty();
 
         // tenant A still resolves exactly its own endpoint
-        List<Map<String, Object>> own = webhookEndpoints.activeEndpointsFor(
-                a.tenant(), "INSTANCE_COMPLETED");
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(a.tenant(), a.user());
+        List<Map<String, Object>> own;
+        try {
+            own = webhookEndpoints.activeEndpointsFor(a.tenant(), "INSTANCE_COMPLETED");
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
         assertThat(own).hasSize(1);
         assertThat(((UUID) own.get(0).get("id"))).isEqualTo(created.id());
         // and the resolution carries no plain secret (SHA-256 hash only)
@@ -291,12 +325,12 @@ class WorkflowR2TenantIsolationTest {
     void feedbackAndAnalyticsDenyCrossTenantReads() {
         TenantFixture a = seedTenant("fbx-a");
         TenantFixture b = seedTenant("fbx-b");
-        jdbc.update("""
+        seedInTenant(a.tenant(), () -> jdbc.update("""
                 INSERT INTO workflow_customer_feedback (
                     id, tenant_id, source_module, source_entity_type,
                     source_entity_id, rating, comment, submitted_by_type, created_at)
                 VALUES (?, ?, 'CRM', 'account', ?, 5, 'iso feedback', 'USER', NOW())
-                """, UUID.randomUUID(), a.tenant(), UUID.randomUUID());
+                """, UUID.randomUUID(), a.tenant(), UUID.randomUUID()));
 
         // WorkflowCustomerFeedbackController.list tenant-scoped SELECT,
         // issued as tenant B -> must return nothing.

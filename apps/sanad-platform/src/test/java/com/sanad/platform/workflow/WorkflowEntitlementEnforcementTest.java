@@ -70,8 +70,14 @@ class WorkflowEntitlementEnforcementTest {
         // USING clause; without set_config, RLS hides all rows and 0 rows are
         // deleted, then DELETE FROM tenants fails with fk_users_tenant
         // violation. Wrap set_config + DELETE FROM users per-tenant in tx.
-        for (UUID id : instanceIds) jdbc.update("DELETE FROM workflow_instances WHERE id = ?", id);
-        for (UUID id : definitionIds) jdbc.update("DELETE FROM workflow_definitions WHERE id = ?", id);
+        for (UUID id : instanceIds) {
+            for (UUID tenantId : tenantIds) inTenant(tenantId, () ->
+                    jdbc.update("DELETE FROM workflow_instances WHERE id = ?", id));
+        }
+        for (UUID id : definitionIds) {
+            for (UUID tenantId : tenantIds) inTenant(tenantId, () ->
+                    jdbc.update("DELETE FROM workflow_definitions WHERE id = ?", id));
+        }
         for (UUID tenantId : tenantIds) {
             tx.executeWithoutResult(txStatus -> {
                 jdbc.queryForObject(
@@ -81,9 +87,24 @@ class WorkflowEntitlementEnforcementTest {
             });
         }
         for (UUID id : entitlementRowIds) jdbc.update("DELETE FROM plan_module_entitlements WHERE id = ?", id);
-        for (UUID id : subscriptionIds) jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id);
+        for (UUID id : subscriptionIds) {
+            for (UUID tenantId : tenantIds) inTenant(tenantId, () ->
+                    jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id));
+        }
         for (UUID id : planIds) jdbc.update("DELETE FROM saas_plans WHERE id = ?", id);
         for (UUID id : tenantIds) jdbc.update("DELETE FROM tenants WHERE id = ?", id);
+    }
+
+    /** Runs FORCE-RLS seed writes inside a transaction-local app.tenant_id
+     * context (workflow_definitions / workflow_instances / tenant_subscriptions
+     * are FORCE RLS — V20261029_1). */
+    private void inTenant(UUID tenantId, Runnable write) {
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            write.run();
+        });
     }
 
     private UUID newTenant(String label) {
@@ -130,13 +151,13 @@ class WorkflowEntitlementEnforcementTest {
         planIds.add(planId);
         UUID subId = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
+        inTenant(tenantId, () -> jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                      seat_quantity, credit_balance_minor, started_at, current_period_start,
                      current_period_end, cancel_at_period_end, created_at, updated_at)
                 VALUES (?,?,?, 'ACTIVE', 'MONTHLY', 5, 0, ?, ?, ?, false, NOW(), NOW())
                 """, subId, tenantId, planId, Timestamp.from(now), Timestamp.from(now),
-                Timestamp.from(now.plusSeconds(30 * 24 * 3600)));
+                Timestamp.from(now.plusSeconds(30 * 24 * 3600))));
         subscriptionIds.add(subId);
         UUID row = UUID.randomUUID();
         jdbc.update("""
@@ -155,13 +176,13 @@ class WorkflowEntitlementEnforcementTest {
     private UUID newY2PublishedDefinition(UUID tenantId, String code) {
         UUID userId = newUser(tenantId, code);
         UUID id = UUID.randomUUID();
-        jdbc.update("""
+        inTenant(tenantId, () -> jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,
                     trigger_type, created_by, version_lock, engine_generation, publication_state,
                     schema_version, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, 'Y2', 'PUBLISHED', 1, NOW(), NOW())
-                """, id, tenantId, id, code, "R1 enforcement def " + code, userId);
+                """, id, tenantId, id, code, "R1 enforcement def " + code, userId));
         definitionIds.add(id);
         return id;
     }
@@ -169,13 +190,13 @@ class WorkflowEntitlementEnforcementTest {
     private UUID newY2Instance(UUID tenantId, UUID definitionId, String status) {
         UUID userId = newUser(tenantId, "inst");
         UUID id = UUID.randomUUID();
-        jdbc.update("""
+        inTenant(tenantId, () -> jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, definition_family_id, workflow_version,
                     business_entity_type, business_entity_id, status, engine_generation,
                     current_step_key, started_by, started_at, created_at, updated_at)
                 VALUES (?,?,?,?, 1, 'R1_TEST_ENTITY', ?, ?, 'Y2', 'START', ?, NOW(), NOW(), NOW())
-                """, id, tenantId, definitionId, definitionId, id, status, userId);
+                """, id, tenantId, definitionId, definitionId, id, status, userId));
         instanceIds.add(id);
         return id;
     }

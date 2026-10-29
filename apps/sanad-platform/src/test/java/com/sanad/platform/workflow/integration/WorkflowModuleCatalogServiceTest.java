@@ -32,6 +32,20 @@ class WorkflowModuleCatalogServiceTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private WorkflowModuleCatalogService catalogService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** Runs FORCE-RLS seed writes inside a transaction-local app.tenant_id
+     * context (tenant_subscriptions is FORCE RLS — V20261029_1). */
+    private void inTenant(UUID tenantId, Runnable write) {
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbc.queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    write.run();
+                });
+    }
 
     private final List<UUID> tenantIds = new ArrayList<>();
     private final List<UUID> planIds = new ArrayList<>();
@@ -50,7 +64,10 @@ class WorkflowModuleCatalogServiceTest {
     @AfterEach
     void cleanup() {
         for (UUID id : entitlementRowIds) jdbc.update("DELETE FROM plan_module_entitlements WHERE id = ?", id);
-        for (UUID id : subscriptionIds) jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id);
+        for (UUID id : subscriptionIds) {
+            for (UUID tenantId : tenantIds) inTenant(tenantId, () ->
+                    jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id));
+        }
         for (UUID id : planIds) jdbc.update("DELETE FROM saas_plans WHERE id = ?", id);
         for (UUID id : tenantIds) jdbc.update("DELETE FROM tenants WHERE id = ?", id);
     }
@@ -81,13 +98,13 @@ class WorkflowModuleCatalogServiceTest {
         planIds.add(planId);
         UUID subId = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
+        inTenant(tenantId, () -> jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                      seat_quantity, credit_balance_minor, started_at, current_period_start,
                      current_period_end, cancel_at_period_end, created_at, updated_at)
                 VALUES (?,?,?, 'ACTIVE', 'MONTHLY', 5, 0, ?, ?, ?, false, NOW(), NOW())
                 """, subId, tenantId, planId, Timestamp.from(now), Timestamp.from(now),
-                Timestamp.from(now.plusSeconds(30 * 24 * 3600)));
+                Timestamp.from(now.plusSeconds(30 * 24 * 3600))));
         subscriptionIds.add(subId);
     }
 
@@ -103,6 +120,21 @@ class WorkflowModuleCatalogServiceTest {
         entitlementRowIds.add(row);
     }
 
+    /**
+     * Direct service invocation (no MockMvc): the SecurityContextHolder is
+     * empty, so TenantRlsConnectionHandler cannot derive the tenant GUC for
+     * the @Transactional effectiveCatalog boundary — tenant_subscriptions is
+     * FORCE RLS (V20261029_1) and the entitlement probe would fail closed.
+     */
+    private Map<String, Object> catalogAs(UUID tenantId) {
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+        try {
+            return catalogService.effectiveCatalog(tenantId);
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
+    }
+
     private Map<String, Object> entry(Map<String, Object> catalog, String moduleCode) {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> modules = (List<Map<String, Object>>) catalog.get("modules");
@@ -115,7 +147,7 @@ class WorkflowModuleCatalogServiceTest {
     @Test
     void CATALOG_REQUIRES_WORKFLOW_ENTITLEMENT() {
         UUID tenant = newTenant("denied");
-        assertThatThrownBy(() -> catalogService.effectiveCatalog(tenant))
+        assertThatThrownBy(() -> catalogAs(tenant))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("WORKFLOW_MODULE_NOT_ENTITLED");
     }
@@ -130,8 +162,8 @@ class WorkflowModuleCatalogServiceTest {
         grant(tenantB, workflowModuleId, true);
         grant(tenantB, crmModuleId, false);
 
-        Map<String, Object> catalogA = catalogService.effectiveCatalog(tenantA);
-        Map<String, Object> catalogB = catalogService.effectiveCatalog(tenantB);
+        Map<String, Object> catalogA = catalogAs(tenantA);
+        Map<String, Object> catalogB = catalogAs(tenantB);
 
         Map<String, Object> crmA = entry(catalogA, "CRM");
         Map<String, Object> crmB = entry(catalogB, "CRM");
@@ -150,7 +182,7 @@ class WorkflowModuleCatalogServiceTest {
         UUID tenant = newTenant("meta");
         grant(tenant, workflowModuleId, true);
         grant(tenant, crmModuleId, true);
-        Map<String, Object> catalog = catalogService.effectiveCatalog(tenant);
+        Map<String, Object> catalog = catalogAs(tenant);
         Map<String, Object> crm = entry(catalog, "CRM");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> entities = (List<Map<String, Object>>) crm.get("entities");
@@ -164,8 +196,8 @@ class WorkflowModuleCatalogServiceTest {
         UUID tenant = newTenant("order");
         grant(tenant, workflowModuleId, true);
         grant(tenant, crmModuleId, true);
-        Map<String, Object> c1 = catalogService.effectiveCatalog(tenant);
-        Map<String, Object> c2 = catalogService.effectiveCatalog(tenant);
+        Map<String, Object> c1 = catalogAs(tenant);
+        Map<String, Object> c2 = catalogAs(tenant);
         @SuppressWarnings("unchecked")
         List<String> order1 = ((List<Map<String, Object>>) c1.get("modules")).stream()
                 .map(m -> (String) m.get("moduleCode")).toList();
@@ -180,7 +212,7 @@ class WorkflowModuleCatalogServiceTest {
     void UNAVAILABLE_MODULES_EXCLUDED_FROM_CATALOG() {
         UUID tenant = newTenant("ghost");
         grant(tenant, workflowModuleId, true);
-        Map<String, Object> catalog = catalogService.effectiveCatalog(tenant);
+        Map<String, Object> catalog = catalogAs(tenant);
         // TEST_FUTURE_MODULE is Spring-registered in the other test class only;
         // GHOST_MODULE has no contract at all — neither may appear.
         assertThat(entry(catalog, "GHOST_MODULE")).isNull();
