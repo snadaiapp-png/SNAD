@@ -27,6 +27,22 @@
 -- exists because this is the first migration of the RLS forensic task in this
 -- chain.
 --
+-- REVISION (2026-10-29, pre-merge CI closure, PR #1460): the G1 and G4 role
+-- probes originally used a single SELECT whose WHERE clause combined
+-- "EXISTS(pg_roles)" with has_schema_privilege()/has_function_privilege().
+-- PostgreSQL does not guarantee the evaluation order of WHERE predicates, so
+-- on clusters without the Supabase client roles (e.g. the CI PostgreSQL 16.15
+-- provisioned by ci.yml) the planner could evaluate the privilege probe for
+-- the absent role first and abort with SQLSTATE 42704 ("role \"anon\" does not
+-- exist"). Both probes are rewritten as deterministic two-phase evaluation:
+-- role existence is resolved first (FOR-loop query, no privilege function),
+-- then the privilege is probed per existing role, statement by statement.
+-- Semantics, failure conditions and RAISE messages are UNCHANGED — this is a
+-- determinism repair, not a relaxation. Checksum note: this migration has
+-- never been recorded in any Flyway-managed schema history (production
+-- flyway_schema_history stops at 20261021.1; CI databases are ephemeral and
+-- destroyed per run), so the in-place repair is forward-only-safe.
+--
 -- Guard rails ("REVOKE مزوّد بالحواجز"):
 --   G0  every audited function must exist, else abort (fail closed);
 --   G1  schema public must not grant CREATE to PUBLIC/anon/authenticated
@@ -82,13 +98,24 @@ $rls_forensic_g0$;
 DO $rls_forensic_g1$
 DECLARE
   v_risky text;
+  v_role  text;
 BEGIN
-  SELECT string_agg(role_name, ', ') INTO v_risky
-  FROM (
-    VALUES ('public'), ('anon'), ('authenticated')
-  ) AS candidate(role_name)
-  WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = candidate.role_name)
-    AND has_schema_privilege(candidate.role_name, 'public', 'CREATE');
+  -- Deterministic two-phase probe: PostgreSQL does not guarantee WHERE
+  -- predicate evaluation order, so a single-level filter could evaluate
+  -- has_schema_privilege() for a role that does not exist (SQLSTATE 42704).
+  -- Phase 1 resolves existing roles only (no privilege function in this
+  -- query); Phase 2 probes each existing role statement by statement.
+  FOR v_role IN
+    SELECT candidate.role_name
+    FROM (
+      VALUES ('public'), ('anon'), ('authenticated')
+    ) AS candidate(role_name)
+    WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = candidate.role_name)
+  LOOP
+    IF has_schema_privilege(v_role, 'public', 'CREATE') THEN
+      v_risky := concat_ws(', ', v_risky, v_role);
+    END IF;
+  END LOOP;
 
   IF v_risky IS NOT NULL THEN
     RAISE EXCEPTION
@@ -161,6 +188,7 @@ DO $rls_forensic_g4$
 DECLARE
   v_unpinned int;
   v_still_exposed text;
+  v_role text;
 BEGIN
   -- 17/17 audited functions must carry a pinned search_path
   SELECT count(*) INTO v_unpinned
@@ -221,12 +249,21 @@ BEGIN
   END IF;
 
   -- client roles must no longer hold EXECUTE (checks explicit AND inherited/PUBLIC)
-  SELECT string_agg(role_name, ', ') INTO v_still_exposed
-  FROM (
-    VALUES ('anon'), ('authenticated')
-  ) AS client_roles(role_name)
-  WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = client_roles.role_name)
-    AND has_function_privilege(client_roles.role_name, 'public.sync_login_tenant_index()', 'EXECUTE');
+  -- Deterministic two-phase probe, same rationale as the G1 revision note:
+  -- existence first, privilege probe second, so an absent client role cannot
+  -- reach has_function_privilege() and abort with SQLSTATE 42704.
+  v_still_exposed := NULL;
+  FOR v_role IN
+    SELECT candidate.role_name
+    FROM (
+      VALUES ('anon'), ('authenticated')
+    ) AS candidate(role_name)
+    WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = candidate.role_name)
+  LOOP
+    IF has_function_privilege(v_role, 'public.sync_login_tenant_index()', 'EXECUTE') THEN
+      v_still_exposed := concat_ws(', ', v_still_exposed, v_role);
+    END IF;
+  END LOOP;
 
   IF v_still_exposed IS NOT NULL THEN
     RAISE EXCEPTION 'RLS_FN_G4: client roles retain EXECUTE on sync_login_tenant_index: %', v_still_exposed;
