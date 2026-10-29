@@ -45,6 +45,10 @@ DECLARE
     read_cap_count integer;
     owner_count integer;
 BEGIN
+    -- The script switched to the control-plane tenant for owner credential rotation.
+    -- Restore Tenant B scope before reading FORCE-RLS role_capabilities; otherwise
+    -- RLS correctly hides the four Tenant B grants and the closure check sees zero.
+    PERFORM set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
     SELECT COUNT(*) INTO read_cap_count
     FROM role_capabilities rc
     JOIN access_capabilities cap ON cap.id = rc.capability_id
@@ -56,6 +60,7 @@ BEGIN
         RAISE EXCEPTION 'Users closure read capability count=% expected=4', read_cap_count;
     END IF;
 
+    PERFORM set_config('app.tenant_id', '00000000-0000-0000-0000-000000000001', false);
     SELECT COUNT(*) INTO owner_count
     FROM users
     WHERE id = '00000000-0000-0000-0000-000000000010'
