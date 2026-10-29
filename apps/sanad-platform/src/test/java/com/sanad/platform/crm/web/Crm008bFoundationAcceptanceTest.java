@@ -162,25 +162,25 @@ class Crm008bFoundationAcceptanceTest {
         //   record_id   = subject_id
         //   owner_user_id = assigned_user_id
         //   owner_type  = 'USER'
-        long unmappableRows = jdbc.queryForObject(
+        long unmappableRows = withTenantScope(jdbc, TENANT_ID, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_assignments " +
                 " WHERE record_type IS NULL OR record_id IS NULL " +
-                "    OR owner_user_id IS NULL OR owner_type IS NULL", Long.class);
+                "    OR owner_user_id IS NULL OR owner_type IS NULL", Long.class));
         assertThat(unmappableRows).as("unmappable rows after backfill").isZero();
 
-        long mismatchedRows = jdbc.queryForObject(
+        long mismatchedRows = withTenantScope(jdbc, TENANT_ID, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_assignments " +
                 " WHERE record_type <> subject_type " +
                 "    OR record_id <> subject_id " +
                 "    OR owner_user_id <> assigned_user_id " +
-                "    OR owner_type <> 'USER'", Long.class);
+                "    OR owner_type <> 'USER'", Long.class));
         assertThat(mismatchedRows).as("rows where backfill mapping does not match G1 source").isZero();
 
         // 3. Row counts preserved (no data loss)
-        long assignmentsAfter = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_assignments", Long.class);
-        long transfersAfter = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_transfers", Long.class);
+        long assignmentsAfter = withTenantScope(jdbc, TENANT_ID, () ->
+                jdbc.queryForObject("SELECT COUNT(*) FROM crm_assignments", Long.class));
+        long transfersAfter = withTenantScope(jdbc, TENANT_ID, () ->
+                jdbc.queryForObject("SELECT COUNT(*) FROM crm_transfers", Long.class));
 
         assertThat(assignmentsAfter).as("crm_assignments row count must be preserved").isEqualTo(assignmentsAfterSeed);
         assertThat(transfersAfter).as("crm_transfers row count must be preserved").isEqualTo(transfersAfterSeed);
@@ -631,6 +631,17 @@ class Crm008bFoundationAcceptanceTest {
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);
         return configuration.load();
+    }
+
+    private <T> T withTenantScope(JdbcTemplate jdbc, UUID tenantId, java.util.function.Supplier<T> action) {
+        var transactionManager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                java.util.Objects.requireNonNull(jdbc.getDataSource()));
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return action.get();
+                });
     }
 
     private JdbcTemplate jdbc() {
