@@ -180,6 +180,11 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 4. Organization memberships (link each user to their org)
 -- ----------------------------------------------------------------------------
+-- organization_memberships is fail-closed FORCE RLS (V20261029_1): each
+-- block re-binds the session GUC to the row's owning tenant (the previous
+-- section left the GUC at Tenant B for the Tenant B user insert).
+
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
@@ -237,6 +242,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
     'd0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d1',
@@ -268,7 +275,11 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Defensive: ensure ADMIN roles exist for both tenants (V20260702_2 should
 -- have created them already, but this guards against a future migration
--- ordering change).
+-- ordering change). roles is fail-closed FORCE RLS (V20261029_1): re-bind
+-- the session GUC per tenant block.
+
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
     'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1',
@@ -286,6 +297,8 @@ WHERE tenant.id = '11111111-1111-4111-8111-111111111111'
       WHERE role.tenant_id = tenant.id AND role.code = 'ADMIN'
   )
 ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
@@ -306,6 +319,10 @@ WHERE tenant.id = '22222222-2222-4222-8222-222222222222'
 ON CONFLICT (id) DO NOTHING;
 
 -- 5b. ADMIN roles receive EVERY active capability (explicit, see note above).
+-- role_capabilities is fail-closed FORCE RLS (V20261029_1): a single
+-- cross-tenant INSERT..SELECT cannot satisfy WITH CHECK for two tenants
+-- under one session GUC, so the binding runs once per tenant scope.
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
@@ -317,14 +334,35 @@ FROM roles role
 JOIN tenants tenant ON tenant.id = role.tenant_id
 JOIN access_capabilities cap ON cap.status = 'ACTIVE'
 WHERE role.code = 'ADMIN'
-  AND tenant.id IN ('11111111-1111-4111-8111-111111111111',
-                    '22222222-2222-4222-8222-222222222222')
+  AND tenant.id = '11111111-1111-4111-8111-111111111111'
   AND NOT EXISTS (
       SELECT 1 FROM role_capabilities existing
       WHERE existing.tenant_id = role.tenant_id
         AND existing.role_id = role.id
         AND existing.capability_id = cap.id
 );
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT
+    gen_random_uuid(),
+    role.tenant_id,
+    role.id,
+    cap.id,
+    CURRENT_TIMESTAMP
+FROM roles role
+JOIN tenants tenant ON tenant.id = role.tenant_id
+JOIN access_capabilities cap ON cap.status = 'ACTIVE'
+WHERE role.code = 'ADMIN'
+  AND tenant.id = '22222222-2222-4222-8222-222222222222'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_capabilities existing
+      WHERE existing.tenant_id = role.tenant_id
+        AND existing.role_id = role.id
+        AND existing.capability_id = cap.id
+);
+
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 -- Tenant A — CRM_READ_ONLY
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
@@ -447,6 +485,10 @@ AND NOT EXISTS (
 -- The user_role_assignments UNIQUE constraint is on
 -- (tenant_id, user_id, role_id, organization_id), so we scope each
 -- assignment to the user's primary organization.
+-- user_role_assignments is fail-closed FORCE RLS (V20261029_1): each block
+-- re-binds the session GUC to the assignment's owning tenant.
+
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 -- Tenant A admin → ADMIN
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -512,6 +554,8 @@ VALUES (
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 
 -- Tenant B admin → ADMIN
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -731,3 +775,7 @@ ON CONFLICT (id) DO NOTHING;
 SELECT 'crm-acceptance-seed: tenants=' || count(*) AS summary
 FROM tenants
 WHERE id IN ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222');
+
+-- Session hygiene: clear the tenant context so no later statement in this
+-- psql session inherits a stale tenant scope (repo seed convention).
+SELECT set_config('app.tenant_id', '', false);
