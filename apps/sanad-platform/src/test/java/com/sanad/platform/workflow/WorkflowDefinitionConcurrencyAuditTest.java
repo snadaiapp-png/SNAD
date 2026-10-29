@@ -1,9 +1,11 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +63,16 @@ class WorkflowDefinitionConcurrencyAuditTest {
             + "VALUES (?, ?, ?, 'Workflow audit user', 'ACTIVE', 'dummy', ?, ?)",
             userId, tenantId, "wf-audit-" + userId.toString().substring(0, 8) + "@test", now, now);
         });
+        // The NOT_SUPPORTED concurrency case executes outside the test-managed
+        // transaction. Preserve an authenticated tenant identity so the JDBC
+        // connection handler can apply SET LOCAL app.tenant_id in each service
+        // transaction; without it, FORCE-RLS tables correctly reject the fixture.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
