@@ -95,3 +95,6 @@ WHERE NOT EXISTS (
       AND status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Session hygiene: clear the tenant context for any later statement.
+SELECT set_config('app.tenant_id', '', false);

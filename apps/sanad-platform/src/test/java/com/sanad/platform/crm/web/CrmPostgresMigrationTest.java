@@ -271,7 +271,10 @@ class CrmPostgresMigrationTest {
     // fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
     // owner-bypass tables at the sequence tail.
     private static final String TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION = "20261029.1";
-    private static final String LATEST_MIGRATION_VERSION = TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION;
+    // SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29: empty-GUC policy alignment + pre-auth token index.
+    private static final String TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION = "20261029.2";
+    private static final String EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION = "20261029.3";
+    private static final String LATEST_MIGRATION_VERSION = EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -573,6 +576,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(RLS_FORENSIC_FUNCTION_HARDENING_VERSION),
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
+                        MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -817,6 +822,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(RLS_FORENSIC_FUNCTION_HARDENING_VERSION),
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
+                        MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

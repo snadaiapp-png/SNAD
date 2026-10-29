@@ -49,7 +49,7 @@ class HrG1MigrationTest {
     // role-template matrix revalidation under RLS context; re-derives V20260820_7's blind assertions).
     // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at 20261029.1 (fail-closed RLS for the
     // 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables).
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261029.1";
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261029.3";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
