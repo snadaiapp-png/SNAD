@@ -134,35 +134,42 @@ class WorkflowR2ExternalPortalTest {
                             + "created_at,updated_at) VALUES (?, ?, ?, 'R2 Portal', 'ACTIVE', 'dummy', ?, ?)",
                     user, tenant, "r2-portal-" + user.toString().substring(0, 8) + "@test", now, now);
         });
-        jdbc.update("""
-                INSERT INTO workflow_definitions (
-                    id, tenant_id, definition_family_id, code, name, module, version, status,
-                    trigger_type, created_by, version_lock, engine_generation, publication_state,
-                    schema_version, created_at, updated_at
-                ) VALUES (?, ?, ?, 'WF-R2-PORTAL', 'R2Portal', 'GENERAL', 1, 'ACTIVE',
-                          'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
-                """, definition, tenant, definition, user, now, now);
-        jdbc.update("""
-                INSERT INTO workflow_instances (
-                    id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
-                    business_entity_id, status, started_by, started_at, engine_generation,
-                    context_json, context_schema_version, version, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
-                          CAST('{}' AS jsonb), 1, 0, ?, ?)
-                """, instance, tenant, definition, user, now, now);
-        jdbc.update("""
-                INSERT INTO workflow_external_participants (
-                    id, tenant_id, participant_type, source_module, source_entity_type,
-                    source_entity_id, display_reference, communication_reference, created_at)
-                VALUES (?, ?, 'CUSTOMER_CONTACT', 'CRM', 'contact', ?, 'R2 Customer', '+966500000000', ?)
-                """, participant, tenant, UUID.randomUUID(), now);
-        var created = actionService.create(tenant, instance, null, participant,
-                "APPROVE", expiresAt, "r2-portal-" + tag + "-" + UUID.randomUUID(),
-                allowedActions);
-        if (otpRequired) {
-            jdbc.update("UPDATE workflow_external_actions SET otp_required = TRUE "
-                    + "WHERE tenant_id = ? AND id = ?", tenant, created.action().id());
-        }
+        var created = tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenant.toString());
+            jdbc.update("""
+                    INSERT INTO workflow_definitions (
+                        id, tenant_id, definition_family_id, code, name, module, version, status,
+                        trigger_type, created_by, version_lock, engine_generation, publication_state,
+                        schema_version, created_at, updated_at
+                    ) VALUES (?, ?, ?, 'WF-R2-PORTAL', 'R2Portal', 'GENERAL', 1, 'ACTIVE',
+                              'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
+                    """, definition, tenant, definition, user, now, now);
+            jdbc.update("""
+                    INSERT INTO workflow_instances (
+                        id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
+                        business_entity_id, status, started_by, started_at, engine_generation,
+                        context_json, context_schema_version, version, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
+                              CAST('{}' AS jsonb), 1, 0, ?, ?)
+                    """, instance, tenant, definition, user, now, now);
+            jdbc.update("""
+                    INSERT INTO workflow_external_participants (
+                        id, tenant_id, participant_type, source_module, source_entity_type,
+                        source_entity_id, display_reference, communication_reference, created_at)
+                    VALUES (?, ?, 'CUSTOMER_CONTACT', 'CRM', 'contact', ?, 'R2 Customer', '+966500000000', ?)
+                    """, participant, tenant, UUID.randomUUID(), now);
+            var action = actionService.create(tenant, instance, null, participant,
+                    "APPROVE", expiresAt, "r2-portal-" + tag + "-" + UUID.randomUUID(),
+                    allowedActions);
+            if (otpRequired) {
+                jdbc.update("UPDATE workflow_external_actions SET otp_required = TRUE "
+                        + "WHERE tenant_id = ? AND id = ?", tenant, action.action().id());
+            }
+            return action;
+        });
+        java.util.Objects.requireNonNull(created, "portal fixture transaction returned null");
         createdTenants.add(tenant);
         return new PortalFixture(tenant, instance, participant,
                 created.action().id(), created.opaqueToken());
