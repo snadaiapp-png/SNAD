@@ -109,8 +109,16 @@ class WorkflowModuleCatalogServiceTest {
     }
 
     private void entitle(UUID tenantId, UUID moduleId, boolean enabled) {
-        UUID planId = jdbc.queryForObject(
-                "SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, tenantId);
+        UUID planId = new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return jdbc.queryForObject(
+                            "SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?",
+                            UUID.class, tenantId);
+                });
+        java.util.Objects.requireNonNull(planId, "tenant subscription must be visible under its RLS scope");
         UUID row = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
