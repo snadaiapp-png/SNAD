@@ -175,6 +175,7 @@ public class WorkflowE2eBootstrapConfig {
                             0, 0, 0, 10, 1, 0, ?, ?)
                     ON CONFLICT DO NOTHING
                     """, e2ePlanId, now, now);
+            setTenantContext(jdbc, TENANT_A_ID);
             jdbc.update("""
                     INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                          seat_quantity, credit_balance_minor, started_at, current_period_start,
@@ -216,6 +217,7 @@ public class WorkflowE2eBootstrapConfig {
                             0, 0, 0, 10, 1, 0, ?, ?)
                     ON CONFLICT DO NOTHING
                     """, tenantBPlanId, now, now);
+            setTenantContext(jdbc, TENANT_B_ID);
             jdbc.update("""
                     INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                          seat_quantity, credit_balance_minor, started_at, current_period_start,
@@ -309,6 +311,18 @@ public class WorkflowE2eBootstrapConfig {
                 String.class, tenantId.toString());
         if (!tenantId.toString().equals(applied)) {
             throw new IllegalStateException("Failed to apply workflow-e2e tenant RLS context for " + tenantId);
+        }
+        // Verify the transaction-local value is still visible on the bound
+        // connection; set_config() returning the requested value alone does
+        // not prove SET LOCAL survived an unexpected transaction/DataSource
+        // boundary. This is especially important before FORCE-RLS writes.
+        String current = jdbc.queryForObject(
+                "SELECT current_setting('app.tenant_id', true)",
+                String.class);
+        if (!tenantId.toString().equals(current)) {
+            throw new IllegalStateException(
+                    "Workflow E2E tenant RLS context is not active on the bound transaction: expected "
+                            + tenantId + " but got " + (current == null ? "<null>" : current));
         }
     }
 
