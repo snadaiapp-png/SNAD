@@ -14,6 +14,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
@@ -21,6 +23,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -62,6 +65,7 @@ class WorkflowManagementE2ETest {
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private WorkflowMonitoringService monitoringService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -199,6 +203,14 @@ class WorkflowManagementE2ETest {
         com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
     }
 
+    private <T> T inTenant(UUID tenantId, Supplier<T> action) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return action.get();
+        });
+    }
+
     /** Build a DECISION_APPROVAL workflow definition with 2 steps (REVIEW + APPROVE). */
     private void buildDecisionApprovalWorkflow(UUID tenantId, UUID userId) {
         // Service-level fixture creation must carry the authenticated tenant into the
@@ -281,14 +293,14 @@ class WorkflowManagementE2ETest {
         assertThat(finalApprovals.get(0).actedBy()).isEqualTo(approverA);
 
         // 9. Verify audit records in both management_audit_trail and workflow_transition_audit
-        var mgmtAuditCount = jdbc.queryForObject(
+        var mgmtAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM management_audit_trail WHERE entity_id = ?",
-                Integer.class, submitted.id());
+                Integer.class, submitted.id()));
         assertThat(mgmtAuditCount).isGreaterThanOrEqualTo(2);  // CREATE + APPROVE (at minimum)
 
-        var wfAuditCount = jdbc.queryForObject(
+        var wfAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(wfAuditCount).isGreaterThanOrEqualTo(2);  // START + APPROVE (at minimum)
 
         // 10. Tenant isolation: tenantB cannot see tenantA's data
@@ -341,9 +353,9 @@ class WorkflowManagementE2ETest {
         assertThat(approvals.get(0).status()).isEqualTo(WorkflowApprovalRequest.Status.PENDING);
 
         // 7. Verify NO APPROVE audit record was created (transaction rolled back)
-        var approveAuditCount = jdbc.queryForObject(
+        var approveAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ? AND action = 'APPROVE'",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(approveAuditCount).isZero();
 
         // 8. A different authorized approver CAN still approve after the failed attempt
@@ -406,9 +418,9 @@ class WorkflowManagementE2ETest {
                 .isInstanceOf(IllegalStateException.class);
 
         // Verify only 1 APPROVE audit record exists in workflow_transition_audit
-        var approveAuditCount = jdbc.queryForObject(
+        var approveAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ? AND action = 'APPROVE'",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(approveAuditCount).isEqualTo(1);
     }
 
