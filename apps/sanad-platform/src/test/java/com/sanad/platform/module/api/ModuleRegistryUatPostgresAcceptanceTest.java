@@ -146,32 +146,50 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         return id;
     }
 
+    // V20261029_1 binds FORCE fail-closed tenant RLS on the identity plane,
+    // so fixture writes MUST bind app.tenant_id on the same transaction —
+    // the certified seedUser pattern (TransactionTemplate + set_config local).
     private UUID seedRole(UUID tenantId, String code) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
-                INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'R0C-12 UAT corrective acceptance role', 'ACTIVE', ?, ?)
-                """, id, tenantId, code, code + " role", Timestamp.from(now), Timestamp.from(now));
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(tx -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("""
+                            INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 'R0C-12 UAT corrective acceptance role', 'ACTIVE', ?, ?)
+                            """, id, tenantId, code, code + " role", Timestamp.from(now), Timestamp.from(now));
+                });
         createdRoles.add(id);
         return id;
     }
 
     private void grantCapability(UUID tenantId, UUID roleId, String capabilityCode) {
-        jdbc.update("""
-                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                SELECT gen_random_uuid(), ?, ?, c.id, NOW()
-                FROM access_capabilities c
-                WHERE c.code = UPPER(?) AND c.status = 'ACTIVE'
-                """, tenantId, roleId, capabilityCode);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(tx -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("""
+                            INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                            SELECT gen_random_uuid(), ?, ?, c.id, NOW()
+                            FROM access_capabilities c
+                            WHERE c.code = UPPER(?) AND c.status = 'ACTIVE'
+                            """, tenantId, roleId, capabilityCode);
+                });
     }
 
     private void assignRole(UUID tenantId, UUID userId, UUID roleId) {
         Instant now = Instant.now();
-        jdbc.update("""
-                INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
-                VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
-                """, tenantId, userId, roleId, Timestamp.from(now), Timestamp.from(now));
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(tx -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("""
+                            INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+                            VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
+                            """, tenantId, userId, roleId, Timestamp.from(now), Timestamp.from(now));
+                });
     }
 
     /** Provision the ADMIN-shaped control-plane identity (V20260813_1 + V20260830_2 semantics). */
@@ -245,14 +263,42 @@ class ModuleRegistryUatPostgresAcceptanceTest {
             jdbc.update("DELETE FROM module_capabilities WHERE module_id = ?", id);
             jdbc.update("DELETE FROM modules WHERE id = ?", id);
         }
-        for (UUID userId : createdUsers) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
-        }
-        for (UUID roleId : createdRoles) {
-            jdbc.update("DELETE FROM role_capabilities WHERE role_id = ?", roleId);
-            jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", roleId);
-            jdbc.update("DELETE FROM roles WHERE id = ?", roleId);
-        }
+        // createdUsers / createdRoles live inside the sentinel control-plane
+        // tenant, so their per-row cleanup MUST bind the sentinel tenant GUC:
+        // bare DELETEs silently match zero rows under the FORCE fail-closed
+        // RLS applied by V20261029_1 and leave duplicate-key residue behind.
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
+            try (var stmt = con.createStatement()) {
+                stmt.execute(
+                    "SELECT set_config('app.tenant_id', '" + CONTROL_TENANT_ID + "', false)");
+                for (UUID userId : createdUsers) {
+                    try (var ps = con.prepareStatement(
+                            "DELETE FROM user_role_assignments WHERE user_id = ?")) {
+                        ps.setObject(1, userId);
+                        ps.executeUpdate();
+                    }
+                }
+                for (UUID roleId : createdRoles) {
+                    try (var ps = con.prepareStatement(
+                            "DELETE FROM role_capabilities WHERE role_id = ?")) {
+                        ps.setObject(1, roleId);
+                        ps.executeUpdate();
+                    }
+                    try (var ps = con.prepareStatement(
+                            "DELETE FROM user_role_assignments WHERE role_id = ?")) {
+                        ps.setObject(1, roleId);
+                        ps.executeUpdate();
+                    }
+                    try (var ps = con.prepareStatement(
+                            "DELETE FROM roles WHERE id = ?")) {
+                        ps.setObject(1, roleId);
+                        ps.executeUpdate();
+                    }
+                }
+                stmt.execute("SELECT set_config('app.tenant_id', '', false)");
+            }
+            return null;
+        });
         // Under FORCE RLS (V20261011_3), DELETE FROM users requires
         // app.tenant_id to be set on the same connection. Use a
         // ConnectionCallback to ensure set_config and DELETE execute
