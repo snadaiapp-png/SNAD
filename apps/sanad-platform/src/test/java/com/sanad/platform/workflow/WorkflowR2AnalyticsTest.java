@@ -135,98 +135,103 @@ class WorkflowR2AnalyticsTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "R2An-" + tag,
                 "r2-an-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
-        // public.users and hr_employees are both FORCE RLS (V20261011_3 + V20260905_5).
-        // DriverManagerDataSource is NOT a pool — every jdbc.execute()/jdbc.update()
-        // OUTSIDE a tx-bound context gets a fresh physical connection that is closed
-        // after the call. A session-scoped GUC set on conn N dies with conn N, so
-        // the next INSERT on conn N+1 has no tenant context and RLS rejects it.
-        // Fix: wrap set_config + INSERT users + INSERT hr_employees in ONE
-        // tx.executeWithoutResult block so they share the tx-bound connection.
-        // is_local=true (not false) scopes the GUC to this transaction only — no
-        // session-level leak when the connection is returned to the (non-)pool.
-        tx.executeWithoutResult(status -> {
-            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-                            + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
-                    user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenant.toString());
+            // public.users and hr_employees are both FORCE RLS (V20261011_3 + V20260905_5).
+            // DriverManagerDataSource is NOT a pool — every jdbc.execute()/jdbc.update()
+            // OUTSIDE a tx-bound context gets a fresh physical connection that is closed
+            // after the call. A session-scoped GUC set on conn N dies with conn N, so
+            // the next INSERT on conn N+1 has no tenant context and RLS rejects it.
+            // Fix: wrap set_config + INSERT users + INSERT hr_employees in ONE
+            // tx.executeWithoutResult block so they share the tx-bound connection.
+            // is_local=true (not false) scopes the GUC to this transaction only — no
+            // session-level leak when the connection is returned to the (non-)pool.
+            tx.executeWithoutResult(status -> {
+                jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
+                                + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
+                        user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);
+                jdbc.update("""
+                        INSERT INTO hr_employees (
+                            id, tenant_id, user_id, employee_number, first_name, last_name,
+                            display_name, employment_type, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, 'R2', 'Fixture', 'R2 Fixture', 'FULL_TIME', 'ACTIVE', ?, NOW())
+                        """, employee, tenant, user,
+                        "R2-" + employee.toString().substring(0, 8), now);
+            });
             jdbc.update("""
-                    INSERT INTO hr_employees (
-                        id, tenant_id, user_id, employee_number, first_name, last_name,
-                        display_name, employment_type, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, 'R2', 'Fixture', 'R2 Fixture', 'FULL_TIME', 'ACTIVE', ?, NOW())
-                    """, employee, tenant, user,
-                    "R2-" + employee.toString().substring(0, 8), now);
+                    INSERT INTO workflow_definitions (
+                        id, tenant_id, definition_family_id, code, name, module, version, status,
+                        trigger_type, created_by, version_lock, engine_generation, publication_state,
+                        schema_version, created_at, updated_at
+                    ) VALUES (?, ?, ?, 'WF-R2-AN', 'R2Analytics', 'GENERAL', 1, 'ACTIVE',
+                              'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
+                    """, definition, tenant, definition, user, now, now);
+            jdbc.update("""
+                    INSERT INTO workflow_steps (
+                        id, tenant_id, workflow_definition_id, step_key, name, step_type,
+                        sequence_order, configuration, sla_hours, version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'review-step', 'Review step', 'HUMAN_TASK', 1,
+                            CAST('{}' AS jsonb), NULL, 0, ?, NOW())
+                    """, stepId, tenant, definition, Timestamp.from(start));
+            jdbc.update("""
+                    INSERT INTO workflow_instances (
+                        id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
+                        business_entity_id, status, started_by, started_at, engine_generation,
+                        context_json, context_schema_version, version, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
+                              CAST('{}' AS jsonb), 1, 0, ?, ?)
+                    """, instance, tenant, definition, user, now, now);
+            jdbc.update("""
+                    INSERT INTO workflow_step_instances (
+                        id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
+                        status, version, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'review-step', 'IN_PROGRESS', 0, ?, NOW())
+                    """, stepInstance, tenant, instance, stepId, Timestamp.from(start));
+            jdbc.update("""
+                    INSERT INTO workflow_work_items (
+                        id, tenant_id, workflow_instance_id, workflow_step_instance_id, type,
+                        status, assignment_mode, source_module, source_entity_type,
+                        source_entity_id, title, assignee_employee_id, claimed_by_employee_id,
+                        completed_at, sla_due_at, version, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'HUMAN_TASK', 'COMPLETED', 'DIRECT', 'CRM', 'account',
+                            gen_random_uuid(), 'Reconcile me', ?, ?, ?, ?, 0, ?, NOW())
+                    """, workItem, tenant, instance, stepInstance, employee, employee,
+                    Timestamp.from(start.plusSeconds(1800)),
+                    Timestamp.from(start.minusSeconds(600)),
+                    Timestamp.from(start));
+            // responsibility segments: 30 min ASSIGNED + 10 min EXTERNAL_WAIT
+            jdbc.update("""
+                    INSERT INTO workflow_responsibility_segments (
+                        id, tenant_id, work_item_id, workflow_instance_id, segment_type,
+                        owner_employee_id, started_at, ended_at, reason, created_at)
+                    VALUES (?, ?, ?, ?, 'ASSIGNED', ?, ?, ?, 'fixture', NOW())
+                    """, segment, tenant, workItem, instance, employee,
+                    Timestamp.from(start), Timestamp.from(start.plusSeconds(1800)));
+            jdbc.update("""
+                    INSERT INTO workflow_responsibility_segments (
+                        id, tenant_id, work_item_id, workflow_instance_id, segment_type,
+                        owner_employee_id, started_at, ended_at, reason, created_at)
+                    VALUES (?, ?, ?, ?, 'EXTERNAL_WAIT', NULL, ?, ?, 'fixture', NOW())
+                    """, UUID.randomUUID(), tenant, workItem, instance,
+                    Timestamp.from(start), Timestamp.from(start.plusSeconds(600)));
+            // timer: breached deadline
+            jdbc.update("""
+                    INSERT INTO workflow_timers (
+                        id, tenant_id, scope, scope_id, purpose, state, policy,
+                        due_at, breached_at, workflow_instance_id, work_item_id,
+                        created_at, updated_at)
+                    VALUES (?, ?, 'WORK_ITEM', ?, 'EXECUTION_DEADLINE', 'BREACHED',
+                            'ESCALATE', ?, NOW(), ?, ?, NOW(), NOW())
+                    """, timer, tenant, workItem, Timestamp.from(start.minusSeconds(300)),
+                    instance, workItem);
+            // journey events (idempotent keys)
+            appendJourney(tenant, instance, "PROCESS_STARTED", "ps:" + instance, start);
+            appendJourney(tenant, instance, "TASK_REASSIGNED", "tr:" + instance, start);
+            appendJourney(tenant, instance, "TIMEOUT_EVENT", "te:" + timer, start);
         });
-        jdbc.update("""
-                INSERT INTO workflow_definitions (
-                    id, tenant_id, definition_family_id, code, name, module, version, status,
-                    trigger_type, created_by, version_lock, engine_generation, publication_state,
-                    schema_version, created_at, updated_at
-                ) VALUES (?, ?, ?, 'WF-R2-AN', 'R2Analytics', 'GENERAL', 1, 'ACTIVE',
-                          'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
-                """, definition, tenant, definition, user, now, now);
-        jdbc.update("""
-                INSERT INTO workflow_steps (
-                    id, tenant_id, workflow_definition_id, step_key, name, step_type,
-                    sequence_order, configuration, sla_hours, version, created_at, updated_at)
-                VALUES (?, ?, ?, 'review-step', 'Review step', 'HUMAN_TASK', 1,
-                        CAST('{}' AS jsonb), NULL, 0, ?, NOW())
-                """, stepId, tenant, definition, Timestamp.from(start));
-        jdbc.update("""
-                INSERT INTO workflow_instances (
-                    id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
-                    business_entity_id, status, started_by, started_at, engine_generation,
-                    context_json, context_schema_version, version, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
-                          CAST('{}' AS jsonb), 1, 0, ?, ?)
-                """, instance, tenant, definition, user, now, now);
-        jdbc.update("""
-                INSERT INTO workflow_step_instances (
-                    id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
-                    status, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'review-step', 'IN_PROGRESS', 0, ?, NOW())
-                """, stepInstance, tenant, instance, stepId, Timestamp.from(start));
-        jdbc.update("""
-                INSERT INTO workflow_work_items (
-                    id, tenant_id, workflow_instance_id, workflow_step_instance_id, type,
-                    status, assignment_mode, source_module, source_entity_type,
-                    source_entity_id, title, assignee_employee_id, claimed_by_employee_id,
-                    completed_at, sla_due_at, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'HUMAN_TASK', 'COMPLETED', 'DIRECT', 'CRM', 'account',
-                        gen_random_uuid(), 'Reconcile me', ?, ?, ?, ?, 0, ?, NOW())
-                """, workItem, tenant, instance, stepInstance, employee, employee,
-                Timestamp.from(start.plusSeconds(1800)),
-                Timestamp.from(start.minusSeconds(600)),
-                Timestamp.from(start));
-        // responsibility segments: 30 min ASSIGNED + 10 min EXTERNAL_WAIT
-        jdbc.update("""
-                INSERT INTO workflow_responsibility_segments (
-                    id, tenant_id, work_item_id, workflow_instance_id, segment_type,
-                    owner_employee_id, started_at, ended_at, reason, created_at)
-                VALUES (?, ?, ?, ?, 'ASSIGNED', ?, ?, ?, 'fixture', NOW())
-                """, segment, tenant, workItem, instance, employee,
-                Timestamp.from(start), Timestamp.from(start.plusSeconds(1800)));
-        jdbc.update("""
-                INSERT INTO workflow_responsibility_segments (
-                    id, tenant_id, work_item_id, workflow_instance_id, segment_type,
-                    owner_employee_id, started_at, ended_at, reason, created_at)
-                VALUES (?, ?, ?, ?, 'EXTERNAL_WAIT', NULL, ?, ?, 'fixture', NOW())
-                """, UUID.randomUUID(), tenant, workItem, instance,
-                Timestamp.from(start), Timestamp.from(start.plusSeconds(600)));
-        // timer: breached deadline
-        jdbc.update("""
-                INSERT INTO workflow_timers (
-                    id, tenant_id, scope, scope_id, purpose, state, policy,
-                    due_at, breached_at, workflow_instance_id, work_item_id,
-                    created_at, updated_at)
-                VALUES (?, ?, 'WORK_ITEM', ?, 'EXECUTION_DEADLINE', 'BREACHED',
-                        'ESCALATE', ?, NOW(), ?, ?, NOW(), NOW())
-                """, timer, tenant, workItem, Timestamp.from(start.minusSeconds(300)),
-                instance, workItem);
-        // journey events (idempotent keys)
-        appendJourney(tenant, instance, "PROCESS_STARTED", "ps:" + instance, start);
-        appendJourney(tenant, instance, "TASK_REASSIGNED", "tr:" + instance, start);
-        appendJourney(tenant, instance, "TIMEOUT_EVENT", "te:" + timer, start);
         createdTenants.add(tenant);
         return new Fixture(tenant, user, employee, instance, stepId, stepInstance,
                 workItem, segment, timer);
