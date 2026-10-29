@@ -240,7 +240,8 @@ class WorkflowR2NotificationFoundationTest {
         assertThatThrownBy(() -> policies.create(fx.tenant(), "bad-event", "EMAIL",
                 null, "USER", null, "ar", "IMMEDIATE", null, "STANDARD",
                 "PER_EVENT", "NONE", null, "NORMAL"))
-                .isInstanceOf(IllegalArgumentException.class);        });
+                .isInstanceOf(IllegalArgumentException.class);
+        });
 
     }
 
@@ -272,7 +273,8 @@ class WorkflowR2NotificationFoundationTest {
                 """, fx.tenant(), intentId);
         // No WHATSAPP provider registered -> fail closed, never silently dropped
         assertThat(intent.get("delivery_status")).isEqualTo("FAILED_TERMINAL");
-        assertThat(intent.get("failure_category")).isEqualTo("CONFIG_ERROR");        });
+        assertThat(intent.get("failure_category")).isEqualTo("CONFIG_ERROR");
+        });
 
     }
 
@@ -324,7 +326,8 @@ class WorkflowR2NotificationFoundationTest {
                 SELECT COUNT(*) AS n FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
                 """, fx.tenant(), fx.user(), first);
-        assertThat(((Number) feedRow.get("n")).longValue()).isEqualTo(1);        });
+        assertThat(((Number) feedRow.get("n")).longValue()).isEqualTo(1);
+        });
 
     }
 
@@ -406,7 +409,8 @@ class WorkflowR2NotificationFoundationTest {
                  WHERE tenant_id = ? AND id = ?
                 """, fx.tenant(), retryable);
         assertThat(delivered.get("delivery_status")).isEqualTo("DELIVERED");
-        assertThat(((Number) delivered.get("attempt_count")).intValue()).isEqualTo(3);        });
+        assertThat(((Number) delivered.get("attempt_count")).intValue()).isEqualTo(3);
+        });
 
     }
 
@@ -463,7 +467,8 @@ class WorkflowR2NotificationFoundationTest {
         Integer versionAfterOutage = jdbc.queryForObject(
                 "SELECT version FROM workflow_instances WHERE tenant_id = ? AND id = ?",
                 Integer.class, fx.tenant(), fx.instance());
-        assertThat(versionAfterOutage).isEqualTo(1);        });
+        assertThat(versionAfterOutage).isEqualTo(1);
+        });
 
     }
 
@@ -556,7 +561,8 @@ class WorkflowR2NotificationFoundationTest {
     private static EmailProperties emailProperties(String from) {
         EmailProperties properties = new EmailProperties();
         properties.setFromAddress(from);
-        return properties;        });
+        return properties;
+        });
 
     }
 
@@ -604,7 +610,8 @@ class WorkflowR2NotificationFoundationTest {
                 new WorkflowDeliveryRequest(fx.tenant(), UUID.randomUUID(), "E",
                         null, null, "http://hooks.example.test/x", null, null, null,
                         null, null, "NORMAL", null, null, null, null, null, null, null));
-        assertThat(plainHttp.failureCategory()).isEqualTo("CONFIG_ERROR");        });
+        assertThat(plainHttp.failureCategory()).isEqualTo("CONFIG_ERROR");
+        });
 
     }
 
@@ -647,7 +654,8 @@ class WorkflowR2NotificationFoundationTest {
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND read_at IS NULL
                 """, Integer.class, fx.tenant(), fx.user());
-        assertThat(unread).isEqualTo(0);        });
+        assertThat(unread).isEqualTo(0);
+        });
 
     }
 }
