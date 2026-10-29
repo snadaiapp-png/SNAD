@@ -320,6 +320,9 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
     }
 
     private void seedUser(UUID tenantId, UUID userId) throws Exception {
+        // users is FORCE RLS (V20261011_3): bind the tenant GUC before the insert
+        // instead of relying on leftover session context from a previous seed call.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO users (id, tenant_id, email, display_name, status, created_at, updated_at, " +
                 "must_change_password, session_version, platform_admin) " +

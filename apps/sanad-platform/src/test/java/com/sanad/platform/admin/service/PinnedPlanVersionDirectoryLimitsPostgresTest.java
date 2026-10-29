@@ -93,16 +93,23 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         Seed seed = seedSubscription(10, 1, 10, 2);
         insertOrganization(seed.tenantId(), "Existing Organization");
 
-        var created = service.createOrganization(
-                seed.tenantId(),
-                new CreateOrganizationAdminRequest("Second Organization", null),
-                null);
-
-        assertThat(created.name()).isEqualTo("Second Organization");
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
-                Integer.class, seed.tenantId());
-        assertThat(count).isEqualTo(2);
+        // The service writes organizations (FORCE RLS) through the same DataSource;
+        // bind the tenant GUC inside the surrounding transaction so the write, the
+        // limit pre-count, and the post-read all share one tenant-bound connection.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, seed.tenantId().toString());
+            var created = service.createOrganization(
+                    seed.tenantId(),
+                    new CreateOrganizationAdminRequest("Second Organization", null),
+                    null);
+            assertThat(created.name()).isEqualTo("Second Organization");
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                    Integer.class, seed.tenantId());
+            assertThat(count).isEqualTo(2);
+        });
     }
 
     @Test
@@ -112,21 +119,29 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         UUID organizationId = insertOrganization(seed.tenantId(), "Seat Organization");
         insertMembership(seed.tenantId(), organizationId, "first@example.com");
 
-        var created = service.createMembership(
-                seed.tenantId(),
-                organizationId,
-                new CreateMembershipAdminRequest("second@example.com", "Second User", "MEMBER"),
-                null);
-
-        assertThat(created.email()).isEqualTo("second@example.com");
-        Integer seats = jdbc.queryForObject(
-                """
-                SELECT COUNT(DISTINCT LOWER(email))
-                FROM organization_memberships
-                WHERE tenant_id = ? AND status IN ('INVITED', 'ACTIVE')
-                """,
-                Integer.class, seed.tenantId());
-        assertThat(seats).isEqualTo(2);
+        // The service writes organization_memberships/roles (FORCE RLS) through the
+        // same DataSource; bind the tenant GUC inside the surrounding transaction
+        // so the seat pre-count, the write, and the post-read all share one
+        // tenant-bound connection.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, seed.tenantId().toString());
+            var created = service.createMembership(
+                    seed.tenantId(),
+                    organizationId,
+                    new CreateMembershipAdminRequest("second@example.com", "Second User", "MEMBER"),
+                    null);
+            assertThat(created.email()).isEqualTo("second@example.com");
+            Integer seats = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(DISTINCT LOWER(email))
+                    FROM organization_memberships
+                    WHERE tenant_id = ? AND status IN ('INVITED', 'ACTIVE')
+                    """,
+                    Integer.class, seed.tenantId());
+            assertThat(seats).isEqualTo(2);
+        });
     }
 
     private Seed seedSubscription(int legacyMaxUsers, int legacyMaxOrganizations,
