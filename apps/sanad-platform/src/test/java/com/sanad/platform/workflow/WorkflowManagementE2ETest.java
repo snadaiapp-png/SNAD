@@ -113,6 +113,9 @@ class WorkflowManagementE2ETest {
                     ps.setObject(5, now);
                     ps.executeUpdate();
                 }
+                try (var reset = conn.createStatement()) {
+                    reset.execute("RESET app.tenant_id");
+                }
                 return null;
             });
         }
@@ -129,6 +132,9 @@ class WorkflowManagementE2ETest {
                 ps.setObject(4, now);
                 ps.setObject(5, now);
                 ps.executeUpdate();
+            }
+            try (var reset = conn.createStatement()) {
+                reset.execute("RESET app.tenant_id");
             }
             return null;
         });
@@ -177,7 +183,7 @@ class WorkflowManagementE2ETest {
                     }
                 }
                 try (var st = con.createStatement()) {
-                    st.execute("SELECT set_config('app.tenant_id', '', false)");
+                    st.execute("RESET app.tenant_id");
                 }
                 return null;
             });
@@ -186,6 +192,9 @@ class WorkflowManagementE2ETest {
 
     /** Build a DECISION_APPROVAL workflow definition with 2 steps (REVIEW + APPROVE). */
     private void buildDecisionApprovalWorkflow(UUID tenantId, UUID userId) {
+        // Service-level fixture creation must carry the authenticated tenant into the
+        // transaction so TenantRlsConnectionHandler applies SET LOCAL app.tenant_id.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
         var def = WorkflowDefinition.create(
                 tenantId, DecisionWorkflowIntegrationService.DECISION_APPROVAL_WORKFLOW_CODE,
                 "Decision Approval Workflow", "Auto-created for decision approvals",
