@@ -1022,26 +1022,32 @@ class CrmPostgresMigrationTest {
         assertThat(partialIndexPredicateMatches(jdbc, "crm_assignment_rule_versions", "uk_rule_versions_active", "status = 'ACTIVE'")).isTrue();
         assertThat(partialIndexPredicateMatches(jdbc, "crm_assignments", "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
 
-        Long activeTenantCount = jdbc.queryForObject("SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'", Long.class);
-        if (activeTenantCount != null && activeTenantCount > 0) {
-            assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_MANAGER' AND status = 'ACTIVE'", Long.class)).isEqualTo(activeTenantCount);
-            assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'", Long.class)).isEqualTo(activeTenantCount);
-            assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM role_capabilities rc " +
-                            "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
-                            "JOIN access_capabilities c ON c.id = rc.capability_id " +
-                            "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
-                            "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
-                    .isEqualTo(activeTenantCount * 11L);
-            assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM role_capabilities rc " +
-                            "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
-                            "JOIN access_capabilities c ON c.id = rc.capability_id " +
-                            "WHERE r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
-                            "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
-                    .isEqualTo(activeTenantCount * 8L);
+        List<UUID> activeTenantIds = jdbc.queryForList(
+                "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id", UUID.class);
+        for (UUID tenantId : activeTenantIds) {
+            withTenantScope(jdbc, tenantId, () -> {
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM roles WHERE tenant_id = ? AND code = 'SALES_MANAGER' AND status = 'ACTIVE'",
+                        Long.class, tenantId)).isEqualTo(1L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM roles WHERE tenant_id = ? AND code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'",
+                        Long.class, tenantId)).isEqualTo(1L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM role_capabilities rc " +
+                                "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                                "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                                "WHERE r.tenant_id = ? AND r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
+                                "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ','CRM.OWNERSHIP_HISTORY.READ')",
+                        Long.class, tenantId)).isEqualTo(11L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM role_capabilities rc " +
+                                "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                                "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                                "WHERE r.tenant_id = ? AND r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
+                                "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')",
+                        Long.class, tenantId)).isEqualTo(8L);
+                return null;
+            });
         }
 
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
@@ -1126,6 +1132,17 @@ class CrmPostgresMigrationTest {
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);
         return configuration.load();
+    }
+
+    private <T> T withTenantScope(JdbcTemplate jdbc, UUID tenantId, java.util.function.Supplier<T> action) {
+        var transactionManager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                java.util.Objects.requireNonNull(jdbc.getDataSource()));
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return action.get();
+                });
     }
 
     private JdbcTemplate jdbc() {
