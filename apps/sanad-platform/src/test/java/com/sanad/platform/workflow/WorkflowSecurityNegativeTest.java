@@ -1,11 +1,13 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.api.WorkflowController;
 import com.sanad.platform.workflow.domain.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -159,6 +161,15 @@ class WorkflowSecurityNegativeTest {
                     noCapsRole, tenantA, now, now);
         });
         // Intentionally do NOT grant WORKFLOW.* capabilities to noCapsRole.
+        // Service-level calls use TenantRlsConnectionHandler, which derives its
+        // transaction-local RLS scope from SecurityContextHolder. Seed the default
+        // actor explicitly; per-tenant tests switch this context before cross-tenant work.
+        RlsTestSupport.setSecurityContext(tenantA, userA);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth(UUID tid, UUID uid) {
