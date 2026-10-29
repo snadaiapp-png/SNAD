@@ -724,6 +724,100 @@ jobs:
             -DfailIfNoTests=true \
             -Dtest='com.sanad.platform.hr.**'
 
+      - name: Upload HRM test reports
+        id: upload-reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrm-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: HRM test summary
+        id: hrm-test-summary
+        if: always()
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          report_dir = "target/surefire-reports"
+          xml_paths = sorted(glob.glob(os.path.join(report_dir, "TEST-*.xml")))
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+
+          if not os.path.isdir(report_dir):
+              message = f"FAIL: Surefire report directory is missing: {report_dir}"
+              with open(summary_path, "a", encoding="utf-8") as summary:
+                  summary.write("## HRM Focused Suite Results\n\n" + message + "\n")
+              print(message, file=sys.stderr)
+              sys.exit(1)
+
+          if not xml_paths:
+              message = f"FAIL: no TEST-*.xml reports found in {report_dir}"
+              with open(summary_path, "a", encoding="utf-8") as summary:
+                  summary.write("## HRM Focused Suite Results\n\n" + message + "\n")
+              print(message, file=sys.stderr)
+              sys.exit(1)
+
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          parse_errors = []
+          for path in xml_paths:
+              try:
+                  root = ET.parse(path).getroot()
+                  if root.tag == "testsuites":
+                      # Prefer aggregate attributes when supplied; otherwise sum
+                      # the direct testsuite children to avoid double counting.
+                      if all(key in root.attrib for key in totals):
+                          suite_totals = {key: int(root.attrib[key]) for key in totals}
+                      else:
+                          suites = list(root.findall("testsuite"))
+                          if not suites:
+                              raise ValueError("testsuites root has no testsuite children or aggregate counts")
+                          suite_totals = {
+                              key: sum(int(suite.attrib.get(key, "0")) for suite in suites)
+                              for key in totals
+                          }
+                  elif root.tag == "testsuite":
+                      suite_totals = {key: int(root.attrib.get(key, "0")) for key in totals}
+                  else:
+                      raise ValueError(f"unexpected XML root element: {root.tag}")
+                  for key in totals:
+                      totals[key] += suite_totals[key]
+              except (ET.ParseError, OSError, ValueError) as exc:
+                  parse_errors.append(f"{path}: {exc}")
+
+          lines = [
+              "## HRM Focused Suite Results",
+              "",
+              f"- XML reports parsed: {len(xml_paths) - len(parse_errors)} / {len(xml_paths)}",
+              f"- Tests: {totals['tests']}",
+              f"- Failures: {totals['failures']}",
+              f"- Errors: {totals['errors']}",
+              f"- Skipped: {totals['skipped']}",
+          ]
+          if parse_errors:
+              lines.extend(["", "### Invalid or unreadable reports", *[f"- {item}" for item in parse_errors]])
+          if totals["tests"] == 0:
+              lines.extend(["", "FAIL: zero tests were reported; HRM verification cannot pass."])
+          elif totals["failures"] or totals["errors"]:
+              lines.extend(["", "FAIL: one or more HRM tests failed or errored."])
+          else:
+              lines.extend(["", "PASS: at least one HRM test was reported with no failures or errors."])
+
+          with open(summary_path, "a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+
+          if parse_errors or totals["tests"] == 0 or totals["failures"] or totals["errors"]:
+              sys.exit(1)
+          PY
+
       - name: Emit outcome fragment
         id: fragment
         if: always()
@@ -734,6 +828,7 @@ jobs:
           import json
           fragment = {
               'hrm_focused_tests': '${{ steps.hrm-focused-tests.outcome }}',
+              'hrm_test_summary': '${{ steps.hrm-test-summary.outcome }}',
           }
           with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
               json.dump(fragment, f, indent=2)
@@ -749,26 +844,6 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Upload HRM test reports
-        id: upload-reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hrm-surefire-reports
-          path: apps/sanad-platform/target/surefire-reports/
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: HRM test summary
-        if: always()
-        shell: bash
-        working-directory: apps/sanad-platform
-        run: |
-          echo "## HRM Focused Suite Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
-            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
 
   # ============================================================
   # JOB E — security/governance scans

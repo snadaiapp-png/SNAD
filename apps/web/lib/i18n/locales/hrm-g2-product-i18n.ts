@@ -32,6 +32,7 @@ export const HRM_G2_PRODUCT_I18N_AR: Record<string, string> = {
   "hrm.g2.workspace.nav.recruitment": "التوظيف",
   "hrm.g2.workspace.nav.onboarding": "التأهيل",
   "hrm.g2.workspace.nav.execution": "لوحة التنفيذ",
+  "hrm.g5.workspace.nav.liveAnalytics": "التحليلات الحية",
 
   // === G3 Task 6 — shared module shell navigation sections + header actions ===
   "hrm.g2.workspace.brandMark": "سند",
@@ -161,6 +162,7 @@ export const HRM_G2_PRODUCT_I18N_EN: Record<string, string> = {
   "hrm.g2.workspace.nav.recruitment": "Recruitment",
   "hrm.g2.workspace.nav.onboarding": "Onboarding",
   "hrm.g2.workspace.nav.execution": "Execution Board",
+  "hrm.g5.workspace.nav.liveAnalytics": "Live Analytics",
 
   // === G3 Task 6 — shared module shell navigation sections + header actions ===
   "hrm.g2.workspace.brandMark": "سند",
