@@ -816,6 +816,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(RLS_FORENSIC_FUNCTION_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
