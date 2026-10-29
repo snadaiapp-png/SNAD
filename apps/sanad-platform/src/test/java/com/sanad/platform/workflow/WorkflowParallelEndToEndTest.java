@@ -72,44 +72,49 @@ class WorkflowParallelEndToEndTest {
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
                 tenantId, "T14E2E", "t14e2e-" + tenantId.toString().substring(0, 8), "ACTIVE", now, now);
-        // public.users is FORCE RLS (V20261011_3). One test method in this class
-        // (concurrentRealArrivalsGrantTheJoinExactlyOnce_acrossRounds) is annotated
-        // @Transactional(propagation = NOT_SUPPORTED) — when it runs, setUp() also
-        // runs without a transaction, so HikariCP returns a different physical
-        // connection per jdbc call. set_config(is_local=true) on conn A is reset
-        // immediately (no explicit transaction to scope to); INSERT users on conn B
-        // has no GUC → RLS rejects.
-        // Fix: wrap set_config + INSERT users in ONE tx.executeWithoutResult block
-        // so they share the tx-bound connection regardless of the test method's
-        // propagation. is_local=true (not false) scopes the GUC to this transaction
-        // only — no session-level leak. set_config uses JDBC prepared parameter ?.
         tx.executeWithoutResult(txStatus -> {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
                     String.class, tenantId.toString());
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                    userId, tenantId, "t14e2e-" + userId.toString().substring(0, 8) + "@test", "T14E2E", "ACTIVE", "dummy", now, now);
+            // public.users is FORCE RLS (V20261011_3). One test method in this class
+            // (concurrentRealArrivalsGrantTheJoinExactlyOnce_acrossRounds) is annotated
+            // @Transactional(propagation = NOT_SUPPORTED) — when it runs, setUp() also
+            // runs without a transaction, so HikariCP returns a different physical
+            // connection per jdbc call. set_config(is_local=true) on conn A is reset
+            // immediately (no explicit transaction to scope to); INSERT users on conn B
+            // has no GUC → RLS rejects.
+            // Fix: wrap set_config + INSERT users in ONE tx.executeWithoutResult block
+            // so they share the tx-bound connection regardless of the test method's
+            // propagation. is_local=true (not false) scopes the GUC to this transaction
+            // only — no session-level leak. set_config uses JDBC prepared parameter ?.
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                        userId, tenantId, "t14e2e-" + userId.toString().substring(0, 8) + "@test", "T14E2E", "ACTIVE", "dummy", now, now);
+            });
+            defId = UUID.randomUUID();
+            jdbc.update("""
+                    INSERT INTO workflow_definitions (id, tenant_id, definition_family_id, code, name, module,
+                        version, status, trigger_type, created_by, version_lock, engine_generation,
+                        publication_state, schema_version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'WF-E2E', 'E2E', 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, 'Y2',
+                            'PUBLISHED', 1, ?, ?)
+                    """, defId, tenantId, defId, userId, now, now);
+            startId = step("start", "START");
+            forkId = step("fork", "PARALLEL_FORK");
+            branchAId = step("branch_a", "SYSTEM_ACTION");
+            branchBId = step("branch_b", "SYSTEM_ACTION");
+            joinId = step("join", "PARALLEL_JOIN");
+            endId = step("end", "END");
+            transition(startId, forkId, "begin");
+            transition(forkId, branchAId, "branch_a");
+            transition(forkId, branchBId, "branch_b");
+            transition(branchAId, joinId, "a_to_join");
+            transition(branchBId, joinId, "b_to_join");
+            transition(joinId, endId, "joined");
         });
-        defId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO workflow_definitions (id, tenant_id, definition_family_id, code, name, module,
-                    version, status, trigger_type, created_by, version_lock, engine_generation,
-                    publication_state, schema_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'WF-E2E', 'E2E', 'GENERAL', 1, 'ACTIVE', 'MANUAL', ?, 0, 'Y2',
-                        'PUBLISHED', 1, ?, ?)
-                """, defId, tenantId, defId, userId, now, now);
-        startId = step("start", "START");
-        forkId = step("fork", "PARALLEL_FORK");
-        branchAId = step("branch_a", "SYSTEM_ACTION");
-        branchBId = step("branch_b", "SYSTEM_ACTION");
-        joinId = step("join", "PARALLEL_JOIN");
-        endId = step("end", "END");
-        transition(startId, forkId, "begin");
-        transition(forkId, branchAId, "branch_a");
-        transition(forkId, branchBId, "branch_b");
-        transition(branchAId, joinId, "a_to_join");
-        transition(branchBId, joinId, "b_to_join");
-        transition(joinId, endId, "joined");
     }
 
     @AfterEach
