@@ -6,6 +6,7 @@ import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.workflow.application.*;
 import com.sanad.platform.workflow.domain.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -188,6 +189,14 @@ class WorkflowManagementE2ETest {
                 return null;
             });
         }
+        // Default authenticated actor for direct service calls in each test. Tests that
+        // intentionally act as another tenant must explicitly switch the context.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA, requesterA);
+    }
+
+    @AfterEach
+    void clearTenantSecurityContext() {
+        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
     }
 
     /** Build a DECISION_APPROVAL workflow definition with 2 steps (REVIEW + APPROVE). */
