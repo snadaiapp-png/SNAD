@@ -176,6 +176,7 @@ WHERE m.code = 'HRM'
 -- ----------------------------------------------------------------------------
 -- 3. Organization
 -- ----------------------------------------------------------------------------
+SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
     '44444444-4444-4444-8444-444444444445',

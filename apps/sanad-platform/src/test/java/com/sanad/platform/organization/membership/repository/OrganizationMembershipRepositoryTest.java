@@ -52,6 +52,9 @@ class OrganizationMembershipRepositoryTest {
     @Autowired
     private OrganizationRepository organizationRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     private UUID tenantAId;
     private UUID tenantBId;
     private UUID orgA1Id;
@@ -69,12 +72,25 @@ class OrganizationMembershipRepositoryTest {
         tenantBId = tenantB.getId();
 
         // Create organizations under each tenant
+        // V20261029_1: organizations is FORCE RLS — seed per tenant under its
+        // own GUC with saveAndFlush (immediate INSERT), then leave the test
+        // transaction scoped to tenant A (the default actor in these tests).
         Organization orgA1 = new Organization(tenantA, "Org A1", "desc", OrganizationStatus.ACTIVE);
         Organization orgA2 = new Organization(tenantA, "Org A2", "desc", OrganizationStatus.ACTIVE);
         Organization orgB1 = new Organization(tenantB, "Org B1", "desc", OrganizationStatus.ACTIVE);
-        orgA1Id = organizationRepository.save(orgA1).getId();
-        orgA2Id = organizationRepository.save(orgA2).getId();
-        orgB1Id = organizationRepository.save(orgB1).getId();
+        scopeGuc(tenantAId);
+        orgA1Id = organizationRepository.saveAndFlush(orgA1).getId();
+        orgA2Id = organizationRepository.saveAndFlush(orgA2).getId();
+        scopeGuc(tenantBId);
+        orgB1Id = organizationRepository.saveAndFlush(orgB1).getId();
+        scopeGuc(tenantAId);
+    }
+
+    private void scopeGuc(UUID tenantId) {
+        // V20261029_1: FORCE RLS on organizations / organization_memberships —
+        // scope the test transaction to the acting tenant inline.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
     }
 
     // ============================================================
@@ -101,12 +117,17 @@ class OrganizationMembershipRepositoryTest {
     @Test
     @DisplayName("TEST 2: findByTenantId returns all memberships for the tenant")
     void findByTenantId_returnsAllForTenant() {
-        membershipRepository.save(new OrganizationMembership(
+        // Flush each tenant's rows under its own GUC — a deferred cross-tenant
+        // flush would violate RLS (V20261029_1).
+        scopeGuc(tenantAId);
+        membershipRepository.saveAndFlush(new OrganizationMembership(
                 tenantAId, orgA1Id, "alice@a.com", "Alice", MembershipStatus.ACTIVE));
-        membershipRepository.save(new OrganizationMembership(
+        membershipRepository.saveAndFlush(new OrganizationMembership(
                 tenantAId, orgA2Id, "bob@a.com", "Bob", MembershipStatus.INVITED));
-        membershipRepository.save(new OrganizationMembership(
+        scopeGuc(tenantBId);
+        membershipRepository.saveAndFlush(new OrganizationMembership(
                 tenantBId, orgB1Id, "carol@b.com", "Carol", MembershipStatus.ACTIVE));
+        scopeGuc(tenantAId);
 
         List<OrganizationMembership> result = membershipRepository.findByTenantId(tenantAId);
 

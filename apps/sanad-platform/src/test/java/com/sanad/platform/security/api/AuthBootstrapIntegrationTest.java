@@ -82,10 +82,20 @@ class AuthBootstrapIntegrationTest {
             clearTenantContext();
         }
 
-        Role viewer = roleRepository.save(new Role(
-                tenant.getId(), "VIEWER", "Viewer", "Read-only access"));
-        roleGrantRepository.save(new UserRoleGrant(tenant.getId(), user.getId(), viewer.getId(), null));
-
+        // V20261029_1: roles / user_role_assignments are FORCE RLS — the VIEWER
+        // fixture seeding must run inside a transaction bound to the fixture
+        // tenant, same contract as the user save above.
+        final UUID bootstrapUserId = user.getId();
+        bindTenantContext(tenant.getId());
+        try {
+            tx.executeWithoutResult(txStatus -> {
+                Role viewer = roleRepository.save(new Role(
+                        tenant.getId(), "VIEWER", "Viewer", "Read-only access"));
+                roleGrantRepository.save(new UserRoleGrant(tenant.getId(), bootstrapUserId, viewer.getId(), null));
+            });
+        } finally {
+            clearTenantContext();
+        }
         LoginRequest loginRequest = new LoginRequest(email, password);
         loginRequest.setTenantId(tenant.getId());
 

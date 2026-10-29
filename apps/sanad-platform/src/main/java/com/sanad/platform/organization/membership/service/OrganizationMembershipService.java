@@ -116,7 +116,15 @@ public class OrganizationMembershipService {
     // Use Case: getMembership
     // ============================================================
 
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    // REQUIRED (not SUPPORTS) is mandatory under FORCE ROW LEVEL SECURITY on
+    // public.organization_memberships / public.organizations (V20261029_1):
+    // SUPPORTS runs non-transactionally when no outer transaction exists,
+    // leaving the connection in autoCommit=true where
+    // TenantRlsConnectionHandler never applies app.tenant_id, so the
+    // fail-closed tenant policy returns zero rows (404 regression caught by
+    // ApiRegressionSuiteTest.listMemberships). Mirrors the UserService
+    // precedent for public.users (V20261011_3).
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
     public OrganizationMembershipResponse getMembership(UUID tenantId, UUID organizationId, UUID membershipId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(organizationId, "organizationId must not be null");
@@ -133,7 +141,7 @@ public class OrganizationMembershipService {
     // Use Case: listMemberships
     // ============================================================
 
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
     public List<OrganizationMembershipResponse> listMemberships(UUID tenantId, UUID organizationId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(organizationId, "organizationId must not be null");

@@ -116,19 +116,31 @@ class TokenRevocationIntegrationTest {
         seedLoginEligibleSubscription(tenantId);
 
         // Grant VIEWER role with USER.READ capability for protected endpoint tests
-        Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
-                .orElseGet(() -> roleRepository.save(new Role(
-                        tenantId, "VIEWER", "Viewer", "Read-only access")));
-        AccessCapability userReadCap = accessCapabilityRepository.findByCode("USER.READ")
-                .orElseGet(() -> accessCapabilityRepository.save(new AccessCapability(
-                        "USER.READ", "Read Users", null)));
-        if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
-                tenantId, viewerRole.getId(), userReadCap.getId())) {
-            roleCapabilityRepository.save(new RoleCapability(
-                    tenantId, viewerRole.getId(), userReadCap.getId()));
+        // V20261029_1: roles / role_capabilities / user_role_assignments are
+        // FORCE RLS — rebind the fixture tenant and seed inside one transaction,
+        // same contract as the user save above.
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(fixtureAuth);
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                    .executeWithoutResult(txStatus -> {
+                        Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
+                                .orElseGet(() -> roleRepository.save(new Role(
+                                        tenantId, "VIEWER", "Viewer", "Read-only access")));
+                        AccessCapability userReadCap = accessCapabilityRepository.findByCode("USER.READ")
+                                .orElseGet(() -> accessCapabilityRepository.save(new AccessCapability(
+                                        "USER.READ", "Read Users", null)));
+                        if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
+                                tenantId, viewerRole.getId(), userReadCap.getId())) {
+                            roleCapabilityRepository.save(new RoleCapability(
+                                    tenantId, viewerRole.getId(), userReadCap.getId()));
+                        }
+                        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
+                        userRoleGrantRepository.save(grant);
+                    });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            org.springframework.security.test.context.TestSecurityContextHolder.clearContext();
         }
-        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
-        userRoleGrantRepository.save(grant);
     }
 
 

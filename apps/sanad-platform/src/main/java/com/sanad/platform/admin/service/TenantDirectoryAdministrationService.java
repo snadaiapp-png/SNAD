@@ -66,6 +66,9 @@ public class TenantDirectoryAdministrationService {
 
     @Transactional(readOnly = true)
     public List<OrganizationAdminResponse> listOrganizations(UUID tenantId) {
+        // organizations is FORCE fail-closed RLS (V20261029_1): reads return zero
+        // rows unless app.tenant_id is bound to this transaction.
+        applyTenantRls(tenantId);
         ensureTenant(tenantId);
         return jdbcTemplate.query(
                 "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
@@ -81,6 +84,9 @@ public class TenantDirectoryAdministrationService {
             CreateOrganizationAdminRequest request,
             Authentication authentication
     ) {
+        // organizations is FORCE fail-closed RLS (V20261029_1): the INSERT, the
+        // limit pre-count, and the post-read MUST share a tenant-bound transaction.
+        applyTenantRls(tenantId);
         ensureTenant(tenantId);
         jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
                 rs -> null, "ORGANIZATION_LIMIT:" + tenantId);
@@ -117,6 +123,7 @@ public class TenantDirectoryAdministrationService {
             UpdateOrganizationAdminRequest request,
             Authentication authentication
     ) {
+        applyTenantRls(tenantId);
         OrganizationAdminResponse before = getOrganization(tenantId, organizationId);
         String name = request.name().trim();
         if (count(
@@ -157,6 +164,7 @@ public class TenantDirectoryAdministrationService {
             String reason,
             Authentication authentication
     ) {
+        applyTenantRls(tenantId);
         OrganizationAdminResponse before = getOrganization(tenantId, organizationId);
         String status = normalize(requestedStatus);
         if (!ORGANIZATION_STATUSES.contains(status)) {
@@ -212,6 +220,8 @@ public class TenantDirectoryAdministrationService {
 
     @Transactional(readOnly = true)
     public List<MembershipAdminResponse> listMemberships(UUID tenantId, UUID organizationId) {
+        // organization_memberships is FORCE fail-closed RLS (V20261029_1).
+        applyTenantRls(tenantId);
         getOrganization(tenantId, organizationId);
         return jdbcTemplate.query(
                 "SELECT id, tenant_id, organization_id, user_id, email, display_name, role_code, status, created_at, updated_at "
@@ -228,6 +238,9 @@ public class TenantDirectoryAdministrationService {
             CreateMembershipAdminRequest request,
             Authentication authentication
     ) {
+        // membership/role/grant writes hit the FORCE fail-closed identity plane
+        // (V20261029_1): bind the tenant GUC before any read or write.
+        applyTenantRls(tenantId);
         getOrganization(tenantId, organizationId);
         jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
                 rs -> null, "SEAT_LIMIT:" + tenantId);
@@ -281,6 +294,7 @@ public class TenantDirectoryAdministrationService {
             UpdateMembershipAdminRequest request,
             Authentication authentication
     ) {
+        applyTenantRls(tenantId);
         MembershipAdminResponse before = getMembership(tenantId, organizationId, membershipId);
         String status = normalize(request.status());
         if (!MEMBERSHIP_STATUSES.contains(status)) {
@@ -308,6 +322,9 @@ public class TenantDirectoryAdministrationService {
 
     @Transactional(readOnly = true)
     public OrganizationAdminResponse getOrganization(UUID tenantId, UUID organizationId) {
+        // FORCE fail-closed RLS (V20261029_1): bind the tenant GUC so direct
+        // entry points see the tenant's rows; nested calls re-bind the same id.
+        applyTenantRls(tenantId);
         List<OrganizationAdminResponse> rows = jdbcTemplate.query(
                 "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
                         + "FROM organizations WHERE tenant_id = ? AND id = ?",
@@ -321,6 +338,7 @@ public class TenantDirectoryAdministrationService {
 
     @Transactional(readOnly = true)
     public MembershipAdminResponse getMembership(UUID tenantId, UUID organizationId, UUID membershipId) {
+        applyTenantRls(tenantId);
         List<MembershipAdminResponse> rows = jdbcTemplate.query(
                 "SELECT id, tenant_id, organization_id, user_id, email, display_name, role_code, status, created_at, updated_at "
                         + "FROM organization_memberships WHERE tenant_id = ? AND organization_id = ? AND id = ?",

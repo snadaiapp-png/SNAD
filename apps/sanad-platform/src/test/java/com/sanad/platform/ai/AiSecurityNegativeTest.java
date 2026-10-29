@@ -82,9 +82,16 @@ class AiSecurityNegativeTest {
                 + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
                 userB, tenantB, "ais-" + userB.toString().substring(0, 8) + "@test", now, now);
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1). This class is
+        // @Transactional so every jdbc call shares one tx-bound Connection; the
+        // tenant GUC must be re-bound per tenant INSIDE the same transaction
+        // before each tenant's identity-plane inserts.
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
             var roleId = UUID.randomUUID();
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tid.toString());
             jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
                     + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
                     roleId, tid, now, now);
