@@ -140,6 +140,14 @@ class WorkflowR2TenantIsolationTest {
         });
     }
 
+    /** Void tenant-scoped block (FORCE RLS - V20261029_1). */
+    private void scopedRun(UUID tenantId, Runnable body) {
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            body.run();
+        });
+    }
+
     // ===== 1. IN_APP feed: service-level (tenant, recipient) predicates =====
 
     @Test
@@ -169,7 +177,7 @@ class WorkflowR2TenantIsolationTest {
         //   WHERE tenant_id = ? AND recipient_user_id = ?
         // queried as tenant B + user Ub under B's RLS scope — must see
         // NOTHING of tenant A's feed.
-        readInTenant(b.tenant(), () -> {
+        scopedRun(b.tenant(), () -> {
             List<Map<String, Object>> foreignFeed = jdbc.queryForList("""
                 SELECT id, event_type, title
                   FROM workflow_user_notifications
@@ -189,7 +197,7 @@ class WorkflowR2TenantIsolationTest {
 
         // positive control: the owning principal still sees exactly its rows
         // (the seed is real and the predicates are discriminating, not empty).
-        readInTenant(a.tenant(), () -> {
+        scopedRun(a.tenant(), () -> {
             Long ownFeed = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ?
@@ -227,14 +235,14 @@ class WorkflowR2TenantIsolationTest {
                         null, null, "NORMAL", null, null, null, null, Map.of())));
         // distinct durable intents per tenant under the identical key
         assertThat(intentA).isNotEqualTo(intentB);
-        readInTenant(a.tenant(), () -> {
+        scopedRun(a.tenant(), () -> {
             Integer aIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                  WHERE tenant_id = ? AND deduplication_key = ?
                 """, Integer.class, a.tenant(), sharedDedupKey);
             assertThat(aIntents).isEqualTo(1);
         });
-        readInTenant(b.tenant(), () -> {
+        scopedRun(b.tenant(), () -> {
             Integer bIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                  WHERE tenant_id = ? AND deduplication_key = ?
@@ -249,7 +257,7 @@ class WorkflowR2TenantIsolationTest {
         int processed = dispatcher.dispatchBatch();
 
         // each intent delivered exactly once, to ITS OWN tenant's feed row
-        readInTenant(a.tenant(), () -> {
+        scopedRun(a.tenant(), () -> {
             Integer aFeed = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
@@ -267,7 +275,7 @@ class WorkflowR2TenantIsolationTest {
                 """, a.tenant(), intentA);
             assertThat(aRow.get("title")).isEqualTo("Tenant A notification");
         });
-        readInTenant(b.tenant(), () -> {
+        scopedRun(b.tenant(), () -> {
             Integer bFeed = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
@@ -350,7 +358,7 @@ class WorkflowR2TenantIsolationTest {
 
         // WorkflowCustomerFeedbackController.list tenant-scoped SELECT,
         // issued as tenant B under B's own RLS scope -> must return nothing.
-        readInTenant(b.tenant(), () -> {
+        scopedRun(b.tenant(), () -> {
             List<Map<String, Object>> foreignFeedback = jdbc.queryForList("""
                 SELECT id, workflow_instance_id, source_entity_type,
                        source_entity_id, rating, comment, submitted_by_type,
@@ -361,7 +369,7 @@ class WorkflowR2TenantIsolationTest {
             assertThat(foreignFeedback).isEmpty();
         });
         // positive control: tenant A sees exactly its one row (under A's scope)
-        readInTenant(a.tenant(), () -> {
+        scopedRun(a.tenant(), () -> {
             List<Map<String, Object>> ownFeedback = jdbc.queryForList("""
                 SELECT id, workflow_instance_id, source_entity_type,
                        source_entity_id, rating, comment, submitted_by_type,
@@ -383,13 +391,13 @@ class WorkflowR2TenantIsolationTest {
                 """, UUID.randomUUID(), a.tenant(), factInstance,
                 Timestamp.from(Instant.now().minusSeconds(60))));
 
-        readInTenant(b.tenant(), () -> {
+        scopedRun(b.tenant(), () -> {
             Map<String, Object> foreignDashboard = queryService.serviceDashboard(
                     b.tenant(), Instant.now().minusSeconds(86400), Instant.now());
             assertThat(((Number) foreignDashboard.get("total_instances")).longValue())
                     .isZero();
         });
-        readInTenant(a.tenant(), () -> {
+        scopedRun(a.tenant(), () -> {
             Map<String, Object> ownDashboard = queryService.serviceDashboard(
                     a.tenant(), Instant.now().minusSeconds(86400), Instant.now());
             assertThat(((Number) ownDashboard.get("total_instances")).longValue())
