@@ -27,6 +27,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -144,6 +147,31 @@ class ProductCatalogRuntimePostgresTest {
         e.setProductType(type);
         e.setStatus(status);
         return e;
+    }
+
+    /**
+     * D6 FORCE RLS (V20261029_1) makes role_capabilities invisible unless
+     * app.tenant_id is bound, so the tenant-agnostic grant-chain contract is
+     * evaluated per tenant: each tenant is counted under its own session-scoped
+     * GUC on a dedicated connection and the counts are aggregated. The sum is
+     * > 0 iff at least one tenant's seeded matrix carries the grant chain.
+     */
+    private int sumGrantChainCountAcrossTenants(String countSql) {
+        List<UUID> tenants = jdbc.queryForList("SELECT id FROM tenants ORDER BY id", UUID.class);
+        int total = 0;
+        for (UUID tenant : tenants) {
+            Integer count = jdbc.execute((Connection con) -> {
+                try (Statement st = con.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
+                    try (ResultSet rs = st.executeQuery(countSql)) {
+                        rs.next();
+                        return rs.getInt(1);
+                    }
+                }
+            });
+            total += count == null ? 0 : count;
+        }
+        return total;
     }
 
     private UUID newTenant() {
@@ -640,7 +668,7 @@ class ProductCatalogRuntimePostgresTest {
                         + "AND status = 'ACTIVE'", Integer.class);
         assertThat(active).as("CATALOG.READ must exist and be ACTIVE").isEqualTo(1);
 
-        Integer grants = jdbc.queryForObject("""
+        Integer grants = sumGrantChainCountAcrossTenants("""
                         SELECT COUNT(*) FROM role_capabilities rc
                         JOIN access_capabilities exec_view ON exec_view.code = 'EXECUTIVE_VIEW'
                         JOIN access_capabilities cat_read ON cat_read.code = 'CATALOG.READ'
@@ -648,7 +676,7 @@ class ProductCatalogRuntimePostgresTest {
                           AND EXISTS (SELECT 1 FROM role_capabilities rc2
                                       WHERE rc2.role_id = rc.role_id
                                         AND rc2.capability_id = exec_view.id)
-                        """, Integer.class);
+                        """);
         assertThat(grants).as("backward-compatible grant chain must exist").isGreaterThan(0);
     }
 
@@ -660,10 +688,10 @@ class ProductCatalogRuntimePostgresTest {
                         + "AND status = 'ACTIVE'", Integer.class);
         assertThat(active).as("CATALOG.MANAGE must exist and be ACTIVE").isEqualTo(1);
 
-        Integer grants = jdbc.queryForObject(
+        Integer grants = sumGrantChainCountAcrossTenants(
                 "SELECT COUNT(*) FROM role_capabilities rc "
                         + "JOIN access_capabilities c ON c.id = rc.capability_id "
-                        + "WHERE c.code = 'CATALOG.MANAGE'", Integer.class);
+                        + "WHERE c.code = 'CATALOG.MANAGE'");
         assertThat(grants).isGreaterThan(0);
     }
 

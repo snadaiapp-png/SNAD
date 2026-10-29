@@ -107,17 +107,24 @@ class ManagementEndToEndTest {
             });
         }
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1): bind the tenant
+        // GUC in the SAME transaction as the identity-plane inserts.
         var roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                roleId, tenantId, now, now);
-        var caps = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' "
-                + "OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%'");
-        for (var cap : caps) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                    + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
-        }
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                    roleId, tenantId, now, now);
+            var caps = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' "
+                    + "OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%'");
+            for (var cap : caps) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
+            }
+        });
     }
 
     private Authentication auth() {

@@ -334,6 +334,9 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
 
     private UUID seedOrganization(UUID tenantId, String name) throws Exception {
         UUID orgId = UUID.randomUUID();
+        // organizations is FORCE RLS (V20261029_1): bind the tenant GUC BEFORE
+        // the insert, not after.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
@@ -342,7 +345,6 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
             ps.setString(3, name + " " + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
-        setTenant(tenantId);
         return orgId;
     }
 

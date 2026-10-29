@@ -88,20 +88,27 @@ class ManagementIntegrationTest {
                     userId, tenantId, "test-" + userId.toString().substring(0, 8) + "@example.test", now, now);
         });
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1): bind the tenant
+        // GUC in the SAME transaction as the identity-plane inserts.
         var roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'ADMIN', 'Administrator', 'Test admin', 'ACTIVE', ?, ?)",
-                roleId, tenantId, now, now);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                    + "VALUES (?, ?, 'ADMIN', 'Administrator', 'Test admin', 'ACTIVE', ?, ?)",
+                    roleId, tenantId, now, now);
 
-        var caps = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code IN (?, ?, ?)",
-                "EXECUTIVE_MANAGEMENT.VIEW", "EXECUTIVE_MANAGEMENT.WRITE", "EXECUTIVE_MANAGEMENT.ADMIN");
-        for (var cap : caps) {
-            var capId = (UUID) cap.get("id");
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                    + "VALUES (?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, roleId, capId, now);
-        }
+            var caps = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code IN (?, ?, ?)",
+                    "EXECUTIVE_MANAGEMENT.VIEW", "EXECUTIVE_MANAGEMENT.WRITE", "EXECUTIVE_MANAGEMENT.ADMIN");
+            for (var cap : caps) {
+                var capId = (UUID) cap.get("id");
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)",
+                        UUID.randomUUID(), tenantId, roleId, capId, now);
+            }
+        });
     }
 
     private Authentication auth() {

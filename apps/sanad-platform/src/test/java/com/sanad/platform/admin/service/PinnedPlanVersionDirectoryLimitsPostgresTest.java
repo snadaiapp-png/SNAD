@@ -11,7 +11,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -36,6 +38,7 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
 
     private static String baseUrl;
     private JdbcTemplate jdbc;
+    private TransactionTemplate seedTx;
     private TenantDirectoryAdministrationService service;
 
     @BeforeAll
@@ -77,6 +80,9 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
+        // organizations + organization_memberships are FORCE RLS (V20261029_1):
+        // identity-plane writes bind the tenant GUC inside one transaction.
+        seedTx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         service = new TenantDirectoryAdministrationService(
                 jdbc, mock(PlatformAuditService.class));
     }
@@ -177,22 +183,34 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
 
     private UUID insertOrganization(UUID tenantId, String name) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO organizations (
-                    id, tenant_id, name, status, created_at, updated_at
-                ) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())
-                """, id, tenantId, name);
+        // organizations is FORCE RLS (V20261029_1): same-transaction GUC binding.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO organizations (
+                        id, tenant_id, name, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())
+                    """, id, tenantId, name);
+        });
         return id;
     }
 
     private void insertMembership(UUID tenantId, UUID organizationId, String email) {
-        jdbc.update("""
-                INSERT INTO organization_memberships (
-                    id, tenant_id, organization_id, email, role_code, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'MEMBER', 'INVITED', NOW(), NOW())
-                """,
-                UUID.randomUUID(), tenantId, organizationId, email);
+        // organization_memberships is FORCE RLS (V20261029_1): same-transaction GUC.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO organization_memberships (
+                        id, tenant_id, organization_id, email, role_code, status,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'MEMBER', 'INVITED', NOW(), NOW())
+                    """,
+                    UUID.randomUUID(), tenantId, organizationId, email);
+        });
     }
 
     private record Seed(UUID tenantId) {
