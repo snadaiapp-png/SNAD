@@ -162,12 +162,15 @@ public class TenantDirectoryQueryService {
                         subscriptionCount = scopedPerTenant(tenantId, () -> jdbc.queryForObject(
                                 "SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?",
                                 Integer.class, tenantId));
-                        applicationHostname = scopedPerTenant(tenantId, () -> jdbc.queryForObject(
-                                "SELECT d.hostname FROM tenant_domains d " +
-                                "WHERE d.tenant_id = ? AND d.domain_type = 'APPLICATION' " +
-                                "  AND d.origin = 'DEFAULT_GENERATED' AND d.status = 'ACTIVE' " +
-                                "ORDER BY d.is_primary DESC, d.created_at ASC, d.id ASC LIMIT 1",
-                                String.class, tenantId));
+                        applicationHostname = scopedPerTenant(tenantId, () -> {
+                            List<String> hostnames = jdbc.queryForList(
+                                    "SELECT d.hostname FROM tenant_domains d " +
+                                    "WHERE d.tenant_id = ? AND d.domain_type = 'APPLICATION' " +
+                                    "  AND d.origin = 'DEFAULT_GENERATED' AND d.status = 'ACTIVE' " +
+                                    "ORDER BY d.is_primary DESC, d.created_at ASC, d.id ASC LIMIT 1",
+                                    String.class, tenantId);
+                            return hostnames.isEmpty() ? null : hostnames.get(0);
+                        });
                         if (commercialStateService == null) {
                             // Direct-harness mode still needs the effective
                             // subscription status, resolved under the same scope.
