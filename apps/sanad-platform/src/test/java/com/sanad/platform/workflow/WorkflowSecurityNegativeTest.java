@@ -168,18 +168,26 @@ class WorkflowSecurityNegativeTest {
         return token;
     }
 
-    /** Build a workflow definition with one step and activate it. */
+    /** Build a workflow definition with one step and activate it under an explicit tenant RLS scope. */
     private WorkflowDefinition buildActiveWorkflow(UUID tid, String code, UUID uid) {
-        var def = WorkflowDefinition.create(
-                tid, code, "Test Workflow " + code, "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
-        var savedDef = defService.create(def, uid);
-        defService.addStep(WorkflowStep.create(
-                tid, savedDef.id(), "step1", "First",
-                WorkflowStep.StepType.APPROVAL, 1, null, 48,
-                "WORKFLOW.APPROVE", null), uid);
-        defService.activate(tid, savedDef.id(), uid);
-        return defService.findById(tid, savedDef.id()).orElseThrow();
+        // FORCE RLS is intentional. These fixture writes must use the same transaction-bound
+        // connection as the transaction-local tenant GUC; never bypass the policy or use a
+        // session-scoped setting that can leak across pooled connections.
+        return tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tid.toString());
+            var def = WorkflowDefinition.create(
+                    tid, code, "Test Workflow " + code, "Test",
+                    "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
+            var savedDef = defService.create(def, uid);
+            defService.addStep(WorkflowStep.create(
+                    tid, savedDef.id(), "step1", "First",
+                    WorkflowStep.StepType.APPROVAL, 1, null, 48,
+                    "WORKFLOW.APPROVE", null), uid);
+            defService.activate(tid, savedDef.id(), uid);
+            return defService.findById(tid, savedDef.id()).orElseThrow();
+        });
     }
 
     /** Anonymous authentication — bypass disabled because there IS an authentication (anonymous). */
