@@ -40,16 +40,43 @@ public class WorkflowNotificationDispatcher {
     private static final int MAX_ATTEMPTS = 8;
     private static final int BATCH_SIZE = 50;
 
+    private static final String AMBIENT_TX_REQUIRED_MSG =
+            "dispatchBatch must run inside a Spring-managed transaction "
+            + "(SET LOCAL app.tenant_id is only meaningful within a transaction boundary).";
+
     private final JdbcTemplate jdbc;
     private final WorkflowChannelRegistry registry;
+    private final org.springframework.transaction.support.TransactionTemplate scoped;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
     private final boolean enabled;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public WorkflowNotificationDispatcher(
             JdbcTemplate jdbc,
             WorkflowChannelRegistry registry,
+            org.springframework.transaction.PlatformTransactionManager transactionManager,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
             @Value("${sanad.workflow.notification.dispatcher.enabled:true}") boolean enabled) {
         this.jdbc = jdbc;
         this.registry = registry;
+        this.tenantRlsContext = tenantRlsContext;
+        org.springframework.transaction.support.TransactionTemplate template =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.scoped = template;
+        this.enabled = enabled;
+    }
+
+    /** Backward-compatible harness constructor: in-transaction ambient mode only. */
+    public WorkflowNotificationDispatcher(
+            JdbcTemplate jdbc,
+            WorkflowChannelRegistry registry,
+            boolean enabled) {
+        this.jdbc = jdbc;
+        this.registry = registry;
+        this.tenantRlsContext = null;
+        this.scoped = null;
         this.enabled = enabled;
     }
 
@@ -69,9 +96,46 @@ public class WorkflowNotificationDispatcher {
     /**
      * One bounded dispatch pass. Returns the number of intents processed.
      * A per-intent failure is isolated; the batch continues.
+     *
+     * <p>FORCE-RLS execution modes (V20261029_1):
+     * workflow_notification_intents / workflow_user_notifications are
+     * fail-closed tenant tables. Mirroring WorkflowDeadlineEnforcementWorker:
+     * called OUTSIDE any transaction (scheduled worker thread) the pass
+     * enumerates the platform tenant directory (non-RLS) and dispatches each
+     * tenant inside a REQUIRES_NEW transaction-local app.tenant_id scope;
+     * called INSIDE a caller-managed transaction (tests, control flows) it
+     * dispatches in the caller's ambient scope unchanged. RLS stays fully
+     * enforced in both modes.</p>
      */
-    @Transactional
     public int dispatchBatch() {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isActualTransactionActive()) {
+            return dispatchBatchInCurrentContext();
+        }
+        if (scoped == null || tenantRlsContext == null) {
+            throw new IllegalStateException(AMBIENT_TX_REQUIRED_MSG);
+        }
+        int total = 0;
+        List<UUID> tenants = jdbc.queryForList(
+                "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT 200",
+                UUID.class);
+        for (UUID tenantId : tenants) {
+            try {
+                Integer processed = scoped.execute(status -> {
+                    tenantRlsContext.applyForCurrentTransaction(tenantId);
+                    return dispatchBatchInCurrentContext();
+                });
+                total += processed == null ? 0 : processed;
+            } catch (Exception e) {
+                log.error("Notification dispatch failed for tenant {}: {}",
+                        tenantId, e.getMessage());
+            }
+        }
+        return total;
+    }
+
+    /** Ambient-context dispatch: the caller's transaction/GUC decides visibility. */
+    private int dispatchBatchInCurrentContext() {
         List<Map<String, Object>> due = jdbc.queryForList("""
                 SELECT id, tenant_id, channel, event_type, workflow_instance_id, work_item_id,
                        external_action_id, recipient_user_id, recipient_participant_id,
