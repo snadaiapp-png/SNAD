@@ -18,12 +18,21 @@
 --     V20261020_1 default-deny grant contract; credential/pre-auth tables are
 --     deliberately deferred to their G1 characterization contract — see T2 note).
 --
--- CONTRACT (matches repo precedent V20261011_3 users / V20261021_1 CRM / V20260905_5 HR):
+-- CONTRACT (matches repo precedent V20261020_2 CRM post-baseline and the
+-- 197-policy TO PUBLIC baseline on main):
 --   ENABLE + FORCE ROW LEVEL SECURITY (runtime role sanad owns these tables).
---   One fail-closed policy per table TO sanad:
+--   One fail-closed policy per table TO PUBLIC:
 --     USING / WITH CHECK ( tenant_id::text = NULLIF(current_setting('app.tenant_id', true), '') )
---   Missing, empty or unauthorized tenant context ⇒ NULL comparison ⇒ zero rows,
---   writes denied. No NULL-allow branch, no BYPASSRLS, no owner bypass exception.
+--   TO PUBLIC (not TO sanad): every role is governed by the same tenant
+--   predicate. Under TO sanad only, any OTHER role (e.g. the CI-pre-provisioned
+--   least-privilege verification role crm_contact_rls_test_user used by
+--   CrmRlsTenantIsolationPostgresTest / ContactRlsPostgresTest) matches NO
+--   policy and is default-denied even with app.tenant_id correctly bound —
+--   breaking the non-owner isolation certification path. Under TO PUBLIC the
+--   predicate itself is the gate: missing/empty/unauthorized tenant context
+--   ⇒ NULLIF ⇒ NULL comparison ⇒ zero rows, writes denied — fail-closed for
+--   every role. No NULL-allow branch, no BYPASSRLS, no owner bypass exception
+--   (FORCE binds the owner to the same predicate).
 --   Cross-tenant/background work MUST use the trusted scoped path
 --   (security.rls.TenantRlsTransactionContext) — there is no cross-tenant bypass here.
 --
@@ -152,7 +161,7 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', tbl);
         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON public.%I', tbl);
         EXECUTE format(
-            'CREATE POLICY tenant_isolation ON public.%I FOR ALL TO sanad
+            'CREATE POLICY tenant_isolation ON public.%I FOR ALL TO PUBLIC
              USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))
              WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))',
             tbl);
@@ -171,7 +180,7 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', quota_table);
         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON public.%I', quota_table);
         EXECUTE format(
-            'CREATE POLICY tenant_isolation ON public.%I FOR ALL TO sanad
+            'CREATE POLICY tenant_isolation ON public.%I FOR ALL TO PUBLIC
              USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))
              WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))',
             quota_table);
