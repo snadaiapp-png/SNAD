@@ -104,25 +104,37 @@ class WorkflowDefinitionConcurrencyAuditTest {
         var executor = Executors.newFixedThreadPool(2);
         try {
             var lockFuture = executor.submit(() -> {
-                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                    definitionRepository.findByIdForUpdate(tenantId, definition.id()).orElseThrow();
-                    lockAcquired.countDown();
-                    try {
-                        if (!releaseLock.await(5, TimeUnit.SECONDS)) {
-                            throw new IllegalStateException("Timed out waiting to release definition row lock");
+                RlsTestSupport.setSecurityContext(tenantId, userId);
+                try {
+                    new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                        definitionRepository.findByIdForUpdate(tenantId, definition.id()).orElseThrow();
+                        lockAcquired.countDown();
+                        try {
+                            if (!releaseLock.await(5, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("Timed out waiting to release definition row lock");
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(e);
                         }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException(e);
-                    }
-                });
+                    });
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
+                }
             });
 
             assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
 
-            var mutationFuture = executor.submit(() -> definitionService.addStep(WorkflowStep.create(
-                    tenantId, definition.id(), "start", "Start",
-                    WorkflowStep.StepType.START, 1, "{}", null, null, null), userId));
+            var mutationFuture = executor.submit(() -> {
+                RlsTestSupport.setSecurityContext(tenantId, userId);
+                try {
+                    return definitionService.addStep(WorkflowStep.create(
+                            tenantId, definition.id(), "start", "Start",
+                            WorkflowStep.StepType.START, 1, "{}", null, null, null), userId);
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
+                }
+            });
 
             Thread.sleep(200);
             assertThat(mutationFuture.isDone())
