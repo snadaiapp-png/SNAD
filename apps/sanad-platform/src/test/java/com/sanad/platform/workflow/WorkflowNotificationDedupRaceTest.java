@@ -47,6 +47,15 @@ class WorkflowNotificationDedupRaceTest {
     /** W.3 TEST-HYGIENE — tenants seeded by the current test, swept @AfterEach. */
     private final java.util.List<UUID> createdTenants = new java.util.ArrayList<>();
 
+    /** Tenant-scoped block (workflow_notification_intents is FORCE RLS — V20261029_1). */
+    private <T> T inTenantScope(UUID tenantId, java.util.function.Supplier<T> body) {
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return body.get();
+        });
+    }
+
     @AfterEach
     void sweepFixtures() {
         for (UUID tenantId : createdTenants) {
@@ -153,7 +162,7 @@ class WorkflowNotificationDedupRaceTest {
                         RuntimeException last = null;
                         for (int attempt = 0; attempt < 5; attempt++) {
                             try {
-                                return tx.execute(s -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
+                                return inTenantScope(fx.tenant(), () -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
                                         fx.instance(), null, fx.user(), "IN_APP", dedupKey));
                             } catch (IllegalStateException controlled) {
                                 last = controlled;
@@ -168,17 +177,17 @@ class WorkflowNotificationDedupRaceTest {
                 for (Future<UUID> f : results) {
                     resolved.add(f.get(30, TimeUnit.SECONDS));
                 }
-                UUID durableId = jdbc.queryForObject("""
+                UUID durableId = inTenantScope(fx.tenant(), () -> jdbc.queryForObject("""
                         SELECT id FROM workflow_notification_intents
                         WHERE tenant_id = ? AND deduplication_key = ?
-                        """, UUID.class, fx.tenant(), dedupKey);
+                        """, UUID.class, fx.tenant(), dedupKey));
                 assertThat(resolved)
                         .as("every successful caller resolves the single durable intent")
                         .containsExactly(durableId);
-                Integer durableIntents = jdbc.queryForObject("""
+                Integer durableIntents = inTenantScope(fx.tenant(), () -> jdbc.queryForObject("""
                         SELECT COUNT(*) FROM workflow_notification_intents
                         WHERE tenant_id = ? AND deduplication_key = ?
-                        """, Integer.class, fx.tenant(), dedupKey);
+                        """, Integer.class, fx.tenant(), dedupKey));
                 assertThat(durableIntents)
                         .as("round %s must keep exactly one durable intent for key %s", round, dedupKey)
                         .isEqualTo(1);
@@ -192,25 +201,25 @@ class WorkflowNotificationDedupRaceTest {
     void sequentialReplayReusesPriorIntent() {
         Fixture fx = fixture("sequential");
         String dedupKey = "task-assigned-" + UUID.randomUUID();
-        UUID first = notifications.enqueue(fx.tenant(), "TASK_ASSIGNED", fx.instance(),
-                null, fx.user(), "IN_APP", dedupKey);
-        UUID replay = notifications.enqueue(fx.tenant(), "TASK_ASSIGNED", fx.instance(),
-                null, fx.user(), "IN_APP", dedupKey);
+        UUID first = inTenantScope(fx.tenant(), () -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
+                fx.instance(), null, fx.user(), "IN_APP", dedupKey));
+        UUID replay = inTenantScope(fx.tenant(), () -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
+                fx.instance(), null, fx.user(), "IN_APP", dedupKey));
         assertThat(replay).isEqualTo(first);
-        Integer count = jdbc.queryForObject("""
+        Integer count = inTenantScope(fx.tenant(), () -> jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                 WHERE tenant_id = ? AND deduplication_key = ?
-                """, Integer.class, fx.tenant(), dedupKey);
+                """, Integer.class, fx.tenant(), dedupKey));
         assertThat(count).isEqualTo(1);
     }
 
     @Test
     void distinctKeysNeverCollapse() {
         Fixture fx = fixture("distinct");
-        UUID a = notifications.enqueue(fx.tenant(), "TASK_ASSIGNED", fx.instance(),
-                null, fx.user(), "IN_APP", "key-a-" + UUID.randomUUID());
-        UUID b = notifications.enqueue(fx.tenant(), "TASK_ASSIGNED", fx.instance(),
-                null, fx.user(), "IN_APP", "key-b-" + UUID.randomUUID());
+        UUID a = inTenantScope(fx.tenant(), () -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
+                fx.instance(), null, fx.user(), "IN_APP", "key-a-" + UUID.randomUUID()));
+        UUID b = inTenantScope(fx.tenant(), () -> notifications.enqueue(fx.tenant(), "TASK_ASSIGNED",
+                fx.instance(), null, fx.user(), "IN_APP", "key-b-" + UUID.randomUUID()));
         assertThat(a).isNotEqualTo(b);
     }
 }

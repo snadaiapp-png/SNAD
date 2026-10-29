@@ -120,12 +120,18 @@ class WorkflowParallelExecutionTest {
     @AfterEach
     void cleanupRaceFixtures() {
         // The NOT_SUPPORTED race test commits its own rows; remove them.
-        jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_instances WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_step_transitions WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_steps WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_definitions WHERE tenant_id = ?", tenantId);
+        // FORCE RLS (V20261029_1): the sweep runs inside the tenant scope —
+        // unscoped DELETEs are denied (0 rows) and leave FK-anchored rows.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_instances WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_step_transitions WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_steps WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_definitions WHERE tenant_id = ?", tenantId);
+        });
         // public.users is FORCE RLS (V20261011_3) — DELETE is also filtered by
         // the USING clause. Without set_config, RLS hides all rows and the DELETE
         // affects 0 rows; the subsequent DELETE FROM tenants then fails with FK
@@ -139,9 +145,13 @@ class WorkflowParallelExecutionTest {
             jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
         });
         jdbc.update("DELETE FROM hr_employees WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+        });
         jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
     }
 
@@ -171,6 +181,7 @@ class WorkflowParallelExecutionTest {
         // transaction — the seed writes run under an explicit tenant scope.
         UUID joinInstanceId = UUID.randomUUID();
         UUID forkInstanceId = UUID.randomUUID();
+        final UUID[] joinStepRef = new UUID[1];
         var now = Timestamp.from(Instant.now());
         tx.executeWithoutResult(txStatus -> {
             jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
@@ -204,10 +215,10 @@ class WorkflowParallelExecutionTest {
             jdbc.update("UPDATE workflow_branch_tokens SET status = 'COMPLETED', version = version + 1 "
                     + "WHERE tenant_id = ? AND workflow_instance_id = ? AND branch_key = 'branch_a'",
                     tenantId, instanceId);
-        });
-        UUID joinStepIdScoped = jdbc.queryForObject(
+            joinStepRef[0] = jdbc.queryForObject(
                 "SELECT id FROM workflow_steps WHERE tenant_id = ? AND workflow_definition_id = ? AND step_key = 'join'",
                 UUID.class, tenantId, definitionId);
+        });
 
         // Two concurrent arrivals race the grant; exactly one must win.
         // Each pool thread runs under its own transaction-local tenant scope
@@ -219,7 +230,7 @@ class WorkflowParallelExecutionTest {
                     jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
                             String.class, tenantId.toString());
                     return graphExecutionService.grantJoinIfComplete(tenantId, instanceId,
-                            joinInstanceId, joinStepIdScoped, 2, "branch_b");
+                            joinInstanceId, joinStepRef[0], 2, "branch_b");
                 });
         Future<Boolean> a = pool.submit(() -> {
             ready.await();

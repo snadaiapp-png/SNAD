@@ -128,6 +128,10 @@ public class WorkflowAnalyticsProjectionWorker {
                 "TenantRlsTransactionContext is required to scope the per-tenant "
                 + "projection pass under fail-closed FORCE RLS (V20261029_1).");
         }
+        // Re-scoping per tenant (last-wins) must not leak into the caller's
+        // ambient scope: save it first, restore it after the loop.
+        String callerScope = jdbc.queryForObject(
+                "SELECT current_setting('app.tenant_id', true)", String.class);
         int projected = 0;
         List<UUID> tenants = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT ?",
@@ -140,6 +144,10 @@ public class WorkflowAnalyticsProjectionWorker {
                 log.error("Analytics projection failed for tenant {}: {}",
                         tenantId, e.getMessage());
             }
+        }
+        if (callerScope != null) {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, callerScope);
         }
         return projected;
     }

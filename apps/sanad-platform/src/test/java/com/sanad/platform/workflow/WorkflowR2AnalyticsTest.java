@@ -397,6 +397,8 @@ class WorkflowR2AnalyticsTest {
         // the dispatcher pass and every verification read run under the fixture
         // tenant's transaction-local scope.
         inTenantScope(fx.tenant(), () -> {
+        System.err.println("[DIAG-A] timers_before_insert=" + jdbc.queryForObject(
+            "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id=?", Integer.class, fx.tenant()));
         // WARNING window: due in 1 hour (within 24h warning window)
         UUID warningTimer = UUID.randomUUID();
         jdbc.update("""
@@ -407,6 +409,8 @@ class WorkflowR2AnalyticsTest {
                         'WARN_ONLY', NOW() + INTERVAL '1 hour', ?, ?, NOW(), NOW())
                 """, warningTimer, fx.tenant(), fx.workItem(), fx.instance(),
                 fx.workItem());
+        System.err.println("[DIAG-B] timers_after_warn_insert=" + jdbc.queryForObject(
+            "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id=?", Integer.class, fx.tenant()));
         // REMINDER window: due in 48 hours (inside 72h reminder window)
         UUID reminderTimer = UUID.randomUUID();
         jdbc.update("""
@@ -417,15 +421,28 @@ class WorkflowR2AnalyticsTest {
                         'MONITOR_ONLY', NOW() + INTERVAL '48 hours', ?, ?, NOW(), NOW())
                 """, reminderTimer, fx.tenant(), fx.workItem(), fx.instance(),
                 fx.workItem());
-        int enqueued = tx.execute(s -> timerWorker.runScan());
+        // Both scans run inside the SAME transaction-local tenant scope as the
+        // timer seeds and the verification reads below — one connection, one
+        // transaction, no cross-connection commit-visibility timing.
+        System.err.println("[DIAG-C] timers_after_both_inserts=" + jdbc.queryForObject(
+            "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id=?", Integer.class, fx.tenant()));
+        int enqueued = timerWorker.runScan();
+        System.err.println("[DIAG-D] timers_after_scan=" + jdbc.queryForObject(
+            "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id=?", Integer.class, fx.tenant()));
         assertThat(enqueued).isGreaterThanOrEqualTo(2);
         // dedup: repeated scan collapses to the same intents (no spam)
-        int secondScanEnqueued = tx.execute(s -> timerWorker.runScan());
+        int secondScanEnqueued = timerWorker.runScan();
+        assertThat(secondScanEnqueued).isZero();
         Integer warningIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                  WHERE tenant_id = ? AND event_type = 'DEADLINE_WARNING'
                    AND deduplication_key = ?
                 """, Integer.class, fx.tenant(), "wf-warn:" + warningTimer);
+        System.err.println("[DIAG] timers=" + jdbc.queryForList(
+            "SELECT id, state, purpose, due_at FROM workflow_timers WHERE tenant_id=? ORDER BY due_at NULLS LAST", fx.tenant()));
+        System.err.println("[DIAG] all_intents=" + jdbc.queryForList(
+            "SELECT event_type, deduplication_key FROM workflow_notification_intents WHERE tenant_id=?", fx.tenant()));
+        System.err.println("[DIAG] expected warn_key=wf-warn:" + warningTimer + " rem_key=wf-rem:" + reminderTimer);
         assertThat(warningIntents).isEqualTo(1);
         Integer reminderIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents

@@ -68,32 +68,51 @@ BEGIN
           FROM pg_policies
          WHERE schemaname = 'public'
            AND (
-                qual ~ $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$pat$
-             OR qual ~ $pat$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$pat$
-             OR with_check ~ $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$pat$
-             OR with_check ~ $pat$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$pat$
+                qual ~* $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$pat$
+             OR qual ~* $pat$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$pat$
+             OR qual ~* $pat$current_setting\('app\.tenant_id'(::text)?\)::uuid$pat$
+             OR qual ~* $pat$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$pat$
+             OR with_check ~* $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$pat$
+             OR with_check ~* $pat$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$pat$
+             OR with_check ~* $pat$current_setting\('app\.tenant_id'(::text)?\)::uuid$pat$
+             OR with_check ~* $pat$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$pat$
            )
     LOOP
         -- Rewrite the unguarded cast to the repo fail-closed contract.
-        new_qual := regexp_replace(
-            r.qual,
-            $re$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$re$,
-            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'g');
-        new_qual := regexp_replace(
-            new_qual,
-            $re$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$re$,
-            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'g');
-        IF new_qual IS NOT NULL AND r.with_check IS NOT NULL THEN
-            new_with_check := regexp_replace(
-                r.with_check,
-                $re$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$re$,
-                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'g');
-            new_with_check := regexp_replace(
-                new_with_check,
-                $re$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$re$,
-                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'g');
-        ELSE
+        -- pg_get_expr deparses the policy with NORMALIZED parenthesization, e.g.
+        --   (tenant_id = (current_setting('app.tenant_id'::text, true))::uuid)
+        -- so the rewrite must cover the wrapped and bare forms, with and
+        -- without missing_ok (the missing_ok=false variant errors on UNSET
+        -- GUCs too and is aligned to the same fail-closed contract).
+        new_qual := r.qual;
+        new_qual := regexp_replace(new_qual,
+            $re$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$re$,
+            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+        new_qual := regexp_replace(new_qual,
+            $re$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$re$,
+            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+        new_qual := regexp_replace(new_qual,
+            $re$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$re$,
+            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+        new_qual := regexp_replace(new_qual,
+            $re$current_setting\('app\.tenant_id'(::text)?\)::uuid$re$,
+            $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+        IF r.with_check IS NOT NULL THEN
             new_with_check := r.with_check;
+            new_with_check := regexp_replace(new_with_check,
+                $re$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$re$,
+                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+            new_with_check := regexp_replace(new_with_check,
+                $re$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$re$,
+                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+            new_with_check := regexp_replace(new_with_check,
+                $re$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$re$,
+                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+            new_with_check := regexp_replace(new_with_check,
+                $re$current_setting\('app\.tenant_id'(::text)?\)::uuid$re$,
+                $sub$NULLIF(current_setting('app.tenant_id', true), '')::uuid$sub$, 'gi');
+        ELSE
+            new_with_check := NULL;
         END IF;
 
         -- Guard: the rewrite must actually have changed at least one side;
@@ -132,10 +151,14 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_policies
          WHERE schemaname = 'public'
-           AND (   qual ~ $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$pat$
-                OR qual ~ $pat$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$pat$
-                OR with_check ~ $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::[uU][uU][iI][dD]$pat$
-                OR with_check ~ $pat$current_setting\('app\.tenant_id'\)::[uU][uU][iI][dD]$pat$ )
+           AND (   qual ~* $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$pat$
+                OR qual ~* $pat$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$pat$
+                OR qual ~* $pat$current_setting\('app\.tenant_id'(::text)?\)::uuid$pat$
+                OR qual ~* $pat$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$pat$
+                OR with_check ~* $pat$current_setting\('app\.tenant_id'(::text)?, ?true\)::uuid$pat$
+                OR with_check ~* $pat$\(current_setting\('app\.tenant_id'(::text)?, ?true\)\)::uuid$pat$
+                OR with_check ~* $pat$current_setting\('app\.tenant_id'(::text)?\)::uuid$pat$
+                OR with_check ~* $pat$\(current_setting\('app\.tenant_id'(::text)?\)\)::uuid$pat$ )
     ) THEN
         RAISE EXCEPTION 'T2_VERIFY_UNGUARDED_CAST_REMAINED';
     END IF;

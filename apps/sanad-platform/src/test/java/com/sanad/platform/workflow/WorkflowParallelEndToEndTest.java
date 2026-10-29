@@ -107,12 +107,18 @@ class WorkflowParallelEndToEndTest {
 
     @AfterEach
     void cleanup() {
-        jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_instances WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_step_transitions WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_steps WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM workflow_definitions WHERE tenant_id = ?", tenantId);
+        // FORCE RLS (V20261029_1): the sweep runs inside the tenant scope —
+        // unscoped DELETEs are denied (0 rows) and leave FK-anchored rows.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM workflow_branch_tokens WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_step_instances WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_instances WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_step_transitions WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_steps WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM workflow_definitions WHERE tenant_id = ?", tenantId);
+        });
         // public.users is FORCE RLS (V20261011_3) — DELETE is also filtered by
         // the USING clause. Without set_config, RLS hides all rows and the DELETE
         // affects 0 rows; the subsequent DELETE FROM tenants then fails with FK
