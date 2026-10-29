@@ -244,24 +244,43 @@ class IntegratedBusinessProcessesE2ETest {
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'BP_ADMIN','Business Process Administrator','REM-P1-007 final closure role','ACTIVE',?,?)",
-                id, tenantId, ts, ts);
+        // roles is FORCE RLS (V20261029_1): bind the tenant GUC in the SAME
+        // transaction as the identity-plane insert.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'BP_ADMIN','Business Process Administrator','REM-P1-007 final closure role','ACTIVE',?,?)",
+                    id, tenantId, ts, ts);
+        });
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
-                UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        // user_role_assignments is FORCE RLS (V20261029_1): same-transaction GUC.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
+                    UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        });
     }
 
     private void grantBusinessProcessCapabilities(UUID tenantId, UUID roleId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        List<UUID> capabilityIds = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%'", UUID.class);
-        assertThat(capabilityIds).hasSize(2);
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
-                    UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
-        }
+        // role_capabilities is FORCE RLS (V20261029_1): same-transaction GUC.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            List<UUID> capabilityIds = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%'", UUID.class);
+            assertThat(capabilityIds).hasSize(2);
+            for (UUID capabilityId : capabilityIds) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
+                        UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
+            }
+        });
     }
 }

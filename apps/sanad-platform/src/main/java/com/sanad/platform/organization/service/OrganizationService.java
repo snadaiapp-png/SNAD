@@ -138,9 +138,14 @@ public class OrganizationService {
      * at the application layer on top of the repository's tenant-scoped
      * query methods.</p>
      *
-     * <p>Read-only: runs in a {@link Propagation#SUPPORTS SUPPORTS}
-     * transaction so it can participate in an existing transaction or run
-     * without one, but never opens a write transaction.</p>
+     * <p>Read-only: runs in a {@link Propagation#REQUIRED REQUIRED}
+     * transaction. REQUIRED (not SUPPORTS) is mandatory under FORCE ROW LEVEL
+     * SECURITY on public.organizations (V20261029_1): SUPPORTS runs
+     * non-transactionally when no outer transaction exists, leaving the
+     * connection in autoCommit=true mode where TenantRlsConnectionHandler
+     * never applies app.tenant_id, so the fail-closed tenant policy returns
+     * zero rows. This mirrors the UserService precedent for public.users
+     * (V20261011_3) and keeps the RLS handler active for these reads.</p>
      *
      * @param tenantId       the tenant scope (must not be null)
      * @param organizationId the organization to fetch (must not be null)
@@ -148,7 +153,7 @@ public class OrganizationService {
      * @throws EntityNotFoundException if no Organization with the given id
      *                                 exists under the given tenant
      */
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
     public OrganizationResponse getOrganization(UUID tenantId, UUID organizationId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(organizationId, "organizationId must not be null");
@@ -168,13 +173,15 @@ public class OrganizationService {
      * The lookup is tenant-scoped via
      * {@link OrganizationRepository#findByTenantId(UUID)}.</p>
      *
-     * <p>Read-only: runs in a {@link Propagation#SUPPORTS SUPPORTS}
-     * transaction.</p>
+     * <p>Read-only: runs in a {@link Propagation#REQUIRED REQUIRED}
+     * transaction so the TenantRlsConnectionHandler applies the tenant GUC
+     * (see getOrganization — required under FORCE ROW LEVEL SECURITY,
+     * V20261029_1).</p>
      *
      * @param tenantId the tenant scope (must not be null)
      * @return a list of {@link OrganizationResponse} (never null, possibly empty)
      */
-    @Transactional(readOnly = true, propagation = Propagation.SUPPORTS)
+    @Transactional(readOnly = true, propagation = Propagation.REQUIRED)
     public List<OrganizationResponse> listOrganizations(UUID tenantId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
 

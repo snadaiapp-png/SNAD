@@ -375,6 +375,10 @@ class CustomerMasterHttpIntegrationTest {
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
         // same transaction-bound connection. Wrap in TransactionTemplate.
+        // V20261029_1 extends FORCE fail-closed tenant RLS to the whole
+        // identity plane (roles, role_capabilities, user_role_assignments),
+        // so the entire identity chain is seeded inside the same GUC-bound
+        // transaction — bare writes would silently violate the policy.
         transactions.executeWithoutResult(status -> {
             jdbc.getJdbcTemplate().queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
@@ -383,24 +387,24 @@ class CustomerMasterHttpIntegrationTest {
                             "VALUES (:id,:tenantId,:email,'CRM Master User','ACTIVE','dummy',:now,:now)",
                     p().addValue("id", userId).addValue("tenantId", tenantId)
                             .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
-        });
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:code,'CRM Master Role','CRM-005 tests','ACTIVE',:now,:now)",
-                p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "CRM_MASTER_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
-        List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
-                p().addValue("codes", CAPABILITIES), (rs, row) -> rs.getObject("id", UUID.class));
-        assertThat(capabilityIds).hasSize(CAPABILITIES.size());
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
-                            "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:code,'CRM Master Role','CRM-005 tests','ACTIVE',:now,:now)",
+                    p().addValue("id", roleId).addValue("tenantId", tenantId)
+                            .addValue("code", "CRM_MASTER_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
+            List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
+                    p().addValue("codes", CAPABILITIES), (rs, row) -> rs.getObject("id", UUID.class));
+            assertThat(capabilityIds).hasSize(CAPABILITIES.size());
+            for (UUID capabilityId : capabilityIds) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
+                                "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
+                        p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
+            }
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                     p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                            .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
-        }
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
-                p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+                            .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+        });
         tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }

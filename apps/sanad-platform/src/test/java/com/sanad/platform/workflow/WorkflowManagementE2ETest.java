@@ -61,6 +61,8 @@ class WorkflowManagementE2ETest {
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private WorkflowMonitoringService monitoringService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    private org.springframework.transaction.support.TransactionTemplate tx;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -70,6 +72,9 @@ class WorkflowManagementE2ETest {
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        }
         jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
                 + "workflow_step_instances, workflow_instances, workflow_steps, "
                 + "workflow_definitions RESTART IDENTITY CASCADE");
@@ -134,20 +139,28 @@ class WorkflowManagementE2ETest {
         });
 
         // Grant ALL capabilities to both tenants
+        // V20261029_1: roles / role_capabilities are FORCE RLS — each tenant's
+        // RBAC rows must be inserted inside a transaction scoped to that tenant.
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? requesterA : userB;
             var roleId = UUID.randomUUID();
-            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                    roleId, tid, now, now);
-            var caps = jdbc.queryForList(
-                    "SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%' "
-                    + "OR code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' "
-                    + "OR code LIKE 'ESCALATION.%'");
-            for (var cap : caps) {
-                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                        + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tid, roleId, cap.get("id"), now);
-            }
+            var tenantFinal = tid;
+            var roleIdFinal = roleId;
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantFinal.toString());
+                jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                        roleIdFinal, tenantFinal, now, now);
+                var caps = jdbc.queryForList(
+                        "SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%' "
+                        + "OR code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' "
+                        + "OR code LIKE 'ESCALATION.%'");
+                for (var cap : caps) {
+                    jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                            + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantFinal, roleIdFinal, cap.get("id"), now);
+                }
+            });
         }
     }
 

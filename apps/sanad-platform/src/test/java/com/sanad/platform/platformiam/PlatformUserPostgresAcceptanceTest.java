@@ -152,12 +152,14 @@ class PlatformUserPostgresAcceptanceTest {
         createdUsers.add(user.userId());
         platformUsers.activate(actor(), user.userId(), "W2-T8 acceptance fixture");
 
-        UUID adminRoleId = jdbc.queryForObject(
+        // V20261029_1: roles is FORCE RLS — the lookups must run under the
+        // control-plane tenant GUC (fail-closed otherwise).
+        UUID adminRoleId = inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT id FROM roles WHERE tenant_id=? AND code='PLATFORM_ADMIN'",
-                UUID.class, CONTROL_TENANT);
-        UUID ownerRoleId = jdbc.queryForObject(
+                UUID.class, CONTROL_TENANT));
+        UUID ownerRoleId = inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT id FROM roles WHERE tenant_id=? AND code='PLATFORM_OWNER'",
-                UUID.class, CONTROL_TENANT);
+                UUID.class, CONTROL_TENANT));
 
         inControlTenantTransaction(() -> {
             platformRoles.replaceUserRoles(actor(), user.userId(),

@@ -325,6 +325,7 @@ class CrmFlywayHistoryAssertionTest {
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
             // enabled FORCE RLS on role_template_bindings).
             , "20261028.1"   // role-template matrix revalidation under tenant RLS context
+            , "20261029.1"   // D6: FORCE fail-closed tenant RLS on the identity plane (roles, role_capabilities, user_role_assignments, organizations, organization_memberships)
     );
 
 

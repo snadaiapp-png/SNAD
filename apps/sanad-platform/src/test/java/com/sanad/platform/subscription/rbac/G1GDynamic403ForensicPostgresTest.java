@@ -83,9 +83,15 @@ class G1GDynamic403ForensicPostgresTest {
         tenantAdminCredential = UUID.randomUUID() + "-T!9g";
 
         UUID controlTenantId = UUID.fromString(CONTROL_PLANE_TENANT_ID);
-        controlRoleId = jdbc.queryForObject(
-                "SELECT id FROM roles WHERE tenant_id = ? AND code = 'ADMIN' AND status = 'ACTIVE' ORDER BY created_at LIMIT 1",
-                UUID.class, controlTenantId);
+        // V20261029_1: roles is FORCE RLS — the lookup must run under the
+        // control-plane tenant GUC (fail-closed otherwise).
+        controlRoleId = tx.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, controlTenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT id FROM roles WHERE tenant_id = ? AND code = 'ADMIN' AND status = 'ACTIVE' ORDER BY created_at LIMIT 1",
+                    UUID.class, controlTenantId);
+        });
         assertThat(controlRoleId).as("control-plane ADMIN role must exist").isNotNull();
 
         controlUserId = UUID.randomUUID();
@@ -108,11 +114,17 @@ class G1GDynamic403ForensicPostgresTest {
                     """, controlUserId, controlTenantId, controlAdminEmail,
                     passwordEncoder.encode(controlAdminCredential), Timestamp.from(now), Timestamp.from(now));
         });
-        jdbc.update("""
-                INSERT INTO user_role_assignments
-                    (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
-                VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
-                """, controlTenantId, controlUserId, controlRoleId, Timestamp.from(now), Timestamp.from(now));
+        // V20261029_1: user_role_assignments is FORCE RLS — seed under the
+        // control-plane tenant GUC.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, controlTenantId.toString());
+            jdbc.update("""
+                    INSERT INTO user_role_assignments
+                        (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+                    VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
+                    """, controlTenantId, controlUserId, controlRoleId, Timestamp.from(now), Timestamp.from(now));
+        });
 
         forensicTenantId = UUID.randomUUID();
         forensicUserId = UUID.randomUUID();
@@ -141,21 +153,27 @@ class G1GDynamic403ForensicPostgresTest {
                     """, forensicUserId, forensicTenantIdFinal, tenantAdminEmail,
                     passwordEncoder.encode(tenantAdminCredential), Timestamp.from(now), Timestamp.from(now));
         });
-        jdbc.update("""
-                INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
-                VALUES (?, ?, 'ADMIN', 'Administrator', 'G1-G forensic tenant admin', 'ACTIVE', ?, ?)
-                """, forensicRoleId, forensicTenantId, Timestamp.from(now), Timestamp.from(now));
-        jdbc.update("""
-                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                SELECT gen_random_uuid(), ?, ?, c.id, NOW()
-                FROM access_capabilities c
-                WHERE c.status = 'ACTIVE'
-                """, forensicTenantId, forensicRoleId);
-        jdbc.update("""
-                INSERT INTO user_role_assignments
-                    (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
-                VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
-                """, forensicTenantId, forensicUserId, forensicRoleId, Timestamp.from(now), Timestamp.from(now));
+        // V20261029_1: roles / role_capabilities / user_role_assignments are
+        // FORCE RLS — seed the forensic tenant's RBAC chain under its own GUC.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, forensicTenantIdFinal.toString());
+            jdbc.update("""
+                    INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+                    VALUES (?, ?, 'ADMIN', 'Administrator', 'G1-G forensic tenant admin', 'ACTIVE', ?, ?)
+                    """, forensicRoleId, forensicTenantIdFinal, Timestamp.from(now), Timestamp.from(now));
+            jdbc.update("""
+                    INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                    SELECT gen_random_uuid(), ?, ?, c.id, NOW()
+                    FROM access_capabilities c
+                    WHERE c.status = 'ACTIVE'
+                    """, forensicTenantIdFinal, forensicRoleId);
+            jdbc.update("""
+                    INSERT INTO user_role_assignments
+                        (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+                    VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
+                    """, forensicTenantIdFinal, forensicUserId, forensicRoleId, Timestamp.from(now), Timestamp.from(now));
+        });
 
         UUID planId = jdbc.queryForObject(
                 "SELECT id FROM saas_plans WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1", UUID.class);
@@ -178,7 +196,9 @@ class G1GDynamic403ForensicPostgresTest {
                 "SELECT id FROM users WHERE email LIKE 'g1g-%@forensic.sanad.test'", UUID.class);
         for (UUID userId : disposableUsers) {
             jdbc.update("DELETE FROM refresh_tokens WHERE user_id = ?", userId);
-            jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
+            // V20261029_1: user_role_assignments is FORCE RLS — resolved per
+            // tenant below (assignments are deleted under each tenant's GUC in
+            // the tenant loop, which also covers these users).
         }
 
         List<UUID> tenantIds = jdbc.queryForList(
@@ -194,14 +214,15 @@ class G1GDynamic403ForensicPostgresTest {
             // reference the user. Fix: delete refresh_tokens by tenant_id first.
             jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-            // public.users FORCE RLS (V20261011_3) — wrap set_config + DELETE in tx.
+            // V20261029_1: user_role_assignments / role_capabilities / roles are
+            // FORCE RLS — delete them inside the tenant-scoped transaction.
             tx.executeWithoutResult(txStatus -> {
                 jdbc.queryForObject(
                         "SELECT set_config('app.tenant_id', ?, true)",
                         String.class, tenantId.toString());
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);

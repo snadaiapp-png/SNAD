@@ -190,6 +190,11 @@ class SubscriptionOperatingUnitPostgresTest {
     }
 
     private void seedOrganization(UUID organization, UUID tenant, String unitType) throws SQLException {
+        // organizations is FORCE RLS (V20261029_1): bind the tenant GUC BEFORE
+        // the insert. set_config is transaction-local and the connection runs
+        // with autoCommit=false, so the GUC stays active for the test's open
+        // transaction; later setTenant(...) calls re-bind as needed.
+        setTenant(tenant);
         try (PreparedStatement ps = connection.prepareStatement(
                 "INSERT INTO organizations (id,tenant_id,name,status,unit_type,created_at,updated_at) "
                         + "VALUES (?,?,?,'ACTIVE',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")) {

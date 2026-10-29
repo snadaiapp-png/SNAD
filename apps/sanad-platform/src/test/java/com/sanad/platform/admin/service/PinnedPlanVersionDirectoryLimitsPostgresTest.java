@@ -11,7 +11,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -36,6 +38,7 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
 
     private static String baseUrl;
     private JdbcTemplate jdbc;
+    private TransactionTemplate seedTx;
     private TenantDirectoryAdministrationService service;
 
     @BeforeAll
@@ -77,6 +80,9 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
+        // organizations + organization_memberships are FORCE RLS (V20261029_1):
+        // identity-plane writes bind the tenant GUC inside one transaction.
+        seedTx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         service = new TenantDirectoryAdministrationService(
                 jdbc, mock(PlatformAuditService.class));
     }
@@ -87,16 +93,23 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         Seed seed = seedSubscription(10, 1, 10, 2);
         insertOrganization(seed.tenantId(), "Existing Organization");
 
-        var created = service.createOrganization(
-                seed.tenantId(),
-                new CreateOrganizationAdminRequest("Second Organization", null),
-                null);
-
-        assertThat(created.name()).isEqualTo("Second Organization");
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
-                Integer.class, seed.tenantId());
-        assertThat(count).isEqualTo(2);
+        // The service writes organizations (FORCE RLS) through the same DataSource;
+        // bind the tenant GUC inside the surrounding transaction so the write, the
+        // limit pre-count, and the post-read all share one tenant-bound connection.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, seed.tenantId().toString());
+            var created = service.createOrganization(
+                    seed.tenantId(),
+                    new CreateOrganizationAdminRequest("Second Organization", null),
+                    null);
+            assertThat(created.name()).isEqualTo("Second Organization");
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                    Integer.class, seed.tenantId());
+            assertThat(count).isEqualTo(2);
+        });
     }
 
     @Test
@@ -106,21 +119,29 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         UUID organizationId = insertOrganization(seed.tenantId(), "Seat Organization");
         insertMembership(seed.tenantId(), organizationId, "first@example.com");
 
-        var created = service.createMembership(
-                seed.tenantId(),
-                organizationId,
-                new CreateMembershipAdminRequest("second@example.com", "Second User", "MEMBER"),
-                null);
-
-        assertThat(created.email()).isEqualTo("second@example.com");
-        Integer seats = jdbc.queryForObject(
-                """
-                SELECT COUNT(DISTINCT LOWER(email))
-                FROM organization_memberships
-                WHERE tenant_id = ? AND status IN ('INVITED', 'ACTIVE')
-                """,
-                Integer.class, seed.tenantId());
-        assertThat(seats).isEqualTo(2);
+        // The service writes organization_memberships/roles (FORCE RLS) through the
+        // same DataSource; bind the tenant GUC inside the surrounding transaction
+        // so the seat pre-count, the write, and the post-read all share one
+        // tenant-bound connection.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, seed.tenantId().toString());
+            var created = service.createMembership(
+                    seed.tenantId(),
+                    organizationId,
+                    new CreateMembershipAdminRequest("second@example.com", "Second User", "MEMBER"),
+                    null);
+            assertThat(created.email()).isEqualTo("second@example.com");
+            Integer seats = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(DISTINCT LOWER(email))
+                    FROM organization_memberships
+                    WHERE tenant_id = ? AND status IN ('INVITED', 'ACTIVE')
+                    """,
+                    Integer.class, seed.tenantId());
+            assertThat(seats).isEqualTo(2);
+        });
     }
 
     private Seed seedSubscription(int legacyMaxUsers, int legacyMaxOrganizations,
@@ -177,22 +198,34 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
 
     private UUID insertOrganization(UUID tenantId, String name) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO organizations (
-                    id, tenant_id, name, status, created_at, updated_at
-                ) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())
-                """, id, tenantId, name);
+        // organizations is FORCE RLS (V20261029_1): same-transaction GUC binding.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO organizations (
+                        id, tenant_id, name, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())
+                    """, id, tenantId, name);
+        });
         return id;
     }
 
     private void insertMembership(UUID tenantId, UUID organizationId, String email) {
-        jdbc.update("""
-                INSERT INTO organization_memberships (
-                    id, tenant_id, organization_id, email, role_code, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'MEMBER', 'INVITED', NOW(), NOW())
-                """,
-                UUID.randomUUID(), tenantId, organizationId, email);
+        // organization_memberships is FORCE RLS (V20261029_1): same-transaction GUC.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO organization_memberships (
+                        id, tenant_id, organization_id, email, role_code, status,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'MEMBER', 'INVITED', NOW(), NOW())
+                    """,
+                    UUID.randomUUID(), tenantId, organizationId, email);
+        });
     }
 
     private record Seed(UUID tenantId) {

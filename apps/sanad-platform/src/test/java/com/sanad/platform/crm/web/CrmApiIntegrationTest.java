@@ -300,19 +300,38 @@ class CrmApiIntegrationTest {
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, ts, ts);
+        // V20261029_1: roles carries FORCE fail-closed tenant RLS — the seed
+        // needs the tenant GUC on its own GUC-bound transaction (same as seedUser).
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, ts, ts);
+        });
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        // V20261029_1: user_role_assignments carries FORCE fail-closed tenant RLS.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        });
     }
 
     private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
         List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
-        }
+        // V20261029_1: role_capabilities carries FORCE fail-closed tenant RLS.
+        seedTx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            for (UUID capabilityId : capabilityIds) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
+            }
+        });
     }
 }
