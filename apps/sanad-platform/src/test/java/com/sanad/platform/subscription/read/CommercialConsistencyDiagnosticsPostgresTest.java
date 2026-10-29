@@ -131,7 +131,11 @@ class CommercialConsistencyDiagnosticsPostgresTest {
     private UUID seedSubscription(UUID tenantId) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.parse("2026-09-23T00:00:00Z");
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS (V20261029_1): seed inside the
+        // transaction-local trusted tenant scope — fail-closed otherwise.
+        transaction.executeWithoutResult(ignored -> {
+            rls.applyForCurrentTransaction(tenantId);
+            jdbc.update("""
                 INSERT INTO tenant_subscriptions (
                     id, tenant_id, plan_id, plan_version_id, status, billing_cycle,
                     seat_quantity, credit_balance_minor, started_at, trial_ends_at,
@@ -144,6 +148,7 @@ class CommercialConsistencyDiagnosticsPostgresTest {
                 Timestamp.from(now), Timestamp.from(now),
                 Timestamp.from(now.plusSeconds(30L * 86400L)),
                 Timestamp.from(now), Timestamp.from(now));
+        });
         return id;
     }
 
@@ -151,7 +156,11 @@ class CommercialConsistencyDiagnosticsPostgresTest {
         UUID id = UUID.randomUUID();
         Instant start = Instant.parse("2026-09-01T00:00:00Z");
         Instant end = Instant.parse("2026-10-01T00:00:00Z");
-        jdbc.update("""
+        // billing_invoices is FORCE RLS (V20261029_1): seed inside the
+        // transaction-local trusted tenant scope — fail-closed otherwise.
+        transaction.executeWithoutResult(ignored -> {
+            rls.applyForCurrentTransaction(tenantId);
+            jdbc.update("""
                 INSERT INTO billing_invoices (
                     id, tenant_id, subscription_id, invoice_number, status, currency_code,
                     subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor,
@@ -162,6 +171,7 @@ class CommercialConsistencyDiagnosticsPostgresTest {
                 """,
                 id, tenantId, subscriptionId, "DIAG-" + id,
                 Timestamp.from(start), Timestamp.from(end), Timestamp.from(end));
+        });
         return id;
     }
 }

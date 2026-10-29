@@ -154,12 +154,28 @@ class RbacAccessCheckPostgresAcceptanceTest {
     private UUID seedRole(UUID tenantId, String code) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
                 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, 'R0C-12 corrective acceptance role', 'ACTIVE', ?, ?)
-                """, id, tenantId, code, code + " role", Timestamp.from(now), Timestamp.from(now));
+                """, id, tenantId, code, code + " role", Timestamp.from(now), Timestamp.from(now)));
         createdRoles.add(id);
         return id;
+    }
+
+    /**
+     * Runs the given write inside a transaction whose connection carries the
+     * transaction-local {@code app.tenant_id} GUC. roles / role_capabilities /
+     * user_role_assignments are FORCE RLS (V20261029_1): without this context
+     * the fail-closed WITH CHECK rejects every tenant-scoped seed write.
+     */
+    private void inTenantContext(UUID tenantId, Runnable write) {
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    write.run();
+                });
     }
 
     /** Grants a capability to a role through the REAL access_capabilities catalog.
@@ -170,21 +186,23 @@ class RbacAccessCheckPostgresAcceptanceTest {
      * the same canonical catalog with {@code UPPER(?)}.</p>
      */
     private void grantCapability(UUID tenantId, UUID roleId, String capabilityCode) {
-        jdbc.update("""
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
                 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
                 SELECT gen_random_uuid(), ?, ?, c.id, NOW()
                 FROM access_capabilities c
                 WHERE c.code = UPPER(?) AND c.status = 'ACTIVE'
-                """, tenantId, roleId, capabilityCode);
+                """, tenantId, roleId, capabilityCode));
     }
 
     /** Assigns a role to a user through user_role_assignments (status ACTIVE by default). */
     private void assignRole(UUID tenantId, UUID userId, UUID roleId, String status) {
         Instant now = Instant.now();
-        jdbc.update("""
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
                 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
                 VALUES (gen_random_uuid(), ?, ?, ?, NULL, ?, ?, ?)
-                """, tenantId, userId, roleId, status, Timestamp.from(now), Timestamp.from(now));
+                """, tenantId, userId, roleId, status, Timestamp.from(now), Timestamp.from(now)));
     }
 
     /** Builds the REAL JwtAuthenticationFilter details shape (String values). */

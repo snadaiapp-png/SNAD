@@ -69,6 +69,10 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 2. Organizations (one per tenant)
 -- ----------------------------------------------------------------------------
+-- organizations is fail-closed FORCE RLS (V20261029_1): bind each tenant's
+-- scope before writing its organization row (last call wins on this session).
+
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
 
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
@@ -81,6 +85,8 @@ VALUES (
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
 
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (

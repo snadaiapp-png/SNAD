@@ -325,6 +325,10 @@ class CrmFlywayHistoryAssertionTest {
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
             // enabled FORCE RLS on role_template_bindings).
             , "20261028.1"   // role-template matrix revalidation under tenant RLS context
+            // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460): forward-only fail-closed RLS
+            // for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
+            // owner-bypass tables at the sequence tail.
+            , "20261029.1"   // tenant-owned business data fail-closed RLS + owner FORCE-bind
     );
 
 

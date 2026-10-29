@@ -40,19 +40,23 @@ public class ExecutiveTenantProvisioningService {
     private final SaasAdministrationService saasService;
     private final TenantCommercialStateService commercialStateService;
     private final PlatformAuditService auditService;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     public ExecutiveTenantProvisioningService(
             JdbcTemplate jdbc,
             RegistrationProvisioner registrationProvisioner,
             SaasAdministrationService saasService,
             TenantCommercialStateService commercialStateService,
-            PlatformAuditService auditService
+            PlatformAuditService auditService,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext
     ) {
         this.jdbc = jdbc;
         this.registrationProvisioner = registrationProvisioner;
         this.saasService = saasService;
         this.commercialStateService = commercialStateService;
         this.auditService = auditService;
+        this.tenantRlsContext = java.util.Objects.requireNonNull(tenantRlsContext,
+                "tenantRlsContext");
     }
 
     public record ProvisionedExecutiveTenant(
@@ -93,6 +97,15 @@ public class ExecutiveTenantProvisioningService {
                 null,
                 upperOrNull(request.countryCode()));
         UUID tenantId = registration.tenantId();
+
+        // Control-plane provisioning operates on a NEWLY created tenant while
+        // the actor's SecurityContext still carries the control-plane tenant.
+        // tenant_subscriptions / billing_invoices are fail-closed FORCE RLS
+        // (V20261029_1): re-scope the transaction to the target tenant through
+        // the trusted path so the subscription birth, recurring invoice and
+        // commercial-state resolution all pass the WITH CHECK clause. The
+        // tenant id comes from RegistrationProvisioner — never user input.
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
 
         Instant now = Instant.now();
         jdbc.update(

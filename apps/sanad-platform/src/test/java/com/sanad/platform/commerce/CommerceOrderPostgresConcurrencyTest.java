@@ -111,71 +111,32 @@ class CommerceOrderPostgresConcurrencyTest {
     void cleanup() {
         System.clearProperty("sanad.tenancy.domains.base-domain");
         // Deterministic cleanup — delete in reverse-dependency order.
-        // Each delete targets records by id, never deleting anything not
-        // created by this test run.
-
-        // Order status history → order items → orders → cart items → carts → prices → products → stores → tenants
-        if (!createdOrders.isEmpty()) {
-            jdbc.batchUpdate(
-                    "DELETE FROM commerce_order_status_history WHERE tenant_id IN (SELECT t.id FROM tenants t WHERE t.subdomain LIKE ?)",
-                    List.of(runId + "-%"),
-                    1,
-                    (ps, subdomain) -> ps.setString(1, subdomain));
-            // Direct delete by order_id list
-            for (UUID oid : new ArrayList<>(createdOrders)) {
-                jdbc.update("DELETE FROM commerce_order_status_history WHERE order_id = ?", oid);
-                jdbc.update("DELETE FROM commerce_order_items WHERE order_id = ?", oid);
-                jdbc.update("DELETE FROM commerce_orders WHERE id = ?", oid);
-            }
-        }
-        if (!createdCarts.isEmpty()) {
-            for (UUID cid : new ArrayList<>(createdCarts)) {
-                jdbc.update("DELETE FROM commerce_cart_items WHERE cart_id = ?", cid);
-                jdbc.update("DELETE FROM commerce_carts WHERE id = ?", cid);
-            }
-        }
-        if (!createdProducts.isEmpty()) {
-            for (UUID pid : new ArrayList<>(createdProducts)) {
-                jdbc.update("DELETE FROM commerce_prices WHERE product_id = ?", pid);
-                jdbc.update("DELETE FROM commerce_product_variants WHERE product_id = ?", pid);
-                jdbc.update("DELETE FROM commerce_products WHERE id = ?", pid);
-            }
-        }
-        if (!createdStores.isEmpty()) {
-            for (UUID sid : new ArrayList<>(createdStores)) {
-                jdbc.update("DELETE FROM commerce_store_domains WHERE store_id = ?", sid);
-                jdbc.update("DELETE FROM commerce_stores WHERE id = ?", sid);
-            }
-        }
-        if (!createdTenants.isEmpty()) {
-            // Delete order_number_sequences + finance rows for the created tenants.
-            // FORCE ROW LEVEL SECURITY tables (V20260820_6):
-            //   - commerce_order_number_sequences (lines 277-278)
-            //   - commerce_order_finance_links (lines 292-293)
-            //   - finance_invoice_number_sequences (lines 322-323)
-            // sanad cannot bypass FORCE RLS even as table owner. Use
-            // RlsTestSupport.deleteTenantRows which wraps the DELETE in a
-            // tenant-scoped transaction with set_config('app.tenant_id', tenant,
-            // true) so the WITH CHECK clause accepts the DELETE.
-            //
-            // When SimulatedPaymentAdapter is active (sanad.commerce.payment.provider=
-            // simulated), verified=true triggers financePort.markOrderSettled which
-            // creates rows in finance_invoices, commerce_order_finance_links, and
-            // finance_invoice_number_sequences. These must be cleaned before deleting
-            // tenants to avoid FK violations.
-            for (UUID tid : new ArrayList<>(createdTenants)) {
-                // FORCE-RLS tables — need tenant-scoped transaction + GUC.
-                RlsTestSupport.deleteTenantRows(namedJdbc, transactions, tid,
-                        java.util.List.of(
-                                "commerce_order_number_sequences",
-                                "commerce_order_finance_links",
-                                "finance_invoice_number_sequences"));
-                // ENABLE-RLS (non-FORCE) tables — sanad as table owner bypasses RLS.
-                // Must delete finance_invoices BEFORE tenants (FK constraint).
-                jdbc.update("DELETE FROM finance_invoices WHERE tenant_id = ?", tid);
-                // Delete tenants last.
-                jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
-            }
+        // commerce_* and finance_* tenant tables are FORCE RLS (V20261029_1
+        // protected/force-bind lists): sanad is the table owner but FORCE binds
+        // it to the fail-closed policy, so EVERY tenant-scoped DELETE must run
+        // inside a transaction-local app.tenant_id context via
+        // RlsTestSupport.deleteTenantRows — raw jdbc DELETEs would silently
+        // match zero rows and break the FK-ordered teardown.
+        for (UUID tid : new ArrayList<>(createdTenants)) {
+            RlsTestSupport.deleteTenantRows(namedJdbc, transactions, tid, java.util.List.of(
+                    // reverse FK order: order dependents → orders → carts →
+                    // catalog → stores → sequences/finance → invoices
+                    "commerce_order_status_history",
+                    "commerce_order_items",
+                    "commerce_orders",
+                    "commerce_cart_items",
+                    "commerce_carts",
+                    "commerce_prices",
+                    "commerce_product_variants",
+                    "commerce_products",
+                    "commerce_store_domains",
+                    "commerce_stores",
+                    "commerce_order_number_sequences",
+                    "commerce_order_finance_links",
+                    "finance_invoice_number_sequences",
+                    "finance_invoices"));
+            // tenants is a platform-reference table (no RLS) — delete last.
+            jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
         }
     }
 
@@ -184,11 +145,15 @@ class CommerceOrderPostgresConcurrencyTest {
     void postgres_parallelCheckouts_produceUniqueMonotonicOrderNumbers() throws Exception {
         UUID tenantId = seedTenant("par");
         UUID storeId = createStore(tenantId, "par");
-        storeService.activate(tenantId, storeId, null);
+        withTenant(tenantId, () -> {
+            storeService.activate(tenantId, storeId, null);
+        });
         UUID productId = createProduct(tenantId, storeId, "par-prod");
-        productService.publish(tenantId, storeId, productId, null);
-        productService.createPrice(tenantId, storeId, productId,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantId, () -> {
+            productService.publish(tenantId, storeId, productId, null);
+            productService.createPrice(tenantId, storeId, productId,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
         int parallelism = 20;
         ExecutorService pool = Executors.newFixedThreadPool(parallelism);
@@ -273,18 +238,22 @@ class CommerceOrderPostgresConcurrencyTest {
         UUID tenantB = seedTenant("tb");
 
         UUID storeA = createStore(tenantA, "sta");
-        storeService.activate(tenantA, storeA, null);
         UUID prodA = createProduct(tenantA, storeA, "pa");
-        productService.publish(tenantA, storeA, prodA, null);
-        productService.createPrice(tenantA, storeA, prodA,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantA, () -> {
+            storeService.activate(tenantA, storeA, null);
+            productService.publish(tenantA, storeA, prodA, null);
+            productService.createPrice(tenantA, storeA, prodA,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
         UUID storeB = createStore(tenantB, "stb");
-        storeService.activate(tenantB, storeB, null);
         UUID prodB = createProduct(tenantB, storeB, "pb");
-        productService.publish(tenantB, storeB, prodB, null);
-        productService.createPrice(tenantB, storeB, prodB,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantB, () -> {
+            storeService.activate(tenantB, storeB, null);
+            productService.publish(tenantB, storeB, prodB, null);
+            productService.createPrice(tenantB, storeB, prodB,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
         var orderA1 = checkout(tenantA, storeA, prodA);
         var orderB1 = checkout(tenantB, storeB, prodB);
@@ -301,16 +270,18 @@ class CommerceOrderPostgresConcurrencyTest {
     void postgres_cancelledOrder_doesNotReuseSequenceNumber() {
         UUID tenantId = seedTenant("cancel");
         UUID storeId = createStore(tenantId, "cancel");
-        storeService.activate(tenantId, storeId, null);
         UUID productId = createProduct(tenantId, storeId, "cancel-prod");
-        productService.publish(tenantId, storeId, productId, null);
-        productService.createPrice(tenantId, storeId, productId,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantId, () -> {
+            storeService.activate(tenantId, storeId, null);
+            productService.publish(tenantId, storeId, productId, null);
+            productService.createPrice(tenantId, storeId, productId,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
         var o1 = checkout(tenantId, storeId, productId);
         var o2 = checkout(tenantId, storeId, productId);
         // Cancel o1 — the order_number remains allocated
-        orderService.cancel(tenantId, storeId, o1.orderId(), null);
+        withTenant(tenantId, () -> orderService.cancel(tenantId, storeId, o1.orderId(), null));
         var o3 = checkout(tenantId, storeId, productId);
 
         // ORDER_NUMBER_NO_REUSE — cancelled order's sequence is not reused
@@ -327,20 +298,26 @@ class CommerceOrderPostgresConcurrencyTest {
     void postgres_concurrentIdempotentCheckout_producesExactlyOneOrder_noDuplicates() throws Exception {
         UUID tenantId = seedTenant("idem");
         UUID storeId = createStore(tenantId, "idem");
-        storeService.activate(tenantId, storeId, null);
         UUID productId = createProduct(tenantId, storeId, "idem-prod");
-        productService.publish(tenantId, storeId, productId, null);
-        productService.createPrice(tenantId, storeId, productId,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("100.00"), null, null, null), null);
+        withTenant(tenantId, () -> {
+            storeService.activate(tenantId, storeId, null);
+            productService.publish(tenantId, storeId, productId, null);
+            productService.createPrice(tenantId, storeId, productId,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("100.00"), null, null, null), null);
+        });
 
         int parallelism = 8;
         // ALL N requests use the SAME cart AND the SAME idempotency key
-        // — true concurrent replay test.
-        UUID sharedCartId = cartService.create(tenantId, storeId,
-                new CreateCartRequest(null, "SAR"), null).id();
-        createdCarts.add(sharedCartId);
-        cartService.addItem(tenantId, storeId, sharedCartId,
-                new AddCartItemRequest(productId, null, 1), null);
+        // — true concurrent replay test. Cart writes are FORCE-RLS scoped:
+        // they run under the tenant SecurityContext via withTenant.
+        UUID sharedCartId = withTenantResult(tenantId, () -> {
+            UUID cartId = cartService.create(tenantId, storeId,
+                    new CreateCartRequest(null, "SAR"), null).id();
+            createdCarts.add(cartId);
+            cartService.addItem(tenantId, storeId, cartId,
+                    new AddCartItemRequest(productId, null, 1), null);
+            return cartId;
+        });
 
         String idempotencyKey = "pg-idem-key-" + System.nanoTime();
         ExecutorService pool = Executors.newFixedThreadPool(parallelism);
@@ -444,18 +421,26 @@ class CommerceOrderPostgresConcurrencyTest {
     void postgres_sameIdempotencyKey_differentCart_returns409Mismatch() {
         UUID tenantId = seedTenant("mismatch");
         UUID storeId = createStore(tenantId, "mismatch");
-        storeService.activate(tenantId, storeId, null);
         UUID productId = createProduct(tenantId, storeId, "mismatch-prod");
-        productService.publish(tenantId, storeId, productId, null);
-        productService.createPrice(tenantId, storeId, productId,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantId, () -> {
+            storeService.activate(tenantId, storeId, null);
+            productService.publish(tenantId, storeId, productId, null);
+            productService.createPrice(tenantId, storeId, productId,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
-        UUID cartA = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
-        createdCarts.add(cartA);
-        cartService.addItem(tenantId, storeId, cartA, new AddCartItemRequest(productId, null, 1), null);
-        UUID cartB = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
-        createdCarts.add(cartB);
-        cartService.addItem(tenantId, storeId, cartB, new AddCartItemRequest(productId, null, 1), null);
+        UUID cartA = withTenantResult(tenantId, () -> {
+            UUID cid = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
+            createdCarts.add(cid);
+            cartService.addItem(tenantId, storeId, cid, new AddCartItemRequest(productId, null, 1), null);
+            return cid;
+        });
+        UUID cartB = withTenantResult(tenantId, () -> {
+            UUID cid = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
+            createdCarts.add(cid);
+            cartService.addItem(tenantId, storeId, cid, new AddCartItemRequest(productId, null, 1), null);
+            return cid;
+        });
 
         String key = "pg-mismatch-key-" + System.nanoTime();
         // Install tenant-aware SecurityContext so TenantRlsConnectionHandler
@@ -487,15 +472,20 @@ class CommerceOrderPostgresConcurrencyTest {
     void postgres_concurrentSameCartNoKey_atMostOneOrder() throws Exception {
         UUID tenantId = seedTenant("samecart");
         UUID storeId = createStore(tenantId, "samecart");
-        storeService.activate(tenantId, storeId, null);
         UUID productId = createProduct(tenantId, storeId, "samecart-prod");
-        productService.publish(tenantId, storeId, productId, null);
-        productService.createPrice(tenantId, storeId, productId,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        withTenant(tenantId, () -> {
+            storeService.activate(tenantId, storeId, null);
+            productService.publish(tenantId, storeId, productId, null);
+            productService.createPrice(tenantId, storeId, productId,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        });
 
-        UUID sharedCartId = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
-        createdCarts.add(sharedCartId);
-        cartService.addItem(tenantId, storeId, sharedCartId, new AddCartItemRequest(productId, null, 1), null);
+        UUID sharedCartId = withTenantResult(tenantId, () -> {
+            UUID cid = cartService.create(tenantId, storeId, new CreateCartRequest(null, "SAR"), null).id();
+            createdCarts.add(cid);
+            cartService.addItem(tenantId, storeId, cid, new AddCartItemRequest(productId, null, 1), null);
+            return cid;
+        });
 
         int parallelism = 6;
         ExecutorService pool = Executors.newFixedThreadPool(parallelism);
@@ -556,6 +546,23 @@ class CommerceOrderPostgresConcurrencyTest {
     }
 
     // ===== Helpers =====
+
+    /**
+     * Runs tenant-scoped service writes with the SecurityContext identity that
+     * {@code TenantRlsConnectionHandler} needs to apply
+     * {@code SET LOCAL app.tenant_id} inside {@code @Transactional} service
+     * boundaries — commerce_* tables are FORCE RLS (V20261029_1), so every
+     * service write without this context is rejected fail-closed.
+     */
+    private void withTenant(UUID tenantId, Runnable action) {
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+        try {
+            action.run();
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
+    }
+
     private UUID seedTenant(String suffix) {
         UUID tid = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
@@ -567,38 +574,45 @@ class CommerceOrderPostgresConcurrencyTest {
     }
 
     private UUID createStore(UUID tid, String suffix) {
-        UUID sid = storeService.create(tid,
+        UUID sid = withTenantResult(tid, () -> storeService.create(tid,
                 new CreateStoreRequest("PG-Store-" + suffix, "PG-" + suffix,
-                        runId + "-slug-" + suffix + "-" + System.nanoTime(), "ar", "SAR", null), null).id();
+                        runId + "-slug-" + suffix + "-" + System.nanoTime(), "ar", "SAR", null), null).id());
         createdStores.add(sid);
         return sid;
     }
 
     private UUID createProduct(UUID tid, UUID storeId, String suffix) {
-        UUID pid = productService.create(tid, storeId,
+        UUID pid = withTenantResult(tid, () -> productService.create(tid, storeId,
                 new CreateProductRequest("PG-Product-" + suffix, "PG-SKU-" + suffix + "-" + System.nanoTime(),
-                        "PHYSICAL", null, null, null), null).id();
+                        "PHYSICAL", null, null, null), null).id());
         createdProducts.add(pid);
         return pid;
     }
 
+    private <T> T withTenantResult(UUID tenantId, java.util.function.Supplier<T> action) {
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+        try {
+            return action.get();
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
+    }
+
     private com.sanad.platform.commerce.api.CommerceDtos.CheckoutResponse checkout(
             UUID tid, UUID storeId, UUID productId) {
-        UUID cartId = cartService.create(tid, storeId, new CreateCartRequest(null, "SAR"), null).id();
-        createdCarts.add(cartId);
-        cartService.addItem(tid, storeId, cartId, new AddCartItemRequest(productId, null, 1), null);
-        // Install tenant-aware SecurityContext so TenantRlsConnectionHandler
-        // applies SET LOCAL app.tenant_id inside the @Transactional checkout
-        // boundary — required for FORCE-RLS commerce_order_number_sequences INSERT.
-        RlsTestSupport.setSecurityContext(tid, UUID.randomUUID());
-        try {
+        return withTenantResult(tid, () -> {
+            UUID cartId = cartService.create(tid, storeId, new CreateCartRequest(null, "SAR"), null).id();
+            createdCarts.add(cartId);
+            cartService.addItem(tid, storeId, cartId, new AddCartItemRequest(productId, null, 1), null);
+            // Tenant-aware SecurityContext is active (withTenantResult above):
+            // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+            // the @Transactional checkout boundary — required for the FORCE-RLS
+            // commerce_order_number_sequences INSERT.
             var order = checkoutService.checkout(tid, storeId,
                     new CheckoutRequest(cartId, "pg-idem-" + UUID.randomUUID() + "-" + System.nanoTime(),
                             "test@example.com", "Test", null, null), null);
             createdOrders.add(order.orderId());
             return order;
-        } finally {
-            RlsTestSupport.clearSecurityContext();
-        }
+        });
     }
 }

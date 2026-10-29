@@ -133,21 +133,54 @@ class WorkflowManagementE2ETest {
             return null;
         });
 
-        // Grant ALL capabilities to both tenants
+        // Grant ALL capabilities to both tenants.
+        // roles / role_capabilities are FORCE RLS (V20261029_1): the grant
+        // writes for each tenant run through a ConnectionCallback that sets
+        // app.tenant_id and executes every statement on the SAME physical
+        // connection (jdbc.update() would fetch a different pooled connection,
+        // invisible to the GUC — same defect the users seeding fixed above).
         for (var tid : List.of(tenantA, tenantB)) {
-            var uid = tid == tenantA ? requesterA : userB;
             var roleId = UUID.randomUUID();
-            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                    roleId, tid, now, now);
-            var caps = jdbc.queryForList(
-                    "SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%' "
-                    + "OR code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' "
-                    + "OR code LIKE 'ESCALATION.%'");
-            for (var cap : caps) {
-                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                        + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tid, roleId, cap.get("id"), now);
-            }
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
+                try (var st = con.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '" + tid + "', false)");
+                }
+                try (var ps = con.prepareStatement(
+                        "INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)")) {
+                    ps.setObject(1, roleId);
+                    ps.setObject(2, tid);
+                    ps.setObject(3, now);
+                    ps.setObject(4, now);
+                    ps.executeUpdate();
+                }
+                java.util.List<UUID> capIds = new java.util.ArrayList<>();
+                try (var ps = con.prepareStatement(
+                        "SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%' "
+                        + "OR code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' "
+                        + "OR code LIKE 'ESCALATION.%'");
+                     var rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        capIds.add((UUID) rs.getObject(1));
+                    }
+                }
+                try (var ps = con.prepareStatement(
+                        "INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)")) {
+                    for (var capId : capIds) {
+                        ps.setObject(1, UUID.randomUUID());
+                        ps.setObject(2, tid);
+                        ps.setObject(3, roleId);
+                        ps.setObject(4, capId);
+                        ps.setObject(5, now);
+                        ps.executeUpdate();
+                    }
+                }
+                try (var st = con.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '', false)");
+                }
+                return null;
+            });
         }
     }
 

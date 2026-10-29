@@ -99,14 +99,16 @@ public class BillingStateService {
     private final SubscriptionCommandService commandService;
     private final SubscriptionResolutionService resolution;
     private final TransactionTemplate isolatedTransaction;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     @Autowired
     public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
                                SubscriptionCommandService commandService,
                                SubscriptionResolutionService resolution,
-                               PlatformTransactionManager transactionManager) {
+                               PlatformTransactionManager transactionManager,
+                               com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
         this(jdbc, auditService, commandService, resolution,
-                requiresNewTemplate(transactionManager));
+                requiresNewTemplate(transactionManager), tenantRlsContext);
     }
 
     /**
@@ -120,7 +122,8 @@ public class BillingStateService {
                                SubscriptionResolutionService resolution) {
         this(jdbc, auditService, commandService, resolution,
                 requiresNewTemplate(new DataSourceTransactionManager(
-                        java.util.Objects.requireNonNull(jdbc.getDataSource(), "JdbcTemplate datasource required"))));
+                        java.util.Objects.requireNonNull(jdbc.getDataSource(), "JdbcTemplate datasource required"))),
+                null);
     }
 
     /**
@@ -135,12 +138,14 @@ public class BillingStateService {
     private BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
                                 SubscriptionCommandService commandService,
                                 SubscriptionResolutionService resolution,
-                                TransactionTemplate isolatedTransaction) {
+                                TransactionTemplate isolatedTransaction,
+                                com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.commandService = commandService;
         this.resolution = resolution;
         this.isolatedTransaction = isolatedTransaction;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     private static TransactionTemplate requiresNewTemplate(PlatformTransactionManager transactionManager) {
@@ -158,6 +163,15 @@ public class BillingStateService {
     @Transactional
     public String evaluateAndTransition(UUID tenantId) {
         if (tenantId == null) return null;
+        // tenant_subscriptions / billing_invoices are fail-closed FORCE RLS
+        // (V20261029_1). The dunning evaluator runs on background threads and
+        // after-commit callbacks WITHOUT a SecurityContextHolder tenant —
+        // apply the trusted transaction-local scope for the target tenant
+        // (validated upstream by the caller) so reads and transitions see and
+        // pass the fail-closed policy.
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
         SubscriptionResolutionService.EffectiveSubscription sub =
                 resolution.findEffectiveSubscription(tenantId).orElse(null);   // R0C-10: EFFECTIVE only
         if (sub == null || sub.id() == null) return null;
@@ -201,19 +215,24 @@ public class BillingStateService {
      * @return the number of subscriptions evaluated
      */
     public int runDunningCycleOnce() {
+        // tenant_subscriptions is FORCE RLS (V20261029_1): a bare cross-tenant
+        // enumeration would silently return zero rows. Enumerate candidates
+        // from the platform tenant directory (non-RLS) instead, and evaluate
+        // each tenant inside its own transaction-local GUC scope.
         List<UUID> tenantIds = jdbc.queryForList(
-                "SELECT tenant_id FROM tenant_subscriptions "
-                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
-                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
-                UUID.class);
+                "SELECT id FROM tenants ORDER BY id", UUID.class);
         int evaluated = 0;
         for (UUID tenantId : tenantIds) {
             try {
                 // Each tenant is committed or rolled back independently. PostgreSQL
                 // marks a transaction aborted after many SQL errors, so catching an
                 // exception inside one shared transaction cannot provide isolation.
-                isolatedTransaction.executeWithoutResult(
-                        ignored -> evaluateAndTransition(tenantId));
+                isolatedTransaction.executeWithoutResult(ignored -> {
+                    if (tenantRlsContext != null) {
+                        tenantRlsContext.applyForCurrentTransaction(tenantId);
+                    }
+                    evaluateAndTransition(tenantId);
+                });
                 evaluated++;
             } catch (Exception e) {
                 log.error("Dunning evaluation failed for tenant {}; continuing with the next tenant",

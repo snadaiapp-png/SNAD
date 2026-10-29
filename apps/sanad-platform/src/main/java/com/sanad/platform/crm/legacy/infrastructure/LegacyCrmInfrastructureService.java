@@ -522,39 +522,65 @@ public class LegacyCrmInfrastructureService {
     }
 
     public boolean processNextImportNow() {
-        UUID jobId = transaction.execute(status -> claimNextImport());
-        if (jobId == null) return false;
+        ClaimedImport claimed = transaction.execute(status -> claimNextImport());
+        if (claimed == null) return false;
+        UUID jobId = claimed.jobId();
         try {
-            processClaimedImport(jobId);
+            processClaimedImport(jobId, claimed.tenantId());
         } catch (RuntimeException exception) {
-            markImportFailed(jobId, exception);
+            markImportFailed(jobId, claimed.tenantId(), exception);
         }
         return true;
     }
 
-    private UUID claimNextImport() {
-        List<UUID> candidates = jdbc.queryForList(
-                "SELECT id FROM crm_import_jobs " +
-                        "WHERE status='READY' OR (status='RUNNING' AND (lease_expires_at IS NULL OR lease_expires_at<CURRENT_TIMESTAMP)) " +
-                        "ORDER BY created_at,id LIMIT 1",
-                p(), UUID.class);
-        if (candidates.isEmpty()) return null;
-        UUID jobId = candidates.get(0);
-        Instant now = Instant.now();
-        int changed = jdbc.update(
-                "UPDATE crm_import_jobs SET status='RUNNING',worker_id=:workerId," +
-                        "lease_expires_at=:lease,started_at=COALESCE(started_at,:now)," +
-                        "attempt_count=attempt_count+1,updated_at=:now " +
-                        "WHERE id=:id AND (status='READY' OR (status='RUNNING' AND " +
-                        "(lease_expires_at IS NULL OR lease_expires_at<CURRENT_TIMESTAMP)))",
-                p().addValue("workerId", workerId)
-                        .addValue("lease", Timestamp.from(now.plus(IMPORT_LEASE)))
-                        .addValue("now", Timestamp.from(now)).addValue("id", jobId));
-        return changed == 1 ? jobId : null;
+    private record ClaimedImport(UUID jobId, UUID tenantId) {}
+
+    /**
+     * Claim the next READY/lease-expired import job.
+     *
+     * <p>crm_import_jobs is a fail-closed FORCE RLS table (V20261029_1) and
+     * this worker runs on a scheduled thread WITHOUT a SecurityContextHolder
+     * tenant, so a single cross-tenant SELECT would silently return zero rows
+     * (fail-closed). The trusted control-plane path instead enumerates the
+     * platform tenant directory (a non-RLS table) and claims per tenant inside
+     * a transaction-local app.tenant_id scope — RLS stays fully enforced.</p>
+     */
+    private ClaimedImport claimNextImport() {
+        List<UUID> tenantIds = jdbc.queryForList(
+                "SELECT id FROM tenants ORDER BY id", p(), UUID.class);
+        for (UUID tenantId : tenantIds) {
+            UUID jobId = transaction.execute(status -> {
+                tenantRlsContext.applyForCurrentTransaction(tenantId);
+                List<UUID> candidates = jdbc.queryForList(
+                        "SELECT id FROM crm_import_jobs " +
+                                "WHERE tenant_id=:tenantId AND (status='READY' OR (status='RUNNING' AND (lease_expires_at IS NULL OR lease_expires_at<CURRENT_TIMESTAMP))) " +
+                                "ORDER BY created_at,id LIMIT 1",
+                        p().addValue("tenantId", tenantId), UUID.class);
+                if (candidates.isEmpty()) return null;
+                UUID candidate = candidates.get(0);
+                Instant now = Instant.now();
+                int changed = jdbc.update(
+                        "UPDATE crm_import_jobs SET status='RUNNING',worker_id=:workerId," +
+                                "lease_expires_at=:lease,started_at=COALESCE(started_at,:now)," +
+                                "attempt_count=attempt_count+1,updated_at=:now " +
+                                "WHERE id=:id AND tenant_id=:tenantId AND (status='READY' OR (status='RUNNING' AND " +
+                                "(lease_expires_at IS NULL OR lease_expires_at<CURRENT_TIMESTAMP)))",
+                        p().addValue("workerId", workerId)
+                                .addValue("lease", Timestamp.from(now.plus(IMPORT_LEASE)))
+                                .addValue("now", Timestamp.from(now)).addValue("id", candidate)
+                                .addValue("tenantId", tenantId));
+                return changed == 1 ? candidate : null;
+            });
+            if (jobId != null) return new ClaimedImport(jobId, tenantId);
+        }
+        return null;
     }
 
-    private void processClaimedImport(UUID jobId) {
-        ImportPayload payload = transaction.execute(status -> loadImportPayload(jobId));
+    private void processClaimedImport(UUID jobId, UUID tenantId) {
+        ImportPayload payload = transaction.execute(status -> {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+            return loadImportPayload(jobId);
+        });
         if (payload == null) throw new IllegalStateException("CRM import payload not found");
         if (!sha256(payload.content()).equals(payload.sha256())) {
             throw new IllegalStateException("CRM import file checksum mismatch");
@@ -578,7 +604,10 @@ public class LegacyCrmInfrastructureService {
                         recordImportError(payload, sourceRow, rowNumber, exception));
             }
         }
-        transaction.executeWithoutResult(status -> completeImport(jobId));
+        transaction.executeWithoutResult(status -> {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+            completeImport(jobId);
+        });
     }
 
     private ImportPayload loadImportPayload(UUID jobId) {
@@ -606,13 +635,13 @@ public class LegacyCrmInfrastructureService {
     private void processImportRow(
             ImportPayload payload, Map<String, String> sourceRow,
             Map<String, String> mapping, long rowNumber) {
-        assertImportLease(payload.id());
-        // Scope the transaction to the import job's tenant so writes to
-        // FORCE-RLS tables (crm_timeline_events, crm_call_events,
-        // crm_entity_participants, crm_event_outbox) pass the WITH CHECK
-        // clause. The import worker has no SecurityContextHolder tenant
-        // because it runs as a background scheduled task.
+        // Scope the transaction to the import job's tenant BEFORE the lease
+        // assertion: assertImportLease reads crm_import_jobs (FORCE RLS,
+        // V20261029_1) and would be blind without the app.tenant_id GUC. The
+        // import worker has no SecurityContextHolder tenant because it runs
+        // as a background scheduled task.
         tenantRlsContext.applyForCurrentTransaction(payload.tenantId());
+        assertImportLease(payload.id());
         Map<String, String> values = mappedValues(sourceRow, mapping);
         UUID entityId = switch (payload.entityType()) {
             case "ACCOUNT" -> importAccount(payload, values);
@@ -642,11 +671,13 @@ public class LegacyCrmInfrastructureService {
     private void recordImportError(
             ImportPayload payload, Map<String, String> sourceRow,
             long rowNumber, RuntimeException exception) {
-        assertImportLease(payload.id());
-        // Scope the transaction so the crm_import_errors write (and any
+        // Scope the transaction BEFORE the lease assertion: assertImportLease
+        // reads crm_import_jobs (FORCE RLS, V20261029_1) and would be blind
+        // without the app.tenant_id GUC. The crm_import_errors write (and any
         // FORCE-RLS crm_timeline_events write the import job may trigger) is
-        // accepted by the fail-closed RLS policy.
+        // accepted by the fail-closed RLS policy under the same scope.
         tenantRlsContext.applyForCurrentTransaction(payload.tenantId());
+        assertImportLease(payload.id());
         Instant now = Instant.now();
         jdbc.update(
                 "INSERT INTO crm_import_errors " +
@@ -681,19 +712,22 @@ public class LegacyCrmInfrastructureService {
         if (changed != 1) throw new ImportLeaseLostException();
     }
 
-    private void markImportFailed(UUID jobId, RuntimeException exception) {
+    private void markImportFailed(UUID jobId, UUID tenantId, RuntimeException exception) {
         if (exception instanceof ImportLeaseLostException) {
             log.info("CRM import lease was lost for job {}", jobId);
             return;
         }
         try {
-            transaction.executeWithoutResult(status -> jdbc.update(
-                    "UPDATE crm_import_jobs SET status='FAILED',last_error=:message,completed_at=:now," +
-                            "updated_at=:now,worker_id=NULL,lease_expires_at=NULL " +
-                            "WHERE id=:id AND worker_id=:workerId",
-                    p().addValue("id", jobId).addValue("workerId", workerId)
-                            .addValue("message", errorMessage(exception))
-                            .addValue("now", Timestamp.from(Instant.now()))));
+            transaction.executeWithoutResult(status -> {
+                tenantRlsContext.applyForCurrentTransaction(tenantId);
+                jdbc.update(
+                        "UPDATE crm_import_jobs SET status='FAILED',last_error=:message,completed_at=:now," +
+                                "updated_at=:now,worker_id=NULL,lease_expires_at=NULL " +
+                                "WHERE id=:id AND worker_id=:workerId",
+                        p().addValue("id", jobId).addValue("workerId", workerId)
+                                .addValue("message", errorMessage(exception))
+                                .addValue("now", Timestamp.from(Instant.now())));
+            });
         } catch (RuntimeException persistenceFailure) {
             log.error("Unable to persist CRM import failure for job {}", jobId, persistenceFailure);
         }

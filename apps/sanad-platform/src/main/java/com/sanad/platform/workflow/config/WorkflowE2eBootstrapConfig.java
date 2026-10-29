@@ -200,6 +200,13 @@ public class WorkflowE2eBootstrapConfig {
             // gate, but it must NOT receive a WORKFLOW entitlement. This keeps
             // P12's cross-tenant/source-entitlement proof intact while making
             // authentication reflect the real subscriber contract.
+            // Switch the same transaction-bound connection to Tenant B BEFORE
+            // the Tenant B subscription write: tenant_subscriptions is FORCE RLS
+            // (V20261029_1) and its WITH CHECK compares row tenant_id against the
+            // transaction-local app.tenant_id — seeding Tenant B's row while
+            // Tenant A is the active context violates the policy and aborts
+            // application startup (fail-closed by design).
+            setTenantContext(jdbc, TENANT_B_ID);
             UUID tenantBPlanId = deterministicId("B", "base-plan", "saas_plan");
             jdbc.update("""
                     INSERT INTO saas_plans (id, code, name, status, currency_code, monthly_price_minor,
@@ -219,9 +226,6 @@ public class WorkflowE2eBootstrapConfig {
                     """, deterministicId("B", "base-plan", "subscription"), TENANT_B_ID, tenantBPlanId,
                     now, now, now, now);
 
-            // Switch the same transaction-bound connection to Tenant B before
-            // Tenant B employee/role/capability writes.
-            setTenantContext(jdbc, TENANT_B_ID);
             seedActors(jdbc, TENANT_B_ID, TENANT_B_ACTORS, "B", passwordHash, now);
 
             // 8. Verify seeding through the same fail-closed tenant views.

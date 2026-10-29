@@ -168,14 +168,23 @@ class WorkflowR2NotificationFoundationTest {
                             + "created_at,updated_at) VALUES (?, ?, ?, 'R2 User', 'ACTIVE', 'dummy', ?, ?)",
                     user, tenant, "r2-notif-" + user.toString().substring(0, 8) + "@test", now, now);
         });
-        jdbc.update("""
+        // workflow_definitions and workflow_instances are FORCE RLS (V20261029_1):
+        // the definition and instance writes run inside the same transaction-local
+        // app.tenant_id context as the users insert above — fail-closed otherwise.
+        UUID definitionId = tx.execute(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            UUID definition = y2Definition(tenant, user);
+            jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
                     business_entity_id, status, started_by, started_at, engine_generation,
                     context_json, context_schema_version, version, created_at, updated_at
                 ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
                           CAST('{}' AS jsonb), 1, 0, ?, ?)
-                """, instance, tenant, y2Definition(tenant, user), user, now, now);
+                """, instance, tenant, definition, user, now, now);
+            return definition;
+        });
+        java.util.Objects.requireNonNull(definitionId);
         createdTenants.add(tenant);
         return new Fixture(tenant, user, instance);
     }

@@ -76,6 +76,14 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- Bind the deterministic fixture tenant BEFORE the first FORCE-RLS write.
+-- tenant_subscriptions / organizations / organization_memberships / roles /
+-- user_role_assignments are fail-closed FORCE RLS (V20261029_1): psql runs
+-- this file on ONE session, so this session-level set_config scopes every
+-- later statement to the fixture tenant (re-asserted again before the users
+-- and HR blocks below — same value, last call wins).
+SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+
 -- ----------------------------------------------------------------------------
 -- 2. Plan + plan_version + tenant_subscription (with WORKFLOW module enabled)
 -- ----------------------------------------------------------------------------

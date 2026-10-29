@@ -128,23 +128,36 @@ class WorkflowSecurityNegativeTest {
 
         // Grant ALL workflow capabilities to userA and userB (tenantA and tenantB admins).
         // noCapsUserA is intentionally NOT granted any workflow capabilities.
+        // roles / role_capabilities are FORCE RLS (V20261029_1), so the role and
+        // capability grants for each tenant are wrapped in a transaction-local
+        // app.tenant_id context — same contract as the users inserts above.
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
             var roleId = UUID.randomUUID();
-            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                    roleId, tid, now, now);
-            var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%'");
-            for (var cap : caps) {
-                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                        + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tid, roleId, cap.get("id"), now);
-            }
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tid.toString());
+                jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                        roleId, tid, now, now);
+                var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%'");
+                for (var cap : caps) {
+                    jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                            + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tid, roleId, cap.get("id"), now);
+                }
+            });
         }
         // noCapsUserA gets an ADMIN role with NO workflow capabilities attached.
         var noCapsRole = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'VIEWER', 'Viewer (no caps)', 'Test', 'ACTIVE', ?, ?)",
-                noCapsRole, tenantA, now, now);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantA.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                    + "VALUES (?, ?, 'VIEWER', 'Viewer (no caps)', 'Test', 'ACTIVE', ?, ?)",
+                    noCapsRole, tenantA, now, now);
+        });
         // Intentionally do NOT grant WORKFLOW.* capabilities to noCapsRole.
     }
 

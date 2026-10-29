@@ -80,10 +80,12 @@ class CustomerMasterHttpIntegrationTest {
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
                 jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
                 jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
+                // crm_idempotency_records is FORCE RLS (V20261029_1 protected
+                // list) — its cleanup needs the same transaction-local GUC.
+                jdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = :t", p);
             });
             // Non-RLS tables can be cleaned without GUC.
             MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
-            jdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = :t", p);
             jdbc.update("DELETE FROM tenants WHERE id = :t", p);
         }
@@ -160,8 +162,9 @@ class CustomerMasterHttpIntegrationTest {
                 .andExpect(status().isPreconditionRequired())
                 .andExpect(jsonPath("$.error.code").value("CRM_PRECONDITION_REQUIRED"));
 
-        jdbc.update("UPDATE crm_accounts SET version=2 WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId));
+        runInTenant(fixture.tenantId(), () ->
+                jdbc.update("UPDATE crm_accounts SET version=2 WHERE tenant_id=:tenantId AND id=:id",
+                        p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId)));
 
         mockMvc.perform(patch("/api/v1/crm/accounts/{id}/master", accountId)
                         .with(authentication(auth(fixture)))
@@ -247,9 +250,9 @@ class CustomerMasterHttpIntegrationTest {
                 .contentType("application/json").content(body), 201);
 
         assertThat(replay).isEqualTo(first);
-        Integer count = jdbc.queryForObject(
+        Integer count = readInTenant(fixture.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_account_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Integer.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Integer.class));
         assertThat(count).isEqualTo(1);
     }
 
@@ -330,14 +333,14 @@ class CustomerMasterHttpIntegrationTest {
                 .contentType("application/json").content(body), 200);
         assertThat(replay).isEqualTo(result);
 
-        Map<String, Object> sourceRow = jdbc.queryForMap(
+        Map<String, Object> sourceRow = readInTenant(fixture.tenantId(), () -> jdbc.queryForMap(
                 "SELECT lifecycle_status,merged_into_account_id FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", source));
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", source)));
         assertThat(sourceRow.get("lifecycle_status")).isEqualTo("ARCHIVED");
         assertThat(sourceRow.get("merged_into_account_id")).isEqualTo(target);
-        Integer history = jdbc.queryForObject(
+        Integer history = readInTenant(fixture.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_account_merge_history WHERE tenant_id=:tenantId AND source_account_id=:sourceId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("sourceId", source), Integer.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("sourceId", source), Integer.class));
         assertThat(history).isEqualTo(1);
     }
 
@@ -373,8 +376,10 @@ class CustomerMasterHttpIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
-        // same transaction-bound connection. Wrap in TransactionTemplate.
+        // Under FORCE RLS, the tenant-scoped seed writes (users, roles,
+        // role_capabilities, user_role_assignments — V20261011_3 / V20261029_1)
+        // require app.tenant_id on the same transaction-bound connection. Wrap
+        // ALL of them in ONE TransactionTemplate block.
         transactions.executeWithoutResult(status -> {
             jdbc.getJdbcTemplate().queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
@@ -383,24 +388,24 @@ class CustomerMasterHttpIntegrationTest {
                             "VALUES (:id,:tenantId,:email,'CRM Master User','ACTIVE','dummy',:now,:now)",
                     p().addValue("id", userId).addValue("tenantId", tenantId)
                             .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
-        });
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:code,'CRM Master Role','CRM-005 tests','ACTIVE',:now,:now)",
-                p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "CRM_MASTER_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
-        List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
-                p().addValue("codes", CAPABILITIES), (rs, row) -> rs.getObject("id", UUID.class));
-        assertThat(capabilityIds).hasSize(CAPABILITIES.size());
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
-                            "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:code,'CRM Master Role','CRM-005 tests','ACTIVE',:now,:now)",
+                    p().addValue("id", roleId).addValue("tenantId", tenantId)
+                            .addValue("code", "CRM_MASTER_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
+            List<UUID> capabilityIds = jdbc.query("SELECT id FROM access_capabilities WHERE code IN (:codes)",
+                    p().addValue("codes", CAPABILITIES), (rs, row) -> rs.getObject("id", UUID.class));
+            assertThat(capabilityIds).hasSize(CAPABILITIES.size());
+            for (UUID capabilityId : capabilityIds) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
+                                "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
+                        p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
+            }
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                     p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                            .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
-        }
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
-                p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+                            .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+        });
         tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }
@@ -408,13 +413,40 @@ class CustomerMasterHttpIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
-                        "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
-                        "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
-                        "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_TEST',:owner,:owner,:owner,:now,:now)",
-                p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
-                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        // crm_accounts is FORCE RLS (V20261029_1): the seed insert runs inside
+        // a transaction-local app.tenant_id context — fail-closed otherwise.
+        transactions.executeWithoutResult(status -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fixture.tenantId().toString());
+            jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
+                            "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
+                            "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
+                            "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_TEST',:owner,:owner,:owner,:now,:now)",
+                    p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
+                            .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        });
         return id;
+    }
+
+    /** Raw FORCE-RLS write inside a transaction-local app.tenant_id context. */
+    private void runInTenant(UUID tenantId, Runnable action) {
+        transactions.executeWithoutResult(status -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            action.run();
+        });
+    }
+
+    /** Raw FORCE-RLS read inside a transaction-local app.tenant_id context. */
+    private <T> T readInTenant(UUID tenantId, java.util.function.Supplier<T> action) {
+        return transactions.execute(status -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return action.get();
+        });
     }
 
     private Authentication auth(Fixture fixture) {

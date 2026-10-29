@@ -140,10 +140,20 @@ class CrmImportAndCustomFieldIntegrationTest {
         String csv = "Name,Type,Industry\r\nImported One,BUSINESS,technology\r\nImported Invalid,INVALID,finance\r\n";
         MockMultipartFile file = new MockMultipartFile(
                 "file", "accounts.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8));
-        Map<String, Object> job = extended.uploadImport(
-                auth(tenantA, userA), "ACCOUNT",
-                "{\"Name\":\"displayName\",\"Type\":\"accountType\",\"Industry\":\"custom.industryCode\"}",
-                file);
+        // Direct service invocation (no MockMvc): install the tenant identity
+        // so TenantRlsConnectionHandler can derive the GUC for the
+        // @Transactional uploadImport boundary (crm_import_jobs is FORCE RLS,
+        // V20261029_1) and the import worker's tenant-scoped claim path.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA, userA);
+        Map<String, Object> job;
+        try {
+            job = extended.uploadImport(
+                    auth(tenantA, userA), "ACCOUNT",
+                    "{\"Name\":\"displayName\",\"Type\":\"accountType\",\"Industry\":\"custom.industryCode\"}",
+                    file);
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
         UUID jobId = (UUID) job.get("id");
         assertThat(job.get("status")).isEqualTo("READY");
         assertThat(extended.processNextImportNow()).isTrue();

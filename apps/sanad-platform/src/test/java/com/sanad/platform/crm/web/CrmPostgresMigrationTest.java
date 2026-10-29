@@ -267,7 +267,11 @@ class CrmPostgresMigrationTest {
     // validation-only per-tenant revalidation of the role capability matrix under RLS context
     // at the sequence tail (V20260820_7's global aggregation is blind under FORCE RLS).
     private static final String ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION = "20261028.1";
-    private static final String LATEST_MIGRATION_VERSION = ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION;
+    // TEST_ALIGNMENT_REASON: SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) adds the forward-only
+    // fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
+    // owner-bypass tables at the sequence tail.
+    private static final String TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION = "20261029.1";
+    private static final String LATEST_MIGRATION_VERSION = TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

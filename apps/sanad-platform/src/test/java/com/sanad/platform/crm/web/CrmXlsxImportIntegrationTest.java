@@ -99,14 +99,24 @@ class CrmXlsxImportIntegrationTest {
                 "file", "leads.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx);
 
-        Map<String, Object> job = extended.uploadImport(auth(), "LEAD", null, file);
-        assertThat(job.get("status")).isEqualTo("READY");
-        assertThat(extended.processNextImportNow()).isTrue();
+        // Direct service invocation (no MockMvc): SecurityContextHolder is
+        // EMPTY, so TenantRlsConnectionHandler cannot derive the tenant GUC
+        // for the @Transactional uploadImport boundary (crm_import_jobs is
+        // FORCE RLS, V20261029_1). Install the tenant identity for the
+        // duration of the direct calls.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
+        try {
+            Map<String, Object> job = extended.uploadImport(auth(), "LEAD", null, file);
+            assertThat(job.get("status")).isEqualTo("READY");
+            assertThat(extended.processNextImportNow()).isTrue();
 
-        UUID jobId = (UUID) job.get("id");
-        Map<String, Object> completed = extended.getImportJob(auth(), jobId);
-        assertThat(completed.get("status")).isEqualTo("COMPLETED");
-        assertThat(((Number) completed.get("succeeded_rows")).longValue()).isEqualTo(1);
+            UUID jobId = (UUID) job.get("id");
+            Map<String, Object> completed = extended.getImportJob(auth(), jobId);
+            assertThat(completed.get("status")).isEqualTo("COMPLETED");
+            assertThat(((Number) completed.get("succeeded_rows")).longValue()).isEqualTo(1);
+        } finally {
+            com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        }
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_leads WHERE tenant_id=? AND display_name='Noura Alharbi' AND company_name='Noura Labs'",
                 Long.class, tenantId)).isEqualTo(1);

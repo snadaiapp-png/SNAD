@@ -21,6 +21,8 @@ class TenantDirectoryCommercialStatePostgresTest {
 
     private static String isolatedUrl;
     private JdbcTemplate jdbc;
+    private org.springframework.transaction.support.TransactionTemplate transaction;
+    private com.sanad.platform.security.rls.TenantRlsTransactionContext rls;
     private TenantDirectoryQueryService directory;
 
     @BeforeAll
@@ -62,7 +64,13 @@ class TenantDirectoryCommercialStatePostgresTest {
         DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
-        directory = new TenantDirectoryQueryService(jdbc);
+        transaction = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
+        rls = new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+        // Canonical wiring (no commercial-state service → direct harness),
+        // so the FORCE RLS per-tenant enrichment is exercised exactly as in
+        // production (V20261029_1).
+        directory = new TenantDirectoryQueryService(jdbc, null, transaction.getTransactionManager(), rls);
     }
 
     @Test
@@ -132,7 +140,11 @@ class TenantDirectoryCommercialStatePostgresTest {
             Instant createdAt
     ) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS (V20261029_1): seed inside the
+        // transaction-local trusted tenant scope — fail-closed otherwise.
+        transaction.executeWithoutResult(ignored -> {
+            rls.applyForCurrentTransaction(tenantId);
+            jdbc.update("""
                 INSERT INTO tenant_subscriptions (
                     id, tenant_id, plan_id, plan_version_id, status, billing_cycle,
                     seat_quantity, credit_balance_minor, started_at, trial_ends_at,
@@ -148,6 +160,7 @@ class TenantDirectoryCommercialStatePostgresTest {
                 billingState,
                 Timestamp.from(createdAt),
                 Timestamp.from(createdAt));
+        });
         return id;
     }
 }
