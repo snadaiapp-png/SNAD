@@ -533,19 +533,23 @@ class WorkflowSecurityNegativeTest {
     @Test
     void rls_tenantScopedQuery_returnsOnlyOwnRows() {
         // Create definitions in both tenants
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         defService.create(WorkflowDefinition.create(
                 tenantA, "WF-RLS-A1", "A1", "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA), userA);
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         defService.create(WorkflowDefinition.create(
                 tenantB, "WF-RLS-B1", "B1", "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userB), userB);
 
-        // Application-level query with tenantA — should see only A's definition
+        // Application-level query with tenantA — should see only A's definition.
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         var aDefs = defService.findByTenant(tenantA, 100);
         assertThat(aDefs).hasSize(1);
         assertThat(aDefs.get(0).code()).isEqualTo("WF-RLS-A1");
 
-        // Application-level query with tenantB — should see only B's definition
+        // Application-level query with tenantB — should see only B's definition.
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         var bDefs = defService.findByTenant(tenantB, 100);
         assertThat(bDefs).hasSize(1);
         assertThat(bDefs.get(0).code()).isEqualTo("WF-RLS-B1");
@@ -556,6 +560,10 @@ class WorkflowSecurityNegativeTest {
         // Create definitions, instances, and approvals in both tenants
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
+            // Service-level RLS scope follows the authenticated tenant, not the
+            // tenantId argument alone. Switch the test actor for each tenant's
+            // fixture creation rather than bypassing FORCE ROW LEVEL SECURITY.
+            RlsTestSupport.setSecurityContext(tid, uid);
             var def = WorkflowDefinition.create(
                     tid, "WF-RLS-APP-" + tid.toString().substring(0, 4),
                     "RLS App Test", "Test",
@@ -584,11 +592,13 @@ class WorkflowSecurityNegativeTest {
         }
 
         // Tenant A should see only A's approvals
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         var aApprovals = approvalService.findByTenant(tenantA, 100);
         assertThat(aApprovals).hasSize(1);
         assertThat(aApprovals.get(0).tenantId()).isEqualTo(tenantA);
 
         // Tenant B should see only B's approvals
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         var bApprovals = approvalService.findByTenant(tenantB, 100);
         assertThat(bApprovals).hasSize(1);
         assertThat(bApprovals.get(0).tenantId()).isEqualTo(tenantB);
