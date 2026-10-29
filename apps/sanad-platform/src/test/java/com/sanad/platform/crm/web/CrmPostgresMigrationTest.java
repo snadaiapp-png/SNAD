@@ -13,11 +13,10 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class CrmPostgresMigrationTest {
     private static final String MAIN_SCHEMA_VERSION = "20260629.2";
