@@ -20,11 +20,13 @@
 -- paths. Any unsanctioned path (no tenant context) now returns zero rows and
 -- is denied writes, instead of silently crossing tenants.
 --
--- Policy pattern mirrors the certified users-table wave (V20261011_3 +
--- V20261019_1): ENABLE + FORCE + permissive fail-closed policies granted to
--- the least-privilege runtime role `sanad` AND to `postgres`, the production
--- runtime/Flyway identity. The NULLIF(current_setting(...), '') form avoids
--- the empty-GUC cast failure observed on older policies.
+-- Policy is ENABLE + FORCE with a permissive fail-closed tenant predicate for
+-- PUBLIC so every non-owner application login used by deployments and isolated
+-- CI (including `sanad`, `sanad_test`, `sanad_contract`, and `sanad_arch`) is
+-- subject to the same tenant filter. This does not grant SQL privileges: table
+-- GRANTs remain authoritative. Superusers can bypass PostgreSQL RLS by design;
+-- the application runtime must never be superuser or hold BYPASSRLS. The
+-- NULLIF(current_setting(...), '') form avoids empty-GUC cast failures.
 --
 -- Validation-only elsewhere: no data is read, modified or dropped. Fails
 -- closed (RAISE EXCEPTION) so Flyway aborts when preconditions are unmet.
@@ -63,7 +65,7 @@ ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.roles FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS roles_tenant_isolation ON public.roles;
 CREATE POLICY roles_tenant_isolation ON public.roles
-  AS PERMISSIVE FOR ALL TO sanad
+  AS PERMISSIVE FOR ALL TO PUBLIC
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS roles_tenant_isolation_runtime ON public.roles;
@@ -98,7 +100,7 @@ ALTER TABLE public.role_capabilities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_capabilities FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS role_capabilities_tenant_isolation ON public.role_capabilities;
 CREATE POLICY role_capabilities_tenant_isolation ON public.role_capabilities
-  AS PERMISSIVE FOR ALL TO sanad
+  AS PERMISSIVE FOR ALL TO PUBLIC
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS role_capabilities_tenant_isolation_runtime ON public.role_capabilities;
@@ -133,7 +135,7 @@ ALTER TABLE public.user_role_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_role_assignments FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS user_role_assignments_tenant_isolation ON public.user_role_assignments;
 CREATE POLICY user_role_assignments_tenant_isolation ON public.user_role_assignments
-  AS PERMISSIVE FOR ALL TO sanad
+  AS PERMISSIVE FOR ALL TO PUBLIC
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS user_role_assignments_tenant_isolation_runtime ON public.user_role_assignments;
@@ -168,7 +170,7 @@ ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS organizations_tenant_isolation ON public.organizations;
 CREATE POLICY organizations_tenant_isolation ON public.organizations
-  AS PERMISSIVE FOR ALL TO sanad
+  AS PERMISSIVE FOR ALL TO PUBLIC
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS organizations_tenant_isolation_runtime ON public.organizations;
@@ -203,7 +205,7 @@ ALTER TABLE public.organization_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_memberships FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS organization_memberships_tenant_isolation ON public.organization_memberships;
 CREATE POLICY organization_memberships_tenant_isolation ON public.organization_memberships
-  AS PERMISSIVE FOR ALL TO sanad
+  AS PERMISSIVE FOR ALL TO PUBLIC
   USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 DROP POLICY IF EXISTS organization_memberships_tenant_isolation_runtime ON public.organization_memberships;
