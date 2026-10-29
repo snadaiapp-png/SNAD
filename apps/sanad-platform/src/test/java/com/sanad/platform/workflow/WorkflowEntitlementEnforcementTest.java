@@ -280,8 +280,8 @@ class WorkflowEntitlementEnforcementTest {
         UUID defId = newY2PublishedDefinition(tenant, "R1-HISTORY");
         removeWorkflowEntitlement(tenant);
         assertThat(inTenantResult(tenant, () -> guard.isWorkflowEnabled(tenant))).isFalse();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_definitions WHERE id = ?", Integer.class, defId)).isEqualTo(1);
+        assertThat(inTenantResult(tenant, () -> jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow_definitions WHERE id = ?", Integer.class, defId))).isEqualTo(1);
     }
 
     @Test
