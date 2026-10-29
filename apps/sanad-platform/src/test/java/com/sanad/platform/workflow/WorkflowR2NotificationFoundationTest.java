@@ -208,6 +208,10 @@ class WorkflowR2NotificationFoundationTest {
     @Test
     void policyCreateResolveAndFailClosedValidation() {
         Fixture fx = fixture("policy");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         var policy = policies.create(fx.tenant(), "critical-email",
                 "EMAIL", "TASK_ASSIGNED", "USER", "task-assigned", "en",
                 "IMMEDIATE", null, "STANDARD", "PER_EVENT", "NONE", "IN_APP", "HIGH");
@@ -236,7 +240,8 @@ class WorkflowR2NotificationFoundationTest {
         assertThatThrownBy(() -> policies.create(fx.tenant(), "bad-event", "EMAIL",
                 null, "USER", null, "ar", "IMMEDIATE", null, "STANDARD",
                 "PER_EVENT", "NONE", null, "NORMAL"))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class);        });
+
     }
 
     // ===== GATE R2.4: registry fail-closed invariants =====
@@ -250,6 +255,10 @@ class WorkflowR2NotificationFoundationTest {
                 .hasMessageContaining("FAIL_STARTUP");
         // unknown channel at dispatch -> intent fails closed (CONFIG_ERROR terminal)
         Fixture fx = fixture("unknown-channel");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         UUID intentId = tx.execute(s -> notifications.enqueue(fx.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
                         "TASK_ASSIGNED", fx.instance(), null, null, fx.user(),
@@ -263,7 +272,8 @@ class WorkflowR2NotificationFoundationTest {
                 """, fx.tenant(), intentId);
         // No WHATSAPP provider registered -> fail closed, never silently dropped
         assertThat(intent.get("delivery_status")).isEqualTo("FAILED_TERMINAL");
-        assertThat(intent.get("failure_category")).isEqualTo("CONFIG_ERROR");
+        assertThat(intent.get("failure_category")).isEqualTo("CONFIG_ERROR");        });
+
     }
 
     // ===== GATE R2.5: lifecycle + dedup + rich enqueue =====
@@ -271,6 +281,10 @@ class WorkflowR2NotificationFoundationTest {
     @Test
     void richEnqueueDedupIdentityAndLifecycle() {
         Fixture fx = fixture("lifecycle");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         String dedupKey = "r2-lifecycle-" + fx.instance();
         UUID first = tx.execute(s -> notifications.enqueue(fx.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
@@ -310,12 +324,17 @@ class WorkflowR2NotificationFoundationTest {
                 SELECT COUNT(*) AS n FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
                 """, fx.tenant(), fx.user(), first);
-        assertThat(((Number) feedRow.get("n")).longValue()).isEqualTo(1);
+        assertThat(((Number) feedRow.get("n")).longValue()).isEqualTo(1);        });
+
     }
 
     @Test
     void dispatcherRetryableAndTerminalFailureClassification() {
         Fixture fx = fixture("retry");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         // EMAIL intent without a recipient address -> INVALID_RECIPIENT terminal
         UUID terminal = tx.execute(s -> notifications.enqueue(fx.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
@@ -387,7 +406,8 @@ class WorkflowR2NotificationFoundationTest {
                  WHERE tenant_id = ? AND id = ?
                 """, fx.tenant(), retryable);
         assertThat(delivered.get("delivery_status")).isEqualTo("DELIVERED");
-        assertThat(((Number) delivered.get("attempt_count")).intValue()).isEqualTo(3);
+        assertThat(((Number) delivered.get("attempt_count")).intValue()).isEqualTo(3);        });
+
     }
 
     // ===== AD-16: provider failure never reverses committed state =====
@@ -395,6 +415,10 @@ class WorkflowR2NotificationFoundationTest {
     @Test
     void workflowStateCommitSurvivesProviderFailure() {
         Fixture fx = fixture("decouple");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         UUID intentId = tx.execute(s -> {
             UUID id = notifications.enqueue(fx.tenant(),
                     new WorkflowNotificationService.NotificationIntentRequest(
@@ -439,7 +463,8 @@ class WorkflowR2NotificationFoundationTest {
         Integer versionAfterOutage = jdbc.queryForObject(
                 "SELECT version FROM workflow_instances WHERE tenant_id = ? AND id = ?",
                 Integer.class, fx.tenant(), fx.instance());
-        assertThat(versionAfterOutage).isEqualTo(1);
+        assertThat(versionAfterOutage).isEqualTo(1);        });
+
     }
 
     // ===== GATE R2.7/2.8/2.9: provider reality classes =====
@@ -447,6 +472,10 @@ class WorkflowR2NotificationFoundationTest {
     @Test
     void emailPushWhatsappFailClosedWithoutCredentials() {
         Fixture fx = fixture("reality");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         // PUSH without enabled provider -> CHANNEL_DISABLED terminal (never fake LIVE)
         WorkflowDeliveryResult pushResult = disabledPushProvider().deliver(
                 new WorkflowDeliveryRequest(fx.tenant(), UUID.randomUUID(), "E",
@@ -527,7 +556,8 @@ class WorkflowR2NotificationFoundationTest {
     private static EmailProperties emailProperties(String from) {
         EmailProperties properties = new EmailProperties();
         properties.setFromAddress(from);
-        return properties;
+        return properties;        });
+
     }
 
     // ===== GATE R2.10: webhook governance =====
@@ -544,6 +574,10 @@ class WorkflowR2NotificationFoundationTest {
                 .isInstanceOf(IllegalArgumentException.class);
         // endpoint secret stored ONLY as SHA-256 hash
         Fixture fx = fixture("webhook");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         var created = webhookService.create(fx.tenant(), "primary",
                 "https://hooks.example.test/sanad", "desc",
                 List.of("TASK_ASSIGNED"), fx.user());
@@ -570,7 +604,8 @@ class WorkflowR2NotificationFoundationTest {
                 new WorkflowDeliveryRequest(fx.tenant(), UUID.randomUUID(), "E",
                         null, null, "http://hooks.example.test/x", null, null, null,
                         null, null, "NORMAL", null, null, null, null, null, null, null));
-        assertThat(plainHttp.failureCategory()).isEqualTo("CONFIG_ERROR");
+        assertThat(plainHttp.failureCategory()).isEqualTo("CONFIG_ERROR");        });
+
     }
 
     // ===== GATE R2.6: feed semantics =====
@@ -578,6 +613,10 @@ class WorkflowR2NotificationFoundationTest {
     @Test
     void inAppFeedDedupAndReadSemantics() {
         Fixture fx = fixture("feed");
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, fx.tenant().toString());
         String dedupKey = "feed-dedup-" + fx.instance();
         WorkflowDeliveryRequest request = new WorkflowDeliveryRequest(
                 fx.tenant(), UUID.randomUUID(), "TASK_ASSIGNED",
@@ -608,6 +647,7 @@ class WorkflowR2NotificationFoundationTest {
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND read_at IS NULL
                 """, Integer.class, fx.tenant(), fx.user());
-        assertThat(unread).isEqualTo(0);
+        assertThat(unread).isEqualTo(0);        });
+
     }
 }
