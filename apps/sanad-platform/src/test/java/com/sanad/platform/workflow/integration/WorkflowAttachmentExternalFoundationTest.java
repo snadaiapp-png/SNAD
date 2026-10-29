@@ -281,8 +281,8 @@ class WorkflowAttachmentExternalFoundationTest {
         assertThat(created.action().status()).isEqualTo("PENDING");
         assertThat(created.opaqueToken()).hasSize(64); // 256-bit opaque, non-guessable
         // token stored ONLY as hash
-        String storedHash = jdbc.queryForObject(
-                "SELECT token_hash FROM workflow_external_actions WHERE id = ?", String.class, created.action().id());
+        String storedHash = seedInTenantResult(tenant, () -> jdbc.queryForObject(
+                "SELECT token_hash FROM workflow_external_actions WHERE id = ?", String.class, created.action().id()));
         assertThat(storedHash).isNotEqualTo(created.opaqueToken());
         assertThat(asTenantResult(tenant, () -> externalActions.findByToken(created.opaqueToken()))).isPresent();
         assertThat(asTenantResult(tenant, () -> externalActions.findByToken("deadbeef"))).isEmpty();
@@ -338,8 +338,9 @@ class WorkflowAttachmentExternalFoundationTest {
         // EXPIRED_RESPONSE_DENIED
         var action3 = asTenantResult(tenant, () -> externalActions.create(tenant, instanceId, null, p.id(), "UPLOAD",
                 Instant.now().plusSeconds(3600), "idem-3", Map.of()));
-        jdbc.update("UPDATE workflow_external_actions SET token_expires_at = NOW() - interval '1 minute' "
-                + "WHERE tenant_id=? AND id=?", tenant, action3.action().id());
+        seedInTenant(tenant, () -> jdbc.update(
+                "UPDATE workflow_external_actions SET token_expires_at = NOW() - interval '1 minute' "
+                        + "WHERE tenant_id=? AND id=?", tenant, action3.action().id()));
         assertThatThrownBy(() -> asTenantResult(tenant, () -> externalActions.respond(tenant, action3.action().id(), p.id(), Map.of())))
                 .isInstanceOf(WorkflowExternalActionService.ExternalActionStateException.class)
                 .hasMessageContaining("EXPIRED_RESPONSE_DENIED");
@@ -354,9 +355,11 @@ class WorkflowAttachmentExternalFoundationTest {
                 .hasMessageContaining("REVOKED_RESPONSE_DENIED");
 
         // EXPIRY honored by expiry transition (never treated as approval/completion)
-        var action5 = externalActions.create(tenant, instanceId, null, p.id(), "PROVIDE_INFORMATION",
-                Instant.now().plusSeconds(3600), "idem-5", Map.of());
-        var expired = externalActions.transition(tenant, action5.action().id(), "EXPIRED", Map.of());
+        var action5 = asTenantResult(tenant, () -> externalActions.create(
+                tenant, instanceId, null, p.id(), "PROVIDE_INFORMATION",
+                Instant.now().plusSeconds(3600), "idem-5", Map.of()));
+        var expired = asTenantResult(tenant, () -> externalActions.transition(
+                tenant, action5.action().id(), "EXPIRED", Map.of()));
         assertThat(expired.status()).isEqualTo("EXPIRED");
         assertThat(expired.status()).isNotIn("RESPONDED", "APPROVED");
     }
