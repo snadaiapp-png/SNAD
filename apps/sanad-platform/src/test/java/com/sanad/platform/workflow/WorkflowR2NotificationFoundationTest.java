@@ -556,14 +556,13 @@ class WorkflowR2NotificationFoundationTest {
                         null, null, "dest@sanad.test", null, null, null, null, null,
                         "NORMAL", null, null, null, null, null, null, null));
         assertThat(emailBad.failureCategory()).isEqualTo("CONFIG_ERROR");
+        });
     }
 
     private static EmailProperties emailProperties(String from) {
         EmailProperties properties = new EmailProperties();
         properties.setFromAddress(from);
         return properties;
-        });
-
     }
 
     // ===== GATE R2.10: webhook governance =====
