@@ -76,24 +76,12 @@ class WorkflowParallelEndToEndTest {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
                     String.class, tenantId.toString());
-            // public.users is FORCE RLS (V20261011_3). One test method in this class
-            // (concurrentRealArrivalsGrantTheJoinExactlyOnce_acrossRounds) is annotated
-            // @Transactional(propagation = NOT_SUPPORTED) — when it runs, setUp() also
-            // runs without a transaction, so HikariCP returns a different physical
-            // connection per jdbc call. set_config(is_local=true) on conn A is reset
-            // immediately (no explicit transaction to scope to); INSERT users on conn B
-            // has no GUC → RLS rejects.
-            // Fix: wrap set_config + INSERT users in ONE tx.executeWithoutResult block
-            // so they share the tx-bound connection regardless of the test method's
-            // propagation. is_local=true (not false) scopes the GUC to this transaction
-            // only — no session-level leak. set_config uses JDBC prepared parameter ?.
-            tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
-                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                        userId, tenantId, "t14e2e-" + userId.toString().substring(0, 8) + "@test", "T14E2E", "ACTIVE", "dummy", now, now);
-            });
+            // public.users is FORCE RLS (V20261011_3). The tenant GUC and user insert
+            // must use this same transaction-bound connection, including for tests that
+            // disable the test-managed transaction. The outer transaction already set
+            // app.tenant_id above; do not nest another transaction or redeclare txStatus.
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    userId, tenantId, "t14e2e-" + userId.toString().substring(0, 8) + "@test", "T14E2E", "ACTIVE", "dummy", now, now);
             defId = UUID.randomUUID();
             jdbc.update("""
                     INSERT INTO workflow_definitions (id, tenant_id, definition_family_id, code, name, module,
