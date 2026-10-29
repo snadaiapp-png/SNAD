@@ -174,11 +174,20 @@ public class TenantDirectoryQueryService {
                         if (commercialStateService == null) {
                             // Direct-harness mode still needs the effective
                             // subscription status, resolved under the same scope.
-                            subscriptionStatus = scopedPerTenant(tenantId, () -> jdbc.queryForObject(
-                                    "SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = ? " +
-                                    "  AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED') " +
-                                    "ORDER BY s.created_at DESC, s.id DESC LIMIT 1",
-                                    String.class, tenantId));
+                            // CONTRACT: absence of an effective subscription is a
+                            // VALID commercial state (terminal-only history, no
+                            // subscription at all) — represented as null, never
+                            // as an exception. Mirrors the hostname resolution
+                            // above; an empty result maps to null (Optional.empty
+                            // semantics) instead of EmptyResultDataAccessException.
+                            subscriptionStatus = scopedPerTenant(tenantId, () -> {
+                                List<String> statuses = jdbc.queryForList(
+                                        "SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = ? " +
+                                        "  AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED') " +
+                                        "ORDER BY s.created_at DESC, s.id DESC LIMIT 1",
+                                        String.class, tenantId);
+                                return statuses.isEmpty() ? null : statuses.get(0);
+                            });
                         }
                     } else {
                         subscriptionCount = ((Number) r.getOrDefault("subscription_count", 0)).intValue();
