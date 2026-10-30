@@ -13,6 +13,7 @@ import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -107,8 +108,14 @@ class TrialExpirationRuntimePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound once generated below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -128,6 +135,7 @@ class TrialExpirationRuntimePostgresTest {
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
         versionA = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
         seedTenant(tenant, "SA");
         seedPlan(planA, "R0C8-A");
         seedPlanVersion(versionA, planA, 1, "ACTIVE", 30000L);
@@ -650,8 +658,9 @@ class TrialExpirationRuntimePostgresTest {
         UUID backfilled = createDueTrial(tenant, planA);
         jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'TRIALING' WHERE id = ?", backfilled);
         // Post-V20260815_20 creation shape: billing_state = 'CURRENT' (column default).
-        UUID modern = createDueTrial(tenantB, planA);
-        jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'CURRENT' WHERE id = ?", modern);
+        UUID modern = TenantGucDataSource.readAsTenant(tenantB, () -> createDueTrial(tenantB, planA));
+        TenantGucDataSource.runAsTenant(tenantB, () ->
+                jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'CURRENT' WHERE id = ?", modern));
 
         driver().runTrialExpiryCycleOnce();
 
@@ -675,11 +684,12 @@ class TrialExpirationRuntimePostgresTest {
         seedTenant(tenantB, "SA");
         UUID dueTrial = createDueTrial(tenant, planA);
         // A paid ACTIVE subscription with a real invoice must be untouched.
-        UUID paid = createSubscription(tenantB, planA); // non-trial → initial invoice issued
+        UUID paid = TenantGucDataSource.readAsTenant(tenantB, () -> createSubscription(tenantB, planA)); // non-trial → initial invoice issued
         long invoicesBefore = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM billing_invoices", Long.class);
-        Map<String, Object> paidRow = jdbc.queryForMap(
-                "SELECT credit_balance_minor, seat_quantity FROM tenant_subscriptions WHERE id = ?", paid);
+        Map<String, Object> paidRow = TenantGucDataSource.readAsTenant(tenantB, () ->
+                jdbc.queryForMap(
+                "SELECT credit_balance_minor, seat_quantity FROM tenant_subscriptions WHERE id = ?", paid));
 
         driver().runTrialExpiryCycleOnce();
 
@@ -687,8 +697,9 @@ class TrialExpirationRuntimePostgresTest {
         long invoicesAfter = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM billing_invoices", Long.class);
         assertThat(invoicesAfter).as("INVOICE_DELTA must be 0").isEqualTo(invoicesBefore);
-        Map<String, Object> paidRowAfter = jdbc.queryForMap(
-                "SELECT credit_balance_minor, seat_quantity FROM tenant_subscriptions WHERE id = ?", paid);
+        Map<String, Object> paidRowAfter = TenantGucDataSource.readAsTenant(tenantB, () ->
+                jdbc.queryForMap(
+                "SELECT credit_balance_minor, seat_quantity FROM tenant_subscriptions WHERE id = ?", paid));
         assertThat(paidRowAfter.get("credit_balance_minor"))
                 .as("CREDIT_DELTA must be 0").isEqualTo(paidRow.get("credit_balance_minor"));
         assertThat(paidRowAfter.get("seat_quantity")).isEqualTo(paidRow.get("seat_quantity"));
@@ -806,19 +817,22 @@ class TrialExpirationRuntimePostgresTest {
         seedTenant(tenantB, "SA");
         seedTenant(tenantC, "AE");
         UUID subA = createDueTrial(tenant, planA);
-        UUID subB = createTrial(tenantB, planA, 14); // future trial
-        UUID subC = createSubscription(tenantC, planA); // ACTIVE paid
+        UUID subB = TenantGucDataSource.readAsTenant(tenantB, () -> createTrial(tenantB, planA, 14)); // future trial
+        UUID subC = TenantGucDataSource.readAsTenant(tenantC, () -> createSubscription(tenantC, planA)); // ACTIVE paid
         Mockito.reset(audit);
         int eventsBefore = publishedEvents.size();
 
         driver().runTrialExpiryCycleOnce();
 
         assertThat(subscriptionField(subA, "status")).isEqualTo("EXPIRED");
-        assertThat(subscriptionField(subB, "status")).isEqualTo("TRIALING");
-        assertThat(timestampField(subB, "trial_ends_at")).isAfter(Instant.now());
-        assertThat(subscriptionField(subC, "status")).isEqualTo("ACTIVE");
-        assertThat(totalLedgerCount(subB)).isZero();
-        assertThat(totalLedgerCount(subC)).isZero();
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(subB, "status"))).isEqualTo("TRIALING");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> timestampField(subB, "trial_ends_at"))).isAfter(Instant.now());
+        assertThat(TenantGucDataSource.readAsTenant(tenantC,
+                () -> subscriptionField(subC, "status"))).isEqualTo("ACTIVE");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB, () -> totalLedgerCount(subB))).isZero();
+        assertThat(TenantGucDataSource.readAsTenant(tenantC, () -> totalLedgerCount(subC))).isZero();
         // No subscription_commands row under another tenant's id.
         Long crossLedger = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_commands WHERE tenant_id IN (?, ?) "
@@ -849,20 +863,20 @@ class TrialExpirationRuntimePostgresTest {
         seedPrice(versionB, "SA", "SAR", 90000L);
         seedPrice(versionB, "AE", "AED", 50000L);
         seedPrice(versionB, "GLOBAL", "USD", 70000L);
-        UUID aeSub = createSubscription(aeTenant, planA);
+        UUID aeSub = TenantGucDataSource.readAsTenant(aeTenant, () -> createSubscription(aeTenant, planA));
         UUID saDueTrial = createDueTrial(tenant, planA);
 
         // Client-supplied rogue country "SA" (SA price is 90000; the AE
         // tenant's authoritative country prices at 50000) — R0C-2R P0-A.
-        SubscriptionChangeService.ChangePreview before =
-                changeService.preview(aeSub, versionB, "SA", Instant.now());
+        SubscriptionChangeService.ChangePreview before = TenantGucDataSource.readAsTenant(
+                aeTenant, () -> changeService.preview(aeSub, versionB, "SA", Instant.now()));
         assertThat(before.targetMonthlyMinor()).isEqualTo(50000L);
 
         driver().runTrialExpiryCycleOnce();
 
         assertThat(subscriptionField(saDueTrial, "status")).isEqualTo("EXPIRED");
-        SubscriptionChangeService.ChangePreview after =
-                changeService.preview(aeSub, versionB, "SA", Instant.now());
+        SubscriptionChangeService.ChangePreview after = TenantGucDataSource.readAsTenant(
+                aeTenant, () -> changeService.preview(aeSub, versionB, "SA", Instant.now()));
         assertThat(after.targetMonthlyMinor()).isEqualTo(50000L);
     }
 
@@ -884,9 +898,11 @@ class TrialExpirationRuntimePostgresTest {
                 Timestamp.from(seededEnd), pastForClock);
         // Wall-clock-past but clock-future: must NOT be expired under the
         // fixed clock (proves the clock — not wall time — is the authority).
-        UUID wallPastClockFuture = seedTrialRow(UUID.randomUUID(), tenantB, planA, versionA, "TRIALING", "CURRENT");
-        jdbc.update("UPDATE tenant_subscriptions SET trial_ends_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().minus(30, ChronoUnit.MINUTES)), wallPastClockFuture);
+        UUID wallPastClockFuture = TenantGucDataSource.readAsTenant(tenantB,
+                () -> seedTrialRow(UUID.randomUUID(), tenantB, planA, versionA, "TRIALING", "CURRENT"));
+        TenantGucDataSource.runAsTenant(tenantB, () ->
+                jdbc.update("UPDATE tenant_subscriptions SET trial_ends_at = ? WHERE id = ?",
+                        Timestamp.from(Instant.now().minus(30, ChronoUnit.MINUTES)), wallPastClockFuture));
 
         TrialExpirationService.TrialExpiryResult result =
                 driverAt(fixedNow).runTrialExpiryCycleOnce();
@@ -894,7 +910,8 @@ class TrialExpirationRuntimePostgresTest {
         assertThat(result.executedAt()).isEqualTo(fixedNow);
         assertThat(result.expired()).isEqualTo(1);
         assertThat(subscriptionField(pastForClock, "status")).isEqualTo("EXPIRED");
-        assertThat(subscriptionField(wallPastClockFuture, "status"))
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(wallPastClockFuture, "status")))
                 .as("trial_ends_at after the cycle's execution timestamp must stay untouched — "
                         + "the injectable clock is the time authority")
                 .isEqualTo("TRIALING");
@@ -919,10 +936,10 @@ class TrialExpirationRuntimePostgresTest {
         backdate(historical, Instant.now().minus(30, ChronoUnit.DAYS));
         UUID tenantB = UUID.randomUUID();
         seedTenant(tenantB, "SA");
-        UUID future = createTrial(tenantB, planA, 14);
+        UUID future = TenantGucDataSource.readAsTenant(tenantB, () -> createTrial(tenantB, planA, 14));
         UUID tenantC = UUID.randomUUID();
         seedTenant(tenantC, "SA");
-        UUID active = createSubscription(tenantC, planA);
+        UUID active = TenantGucDataSource.readAsTenant(tenantC, () -> createSubscription(tenantC, planA));
         Mockito.reset(audit); // the real create paths audit; the scan must not
 
         // OVERDUE_TRIAL_NOT_TRANSITIONED: a trial whose trial_ends_at has
@@ -945,14 +962,17 @@ class TrialExpirationRuntimePostgresTest {
 
         // Non-eligible rows are never classified: future trial and the
         // ACTIVE subscription (even with stale trial metadata) are clean.
-        assertThat(subscriptionField(future, "status")).isEqualTo("TRIALING");
-        assertThat(subscriptionField(active, "status")).isEqualTo("ACTIVE");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(future, "status"))).isEqualTo("TRIALING");
+        assertThat(TenantGucDataSource.readAsTenant(tenantC,
+                () -> subscriptionField(active, "status"))).isEqualTo("ACTIVE");
 
         // The driver is the ONLY sanctioned transition path: enabling it
         // (runTrialExpiryCycleOnce) resolves exactly the classified rows.
         driver().runTrialExpiryCycleOnce();
         assertThat(subscriptionField(historical, "status")).isEqualTo("EXPIRED");
-        assertThat(subscriptionField(future, "status")).isEqualTo("TRIALING");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(future, "status"))).isEqualTo("TRIALING");
         Long overdueAfter = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM tenant_subscriptions
                         WHERE status IN ('TRIAL', 'TRIALING')

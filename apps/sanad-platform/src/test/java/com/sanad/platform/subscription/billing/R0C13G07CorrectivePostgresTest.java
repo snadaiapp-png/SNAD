@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.billing;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.subscription.billing.application.BillingWebhookService;
 import com.sanad.platform.subscription.billing.domain.BillingPaymentProvider;
 import com.sanad.platform.subscription.billing.domain.SubscriptionFinancePort;
@@ -82,18 +83,27 @@ class R0C13G07CorrectivePostgresTest {
     @BeforeEach
     void setUp() {
         tenantId = seedTenant();
+        // SecurityContext tenant binding: TenantRlsConnectionHandler applies
+        // SET LOCAL app.tenant_id inside every Spring-managed service
+        // transaction (including REQUIRES_NEW recovery paths) — the same
+        // identity the JWT filter binds in production. Not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         planId = seedPlan();
-        subscriptionId = seedSubscription(tenantId, planId, "PAST_DUE", "PAST_DUE");
-        billingInvoiceId = seedBillingInvoice(
-                tenantId, subscriptionId, "SAR", 10_350L, Duration.ofDays(-5));
-        ProviderBinding binding = seedProviderPayment(
-                tenantId, subscriptionId, billingInvoiceId, 10_350L, "SAR");
+        // FORCE-RLS seed writes run inside a transaction-local GUC scope
+        // (fail-closed otherwise) — mirrors CustomerMasterMergeIntegrationTest.
+        subscriptionId = inTenant(tenantId, () ->
+                seedSubscription(tenantId, planId, "PAST_DUE", "PAST_DUE"));
+        billingInvoiceId = inTenant(tenantId, () -> seedBillingInvoice(
+                tenantId, subscriptionId, "SAR", 10_350L, Duration.ofDays(-5)));
+        ProviderBinding binding = inTenant(tenantId, () ->
+                seedProviderPayment(tenantId, subscriptionId, billingInvoiceId, 10_350L, "SAR"));
         paymentAttemptId = binding.paymentAttemptId();
         providerPaymentRef = binding.providerPaymentRef();
     }
 
     @AfterEach
     void cleanup() {
+        RlsTestSupport.clearSecurityContext();
         for (UUID tenant : tenantIds) {
             try {
                 inTenant(tenant, () -> {
@@ -113,8 +123,14 @@ class R0C13G07CorrectivePostgresTest {
                 // Disposable CI database remains authoritative.
             }
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // FORCE-RLS tables: the deletes must run inside the tenant's
+            // transaction-local GUC scope — a raw autocommit DELETE would
+            // silently match zero rows and leave FK-blocking orphans.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);

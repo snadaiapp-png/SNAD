@@ -132,8 +132,13 @@ class MultiPlanAnchorAuthorityPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        com.sanad.platform.test.TenantGucDataSource ds =
+                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
 
         SubscriptionItemRepository itemRepository = new SubscriptionItemRepository(jdbc);
@@ -159,6 +164,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         productAddOn = UUID.randomUUID();
         productMetered = UUID.randomUUID();
         subscription = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
 
         seedTenant(tenant, "SA");
         seedTenant(otherTenant, "SA");
@@ -514,6 +520,9 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @Test
     @DisplayName("PG-17: legacy IMMEDIATE plan change converges the anchor and PRESERVES secondary plans")
     void pg17_immediateLegacyChangePreservesSecondaryPlans() {
+        // The whole legacy-engine battery runs under the owning tenant's
+        // legitimate RLS scope (session GUC) — assertions unchanged.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -528,11 +537,14 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isZero();
         assertThat(activeItemCountForPlan(createdId, planB)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+        });
     }
 
     @Test
     @DisplayName("PG-19: renewal applying a pending plan change PRESERVES secondary plans")
     void pg19_renewalAppliesPendingAndPreservesSecondaryPlans() {
+        // Legacy-engine renewal path under the owning tenant's RLS scope.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -549,6 +561,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isZero();
         assertThat(activeItemCountForPlan(createdId, planB)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+        });
     }
 
     // ---------------------------------------------------------------
@@ -653,6 +666,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @DisplayName("PG-16: tenant B cannot add items to tenant A's subscription; tenant A ops never touch tenant B rows")
     void pg16_tenantIsolation() {
         seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        UUID[] tenantBItemBox = new UUID[1];
 
         // The addItem tenant guard rejects a foreign tenant scope.
         assertThatThrownBy(() -> itemService.addItem(subscription, "PLAN",
@@ -662,22 +676,30 @@ class MultiPlanAnchorAuthorityPostgresTest {
 
         // A tenant-B subscription with its own items must stay byte-identical
         // through any tenant-A operation (add secondary, change plan).
+        // Seeded and verified under tenant-B's legitimate RLS scope.
         UUID tenantBSub = UUID.randomUUID();
-        seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 2);
-        UUID tenantBItem = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
-        Map<String, Object> before = jdbc.queryForMap(
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(otherTenant, () -> {
+            seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 2);
+            tenantBItemBox[0] = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        });
+        UUID tenantBItem = tenantBItemBox[0];
+        Map<String, Object> before = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
-                tenantBItem);
-        Map<String, Object> anchorsBefore = anchors(tenantBSub);
+                tenantBItem));
+        Map<String, Object> anchorsBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> anchors(tenantBSub));
 
         itemService.addItem(subscription, "PLAN", null, null, planX, versionX, 1, 50000L, "SAR");
         changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
 
-        Map<String, Object> after = jdbc.queryForMap(
+        Map<String, Object> after = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
-                tenantBItem);
+                tenantBItem));
         assertThat(after).isEqualTo(before);
-        assertThat(anchors(tenantBSub)).isEqualTo(anchorsBefore);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> anchors(tenantBSub))).isEqualTo(anchorsBefore);
     }
 
     // ---------------------------------------------------------------
@@ -688,6 +710,8 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @Test
     @DisplayName("PG-18: NEXT_CYCLE scheduling preserves secondary plans and the current composition")
     void pg18_nextCycleSchedulingPreservesSecondaryPlans() {
+        // Legacy-engine scheduling path under the owning tenant's RLS scope.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -703,6 +727,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planB)).isZero();
+        });
     }
 
     // ---------------------------------------------------------------

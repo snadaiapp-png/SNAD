@@ -120,8 +120,13 @@ class AnchoredPlanSeatQuantityPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        com.sanad.platform.test.TenantGucDataSource ds =
+                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -145,6 +150,7 @@ class AnchoredPlanSeatQuantityPostgresTest {
         versionB = UUID.randomUUID();
         versionX = UUID.randomUUID();
         versionY = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
 
         seedTenant(tenant, "SA");
         seedTenant(otherTenant, "SA");
@@ -706,14 +712,22 @@ class AnchoredPlanSeatQuantityPostgresTest {
         // Tenant-A scenario: anchor + secondary.
         UUID sub = seedDivergenceScenario();
 
-        // Tenant-B subscription with its own anchored mirror.
+        // Tenant-B subscription with its own anchored mirror. Seeded and
+        // verified under tenant-B's legitimate RLS scope (session GUC), so
+        // the isolation assertions below stay fail-closed for tenant A.
         UUID tenantBSub = UUID.randomUUID();
-        seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 3);
-        UUID tenantBItem = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 3, PRICE_A);
-        Map<String, Object> bItemBefore = itemRow(tenantBItem);
-        Map<String, Object> bSubBefore = jdbc.queryForMap(
+        UUID[] tenantBItemBox = new UUID[1];
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(otherTenant, () -> {
+            seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 3);
+            tenantBItemBox[0] = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 3, PRICE_A);
+        });
+        UUID tenantBItem = tenantBItemBox[0];
+        Map<String, Object> bItemBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> itemRow(tenantBItem));
+        Map<String, Object> bSubBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, seat_quantity, credit_balance_minor, status "
-                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub);
+                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub));
 
         // Cross-tenant quantity mutation through the tenant-scoped item API
         // is DENIED (CROSS_TENANT_ITEM_QUANTITY_MUTATION = DENIED).
@@ -724,17 +738,20 @@ class AnchoredPlanSeatQuantityPostgresTest {
 
         // Any tenant-A seat mutation leaves tenant-B rows byte-identical.
         changeSeats(sub, 8);
-        assertThat(itemRow(tenantBItem)).isEqualTo(bItemBefore);
-        assertThat(jdbc.queryForMap(
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> itemRow(tenantBItem))).isEqualTo(bItemBefore);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, seat_quantity, credit_balance_minor, status "
-                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub))
+                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub)))
                 .isEqualTo(bSubBefore);
 
         // The seat engine itself is an executive-operator capability path
         // (EXECUTIVE_MANAGE) — platform operators act cross-tenant by design;
         // there is no tenant-scoped seat mutation surface to abuse.
         assertThat(seatQuantity(sub)).isEqualTo(8);
-        assertThat(seatQuantity(tenantBSub)).isEqualTo(3);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> seatQuantity(tenantBSub))).isEqualTo(3);
     }
 
     // ---------------------------------------------------------------

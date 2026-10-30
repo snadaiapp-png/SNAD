@@ -118,8 +118,13 @@ class LifecycleSingleWriterPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        com.sanad.platform.test.TenantGucDataSource ds =
+                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -136,6 +141,7 @@ class LifecycleSingleWriterPostgresTest {
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
         versionA = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
         seedTenant(tenant);
         seedPlan(planA, "R0C7-A");
         seedPlanVersion(versionA, planA, 1, "ACTIVE", 30000L);
