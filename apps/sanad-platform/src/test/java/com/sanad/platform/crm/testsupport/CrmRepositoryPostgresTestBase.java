@@ -146,23 +146,31 @@ public abstract class CrmRepositoryPostgresTestBase {
      * Insert a minimal {@code crm_accounts} row (BUSINESS/ACTIVE) and return its id, owned by
      * {@code actorId}. Seeds only the NOT NULL base columns so it satisfies every FK that points
      * at {@code crm_accounts(id)}.
+     *
+     * <p>Executes the INSERT inside a tenant-scoped transaction so the fail-closed
+     * WITH CHECK predicate on {@code crm_accounts} (FORCE RLS, V20261029_1 family)
+     * accepts the row — the same binding the production write path performs via
+     * {@code TenantRlsTransactionContext}. Not a bypass: connections with no bound
+     * tenant keep failing closed.</p>
      */
     protected UUID seedAccount(UUID tenantId, UUID actorId, String displayName, String normalizedName) {
-        UUID accountId = UUID.randomUUID();
-        Timestamp now = Timestamp.from(Instant.now());
-        jdbc().update("""
-                INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
-                    account_type, lifecycle_status, created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
-                    :actorId, :actorId, :now, :now)
-                """, new MapSqlParameterSource()
-                .addValue("id", accountId)
-                .addValue("tenantId", tenantId)
-                .addValue("name", displayName)
-                .addValue("normalized", normalizedName)
-                .addValue("actorId", actorId)
-                .addValue("now", now));
-        return accountId;
+        return inTenantTransaction(tenantId, () -> {
+            UUID accountId = UUID.randomUUID();
+            Timestamp now = Timestamp.from(Instant.now());
+            jdbc().update("""
+                    INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
+                        account_type, lifecycle_status, created_by, updated_by, created_at, updated_at)
+                    VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
+                        :actorId, :actorId, :now, :now)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", accountId)
+                    .addValue("tenantId", tenantId)
+                    .addValue("name", displayName)
+                    .addValue("normalized", normalizedName)
+                    .addValue("actorId", actorId)
+                    .addValue("now", now));
+            return accountId;
+        });
     }
 
     /**

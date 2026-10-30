@@ -42,7 +42,7 @@ class JdbcExportRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void exportAccounts_filtersBySearchSubstring() {
-        var rows = export.exportAccounts(tenantId, "acme", 50);
+        var rows = inTenantTransaction(tenantId, () -> export.exportAccounts(tenantId, "acme", 50));
 
         assertThat(rows).hasSize(1);
         AccountExportRow row = rows.get(0);
@@ -53,7 +53,7 @@ class JdbcExportRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void exportAccounts_withNullSearchReturnsAll() {
-        var rows = export.exportAccounts(tenantId, null, 50);
+        var rows = inTenantTransaction(tenantId, () -> export.exportAccounts(tenantId, null, 50));
         assertThat(rows).hasSize(1);
     }
 
@@ -69,7 +69,7 @@ class JdbcExportRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void exportLeads_mapsCompanyAndNullScore() {
-        var rows = export.exportLeads(tenantId, "acme", 50);
+        var rows = inTenantTransaction(tenantId, () -> export.exportLeads(tenantId, "acme", 50));
 
         assertThat(rows).hasSize(1);
         LeadExportRow row = rows.get(0);
@@ -85,27 +85,29 @@ class JdbcExportRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         UUID otherTenant = newTenant();
         seedAccount(otherTenant, actorId, "Acme Other", "acme-other");
 
-        var rows = export.exportAccounts(tenantId, "acme", 50);
+        var rows = inTenantTransaction(tenantId, () -> export.exportAccounts(tenantId, "acme", 50));
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).displayName()).isEqualTo("Acme Export");
     }
 
     private void seedLead(UUID tenant, UUID actor, String displayName, String company) {
-        UUID leadId = UUID.randomUUID();
-        Timestamp now = Timestamp.from(Instant.now());
-        jdbc().update("""
-                INSERT INTO crm_leads (id, tenant_id, version, display_name, normalized_name,
-                    company_name, email, normalized_email, status, score,
-                    created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, :company, NULL, NULL,
-                    'NEW', NULL, :actorId, :actorId, :now, :now)
-                """, new MapSqlParameterSource()
-                .addValue("id", leadId)
-                .addValue("tenantId", tenant)
-                .addValue("name", displayName)
-                .addValue("normalized", displayName.toLowerCase().replace(' ', '-'))
-                .addValue("company", company)
-                .addValue("actorId", actor)
-                .addValue("now", now));
+        inTenantTransaction(tenant, () -> {
+            UUID leadId = UUID.randomUUID();
+            Timestamp now = Timestamp.from(Instant.now());
+            jdbc().update("""
+                    INSERT INTO crm_leads (id, tenant_id, version, display_name, normalized_name,
+                        company_name, email, normalized_email, status, score,
+                        created_by, updated_by, created_at, updated_at)
+                    VALUES (:id, :tenantId, 0, :name, :normalized, :company, NULL, NULL,
+                        'NEW', NULL, :actorId, :actorId, :now, :now)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", leadId)
+                    .addValue("tenantId", tenant)
+                    .addValue("name", displayName)
+                    .addValue("normalized", displayName.toLowerCase().replace(' ', '-'))
+                    .addValue("company", company)
+                    .addValue("actorId", actor)
+                    .addValue("now", now));
+        });
     }
 }
