@@ -114,12 +114,22 @@ class CrmXlsxImportIntegrationTest {
             Map<String, Object> completed = extended.getImportJob(auth(), jobId);
             assertThat(completed.get("status")).isEqualTo("COMPLETED");
             assertThat(((Number) completed.get("succeeded_rows")).longValue()).isEqualTo(1);
+            // FORCE RLS (V20261029_1): a bare autocommit COUNT on crm_leads
+            // fails closed to zero rows. Verify the durable lead row inside a
+            // transaction with the tenant GUC bound to the same connection —
+            // the same pattern the seed helpers above use.
+            new org.springframework.transaction.support.TransactionTemplate(txManager)
+                    .executeWithoutResult(txStatus -> {
+                        jdbc.queryForObject(
+                                "SELECT set_config('app.tenant_id', ?, true)",
+                                String.class, tenantId.toString());
+                        assertThat(jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM crm_leads WHERE tenant_id=? AND display_name='Noura Alharbi' AND company_name='Noura Labs'",
+                                Long.class, tenantId)).isEqualTo(1);
+                    });
         } finally {
             com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
         }
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_leads WHERE tenant_id=? AND display_name='Noura Alharbi' AND company_name='Noura Labs'",
-                Long.class, tenantId)).isEqualTo(1);
     }
 
     private Authentication auth() {

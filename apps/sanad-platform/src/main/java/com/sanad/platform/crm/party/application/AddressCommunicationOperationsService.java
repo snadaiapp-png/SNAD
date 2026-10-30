@@ -59,7 +59,16 @@ public class AddressCommunicationOperationsService {
         this.useCases = useCases;
         this.mapper = mapper;
         this.rowTransaction = new TransactionTemplate(transactionManager);
-        this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+        // PROPAGATION_REQUIRES_NEW, not NESTED: the application runs on
+        // JpaTransactionManager whose JpaDialect does not support JDBC
+        // savepoints ("JpaDialect does not support savepoints",
+        // NestedTransactionNotSupportedException) — once the import boundary
+        // below became @Transactional, every NESTED row transaction failed and
+        // was recorded as a row error (CI evidence 2026-10-30, succeededRows=0).
+        // REQUIRES_NEW also gives each row a fresh connection on which
+        // TenantRlsConnectionHandler re-binds app.tenant_id from the
+        // SecurityContext, keeping row-isolated imports FORCE-RLS compliant.
+        this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     // All public operations below are @Transactional: under FORCE RLS

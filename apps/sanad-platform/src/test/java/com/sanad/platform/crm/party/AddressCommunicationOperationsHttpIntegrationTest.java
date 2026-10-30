@@ -159,22 +159,32 @@ class AddressCommunicationOperationsHttpIntegrationTest {
 
         JsonNode data = mapper.readTree(response.getResponse().getContentAsString()).path("data");
         UUID jobId = UUID.fromString(data.path("jobId").asText());
-        Map<String, Object> job = jdbc.queryForMap(
-                "SELECT status,total_rows,processed_rows,succeeded_rows,failed_rows FROM crm_import_jobs " +
-                        "WHERE tenant_id=:tenantId AND id=:jobId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId));
-        assertThat(job.get("status")).isEqualTo("COMPLETED");
-        assertThat(((Number) job.get("processed_rows")).intValue()).isEqualTo(2);
-        assertThat(((Number) job.get("succeeded_rows")).intValue()).isEqualTo(1);
-        assertThat(((Number) job.get("failed_rows")).intValue()).isEqualTo(1);
-        Long errors = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_import_errors WHERE tenant_id=:tenantId AND import_job_id=:jobId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId), Long.class);
-        Long rows = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
-        assertThat(errors).isOne();
-        assertThat(rows).isOne();
+        // FORCE RLS (V20261029_1): this test method runs with
+        // @Transactional(NEVER), so bare jdbc reads are autocommit and fail
+        // closed to zero rows. Bind app.tenant_id in the same transaction as
+        // the readbacks — the same pattern the fixture() seeding helper uses.
+        new org.springframework.transaction.support.TransactionTemplate(txManager)
+                .executeWithoutResult(txStatus -> {
+                    jdbc.getJdbcTemplate().queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, fixture.tenantId().toString());
+                    Map<String, Object> job = jdbc.queryForMap(
+                            "SELECT status,total_rows,processed_rows,succeeded_rows,failed_rows FROM crm_import_jobs " +
+                                    "WHERE tenant_id=:tenantId AND id=:jobId",
+                            p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId));
+                    assertThat(job.get("status")).isEqualTo("COMPLETED");
+                    assertThat(((Number) job.get("processed_rows")).intValue()).isEqualTo(2);
+                    assertThat(((Number) job.get("succeeded_rows")).intValue()).isEqualTo(1);
+                    assertThat(((Number) job.get("failed_rows")).intValue()).isEqualTo(1);
+                    Long errors = jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM crm_import_errors WHERE tenant_id=:tenantId AND import_job_id=:jobId",
+                            p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId), Long.class);
+                    Long rows = jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
+                            p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
+                    assertThat(errors).isOne();
+                    assertThat(rows).isOne();
+                });
     }
 
     private void createAddress(Fixture fixture, UUID accountId, String line1, String city) throws Exception {
