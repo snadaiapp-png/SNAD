@@ -480,9 +480,13 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         AdminIdentity admin = provisionControlPlaneAdmin("uat-f");
         Instant now = Instant.now();
 
-        // FK target: one control-tenant subscription + one FAILED provisioning job
+        // FK target: one control-tenant subscription + one FAILED provisioning job.
+        // tenant_subscriptions / provisioning_jobs are FORCE RLS (V20261029_1):
+        // fixture writes MUST bind app.tenant_id on the same transaction —
+        // the certified inTenantContext pattern (TransactionTemplate + set_config local).
         UUID subscriptionId = UUID.randomUUID();
-        jdbc.update("""
+        inTenantContext(admin.tenantId(), () ->
+                jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                     seat_quantity, credit_balance_minor, started_at, current_period_start,
                     current_period_end, cancel_at_period_end, created_at, updated_at)
@@ -490,17 +494,18 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                 """, subscriptionId, admin.tenantId(), anySeededPlanId(),
                 Timestamp.from(now), Timestamp.from(now),
                 Timestamp.from(now.plus(30, ChronoUnit.DAYS)),
-                Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now)));
         createdSubscriptions.add(subscriptionId);
 
         UUID jobId = UUID.randomUUID();
-        jdbc.update("""
+        inTenantContext(admin.tenantId(), () ->
+                jdbc.update("""
                 INSERT INTO provisioning_jobs (id, tenant_id, subscription_id, action, status,
                     attempts, started_at, completed_at, error_code, created_at, updated_at)
                 VALUES (?, ?, ?, 'PROVISION_SUBSCRIPTION', 'FAILED', 2, ?, NULL,
                         'UAT_TEST_ERROR', ?, ?)
                 """, jobId, admin.tenantId(), subscriptionId,
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)));
         createdProvisioningJobs.add(jobId);
 
         mockMvc.perform(

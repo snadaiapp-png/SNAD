@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -61,6 +62,11 @@ public class AddressCommunicationOperationsService {
         this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
     }
 
+    // All public operations below are @Transactional: under FORCE RLS
+    // (V20261029_1) the TenantRlsConnectionHandler binds app.tenant_id only
+    // inside a real transaction — autocommit statements fail closed (searches
+    // return zero rows; crm_import_jobs writes are rejected with 42501).
+    @Transactional(readOnly = true)
     public List<AddressRecord> searchAddresses(
             UUID tenantId,
             String query,
@@ -83,6 +89,7 @@ public class AddressCommunicationOperationsService {
                 (rs, rowNum) -> address(rs));
     }
 
+    @Transactional(readOnly = true)
     public List<CommunicationMethodRecord> searchCommunicationMethods(
             UUID tenantId,
             String query,
@@ -111,6 +118,7 @@ public class AddressCommunicationOperationsService {
                 (rs, rowNum) -> communication(rs));
     }
 
+    @Transactional(readOnly = true)
     public byte[] exportAddresses(
             UUID tenantId,
             String query,
@@ -130,6 +138,7 @@ public class AddressCommunicationOperationsService {
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    @Transactional(readOnly = true)
     public byte[] exportCommunicationMethods(
             UUID tenantId,
             String query,
@@ -150,6 +159,7 @@ public class AddressCommunicationOperationsService {
         return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    @Transactional
     public ImportResult importAddresses(UUID tenantId, UUID actorId, List<AddressImportRow> rows) {
         List<AddressImportRow> cleanRows = requireRows(rows);
         UUID jobId = startJob(tenantId, actorId, "ADDRESS", cleanRows.size());
@@ -169,6 +179,7 @@ public class AddressCommunicationOperationsService {
         return new ImportResult(jobId, cleanRows.size(), succeeded, errors.size(), List.copyOf(errors));
     }
 
+    @Transactional
     public ImportResult importCommunicationMethods(
             UUID tenantId, UUID actorId, List<CommunicationImportRow> rows) {
         List<CommunicationImportRow> cleanRows = requireRows(rows);

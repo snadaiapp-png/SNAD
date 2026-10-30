@@ -56,10 +56,15 @@ public class AddressCommunicationUseCases {
         this.mapper = mapper;
     }
 
+    // Reads below are @Transactional(readOnly = true): under FORCE RLS
+    // (V20261029_1) the TenantRlsConnectionHandler binds app.tenant_id only
+    // inside a real transaction — autocommit reads fail closed to zero rows.
+    @Transactional(readOnly = true)
     public AddressRecord address(UUID tenantId, UUID addressId) {
         return repository.address(required(tenantId, "tenantId"), required(addressId, "addressId"));
     }
 
+    @Transactional(readOnly = true)
     public List<AddressRecord> addresses(
             UUID tenantId, String ownerType, UUID ownerId, boolean includeArchived,
             int limit, Instant beforeUpdatedAt, UUID beforeId) {
@@ -130,15 +135,18 @@ public class AddressCommunicationUseCases {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public List<AddressHistoryRecord> addressHistory(UUID tenantId, UUID addressId, int limit) {
         address(tenantId, addressId);
         return repository.addressHistory(tenantId, addressId, bounded(limit));
     }
 
+    @Transactional(readOnly = true)
     public CommunicationMethodRecord communicationMethod(UUID tenantId, UUID communicationMethodId) {
         return repository.communicationMethod(required(tenantId, "tenantId"), required(communicationMethodId, "communicationMethodId"));
     }
 
+    @Transactional(readOnly = true)
     public List<CommunicationMethodRecord> communicationMethods(
             UUID tenantId, String ownerType, UUID ownerId, boolean includeArchived,
             String methodType, String verificationStatus, int limit, Instant beforeUpdatedAt, UUID beforeId) {
