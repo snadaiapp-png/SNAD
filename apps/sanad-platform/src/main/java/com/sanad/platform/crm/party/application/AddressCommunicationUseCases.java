@@ -56,9 +56,12 @@ public class AddressCommunicationUseCases {
         this.mapper = mapper;
     }
 
-    // Reads below are @Transactional(readOnly = true): under FORCE RLS
-    // (V20261029_1) the TenantRlsConnectionHandler binds app.tenant_id only
-    // inside a real transaction — autocommit reads fail closed to zero rows.
+    /**
+     * Read boundary: opens a transaction so {@code TenantRlsConnectionHandler}
+     * can bind {@code app.tenant_id} on the connection that serves the read.
+     * Without a transaction the bare autocommit read is fail-closed filtered
+     * to zero rows (FORCE RLS, V20261029_1).
+     */
     @Transactional(readOnly = true)
     public AddressRecord address(UUID tenantId, UUID addressId) {
         return repository.address(required(tenantId, "tenantId"), required(addressId, "addressId"));
@@ -255,6 +258,7 @@ public class AddressCommunicationUseCases {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public List<CommunicationHistoryRecord> communicationHistory(
             UUID tenantId, UUID communicationMethodId, int limit) {
         communicationMethod(tenantId, communicationMethodId);

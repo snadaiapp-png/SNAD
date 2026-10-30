@@ -45,10 +45,12 @@ public class CustomerMasterUseCases {
         this.mapper = mapper;
     }
 
-    // All reads below are @Transactional: under FORCE RLS (V20261029_1) the
-    // TenantRlsConnectionHandler binds app.tenant_id only inside a real
-    // transaction — autocommit reads would be fail-closed filtered to zero
-    // rows (404s on existing data).
+    /**
+     * Read boundary: opens a transaction so {@code TenantRlsConnectionHandler}
+     * can bind {@code app.tenant_id} on the connection that serves the read.
+     * Without a transaction the bare autocommit read is fail-closed filtered
+     * to zero rows (FORCE RLS on crm_accounts, V20261029_1).
+     */
     @Transactional(readOnly = true)
     public CustomerMasterProfile getProfile(UUID tenantId, UUID accountId) {
         return repository.findProfile(tenantId, accountId);

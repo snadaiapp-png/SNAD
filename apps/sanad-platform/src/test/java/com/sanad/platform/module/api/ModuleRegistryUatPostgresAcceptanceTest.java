@@ -93,7 +93,9 @@ class ModuleRegistryUatPostgresAcceptanceTest {
     private final List<UUID> createdModules = new ArrayList<>();
     private final List<UUID> createdAuditRows = new ArrayList<>();
     private final List<UUID> createdProvisioningJobs = new ArrayList<>();
-    private final List<UUID> createdSubscriptions = new ArrayList<>();
+    /** Subscription seed rows tracked with their owning tenant: tenant_subscriptions
+     * is FORCE RLS fail-closed (V20261029_1) — cleanup deletes must bind the GUC. */
+    private final List<SeededRow> seededSubscriptions = new ArrayList<>();
 
     // ------------------------------------------------------------------
     // Fixtures
@@ -128,7 +130,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         // flows of later methods (and their audit/subscription rows) still
         // reference a live control tenant. Rows this test creates inside the
         // sentinel are reverted precisely via createdUsers / createdRoles /
-        // createdSubscriptions / createdProvisioningJobs / createdAuditRows,
+        // seededSubscriptions / createdProvisioningJobs / createdAuditRows,
         // so random fixture cleanup stays intact with zero accumulation.
     }
 
@@ -278,9 +280,13 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         for (UUID id : createdProvisioningJobs) {
             jdbc.update("DELETE FROM provisioning_jobs WHERE id = ?", id);
         }
-        for (UUID id : createdSubscriptions) {
-            jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", id);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id);
+        for (SeededRow row : seededSubscriptions) {
+            // provisioning_jobs has no RLS (T2 deferral) — bare delete is fine;
+            // tenant_subscriptions is FORCE RLS fail-closed — bind the GUC so
+            // the cleanup delete actually matches its row.
+            jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", row.id());
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", row.id()));
         }
         for (UUID id : createdAuditRows) {
             jdbc.update("DELETE FROM platform_audit_logs WHERE id = ?", id);
@@ -485,6 +491,9 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         // fixture writes MUST bind app.tenant_id on the same transaction —
         // the certified inTenantContext pattern (TransactionTemplate + set_config local).
         UUID subscriptionId = UUID.randomUUID();
+        // tenant_subscriptions is FORCE RLS fail-closed (V20261029_1): the seed
+        // INSERT must run inside a tenant-scoped transaction, otherwise the
+        // bare pooled-connection write is rejected with 42501.
         inTenantContext(admin.tenantId(), () ->
                 jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
@@ -495,9 +504,12 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                 Timestamp.from(now), Timestamp.from(now),
                 Timestamp.from(now.plus(30, ChronoUnit.DAYS)),
                 Timestamp.from(now), Timestamp.from(now)));
-        createdSubscriptions.add(subscriptionId);
+        seededSubscriptions.add(new SeededRow(admin.tenantId(), subscriptionId));
 
         UUID jobId = UUID.randomUUID();
+        // provisioning_jobs carries no RLS yet (T2 deferral per the
+        // V20261029_1 header) — seeded under the same tenant scope for
+        // uniformity with the established fixture pattern.
         inTenantContext(admin.tenantId(), () ->
                 jdbc.update("""
                 INSERT INTO provisioning_jobs (id, tenant_id, subscription_id, action, status,

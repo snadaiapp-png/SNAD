@@ -8,6 +8,7 @@ import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.Addres
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.CommunicationMethodRecord;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.CreateAddressCommand;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.CreateCommunicationMethodCommand;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -49,12 +50,19 @@ public class AddressCommunicationOperationsService {
     private final AddressCommunicationUseCases useCases;
     private final ObjectMapper mapper;
     private final TransactionTemplate rowTransaction;
+    /** Tenant-scoped transaction for job/search paths: PROPAGATION_REQUIRED so
+     * it joins an existing transaction when present (e.g. the caller's) and
+     * opens its own otherwise — never uses savepoints, which the JPA dialect
+     * does not support. Applies the trusted tenant GUC in every case. */
+    private final TransactionTemplate tenantScopeTx;
+    private final TenantRlsTransactionContext tenantRls;
 
     public AddressCommunicationOperationsService(
             NamedParameterJdbcTemplate jdbc,
             AddressCommunicationUseCases useCases,
             ObjectMapper mapper,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            TenantRlsTransactionContext tenantRls) {
         this.jdbc = jdbc;
         this.useCases = useCases;
         this.mapper = mapper;
@@ -69,6 +77,12 @@ public class AddressCommunicationOperationsService {
         // TenantRlsConnectionHandler re-binds app.tenant_id from the
         // SecurityContext, keeping row-isolated imports FORCE-RLS compliant.
         this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        // Tenant-scoped REQUIRED template for job/search paths: joins an
+        // existing transaction when present (savepoint-free) and opens its own
+        // otherwise; applies the trusted tenant GUC in every case.
+        this.tenantScopeTx = new TransactionTemplate(transactionManager);
+        this.tenantScopeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        this.tenantRls = tenantRls;
     }
 
     // All public operations below are @Transactional: under FORCE RLS
@@ -94,8 +108,14 @@ public class AddressCommunicationOperationsService {
                 "AND (CAST(:countryCode AS text) IS NULL OR country_code=:countryCode) " +
                 "AND (CAST(:status AS text) IS NULL OR status=:status) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
-        return jdbc.query(sql, searchParams(tenantId, query, ownerType, addressType, countryCode, status, limit),
-                (rs, rowNum) -> address(rs));
+        return tenantScopeTx.execute(tx -> {
+            // Trusted tenant scope on the read connection — the underlying
+            // tables are FORCE RLS fail-closed (V20261029_1); a bare autocommit
+            // read would be filtered to zero rows.
+            tenantRls.applyForCurrentTransaction(tenantId);
+            return jdbc.query(sql, searchParams(tenantId, query, ownerType, addressType, countryCode, status, limit),
+                    (rs, rowNum) -> address(rs));
+        });
     }
 
     @Transactional(readOnly = true)
@@ -116,15 +136,19 @@ public class AddressCommunicationOperationsService {
                 "AND (CAST(:verificationStatus AS text) IS NULL OR verification_status=:verificationStatus) " +
                 "AND (CAST(:status AS text) IS NULL OR status=:status) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
-        return jdbc.query(sql, new MapSqlParameterSource()
-                        .addValue("tenantId", tenantId)
-                        .addValue("query", pattern(query))
-                        .addValue("ownerType", upper(ownerType))
-                        .addValue("methodType", upper(methodType))
-                        .addValue("verificationStatus", upper(verificationStatus))
-                        .addValue("status", upper(status))
-                        .addValue("limit", bounded(limit, MAX_SEARCH_LIMIT)),
-                (rs, rowNum) -> communication(rs));
+        return tenantScopeTx.execute(tx -> {
+            // Trusted tenant scope on the read connection (fail-closed FORCE RLS).
+            tenantRls.applyForCurrentTransaction(tenantId);
+            return jdbc.query(sql, new MapSqlParameterSource()
+                            .addValue("tenantId", tenantId)
+                            .addValue("query", pattern(query))
+                            .addValue("ownerType", upper(ownerType))
+                            .addValue("methodType", upper(methodType))
+                            .addValue("verificationStatus", upper(verificationStatus))
+                            .addValue("status", upper(status))
+                            .addValue("limit", bounded(limit, MAX_SEARCH_LIMIT)),
+                    (rs, rowNum) -> communication(rs));
+        });
     }
 
     @Transactional(readOnly = true)
@@ -210,18 +234,23 @@ public class AddressCommunicationOperationsService {
     }
 
     private UUID startJob(UUID tenantId, UUID actorId, String entityType, int totalRows) {
-        UUID jobId = UUID.randomUUID();
-        Instant now = Instant.now();
-        jdbc.update("INSERT INTO crm_import_jobs (id,tenant_id,entity_type,status,total_rows,processed_rows," +
-                        "succeeded_rows,failed_rows,requested_by,created_at,updated_at,mapping_json,started_at,attempt_count) " +
-                        "VALUES (:id,:tenantId,:entityType,'RUNNING',:totalRows,0,0,0,:actorId,:now,:now," +
-                        ":mappingJson,:now,1)",
-                new MapSqlParameterSource()
-                        .addValue("id", jobId).addValue("tenantId", tenantId)
-                        .addValue("entityType", entityType).addValue("totalRows", totalRows)
-                        .addValue("actorId", actorId).addValue("now", timestamp(now))
-                        .addValue("mappingJson", "{\"format\":\"JSON_BATCH\",\"schema\":\"CRM007\"}"));
-        return jobId;
+        return tenantScopeTx.execute(tx -> {
+            // crm_import_jobs is FORCE RLS fail-closed (V20261029_1): the job
+            // row must be written inside a transaction scoped to its tenant.
+            tenantRls.applyForCurrentTransaction(tenantId);
+            UUID jobId = UUID.randomUUID();
+            Instant now = Instant.now();
+            jdbc.update("INSERT INTO crm_import_jobs (id,tenant_id,entity_type,status,total_rows,processed_rows," +
+                            "succeeded_rows,failed_rows,requested_by,created_at,updated_at,mapping_json,started_at,attempt_count) " +
+                            "VALUES (:id,:tenantId,:entityType,'RUNNING',:totalRows,0,0,0,:actorId,:now,:now," +
+                            ":mappingJson,:now,1)",
+                    new MapSqlParameterSource()
+                            .addValue("id", jobId).addValue("tenantId", tenantId)
+                            .addValue("entityType", entityType).addValue("totalRows", totalRows)
+                            .addValue("actorId", actorId).addValue("now", timestamp(now))
+                            .addValue("mappingJson", "{\"format\":\"JSON_BATCH\",\"schema\":\"CRM007\"}"));
+            return jobId;
+        });
     }
 
     private void finishJob(
@@ -231,26 +260,33 @@ public class AddressCommunicationOperationsService {
             int succeeded,
             int failed,
             List<ImportRowError> errors) {
-        Instant now = Instant.now();
-        for (ImportRowError error : errors) {
-            jdbc.update("INSERT INTO crm_import_errors (id,tenant_id,import_job_id,row_number,field_name," +
-                            "error_code,message,raw_row,created_at) " +
-                            "VALUES (:id,:tenantId,:jobId,:rowNumber,:fieldName,:errorCode,:message,:rawRow,:now)",
+        tenantScopeTx.executeWithoutResult(tx -> {
+            // crm_import_errors / crm_import_jobs are FORCE RLS fail-closed
+            // (V20261029_1): completion writes must be tenant-scoped in the
+            // same transaction, otherwise the UPDATE silently matches zero
+            // rows and the INSERT is rejected (42501).
+            tenantRls.applyForCurrentTransaction(tenantId);
+            Instant now = Instant.now();
+            for (ImportRowError error : errors) {
+                jdbc.update("INSERT INTO crm_import_errors (id,tenant_id,import_job_id,row_number,field_name," +
+                                "error_code,message,raw_row,created_at) " +
+                                "VALUES (:id,:tenantId,:jobId,:rowNumber,:fieldName,:errorCode,:message,:rawRow,:now)",
+                        new MapSqlParameterSource()
+                                .addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
+                                .addValue("jobId", jobId).addValue("rowNumber", error.rowNumber())
+                                .addValue("fieldName", error.fieldName()).addValue("errorCode", error.errorCode())
+                                .addValue("message", error.message()).addValue("rawRow", error.rawRow())
+                                .addValue("now", timestamp(now)));
+            }
+            jdbc.update("UPDATE crm_import_jobs SET status='COMPLETED',processed_rows=:total," +
+                            "succeeded_rows=:succeeded,failed_rows=:failed,completed_at=:now,updated_at=:now," +
+                            "last_error=:lastError WHERE tenant_id=:tenantId AND id=:jobId",
                     new MapSqlParameterSource()
-                            .addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                            .addValue("jobId", jobId).addValue("rowNumber", error.rowNumber())
-                            .addValue("fieldName", error.fieldName()).addValue("errorCode", error.errorCode())
-                            .addValue("message", error.message()).addValue("rawRow", error.rawRow())
-                            .addValue("now", timestamp(now)));
-        }
-        jdbc.update("UPDATE crm_import_jobs SET status='COMPLETED',processed_rows=:total," +
-                        "succeeded_rows=:succeeded,failed_rows=:failed,completed_at=:now,updated_at=:now," +
-                        "last_error=:lastError WHERE tenant_id=:tenantId AND id=:jobId",
-                new MapSqlParameterSource()
-                        .addValue("jobId", jobId).addValue("tenantId", tenantId)
-                        .addValue("total", total).addValue("succeeded", succeeded).addValue("failed", failed)
-                        .addValue("now", timestamp(now))
-                        .addValue("lastError", failed == 0 ? null : failed + " row(s) failed validation"));
+                            .addValue("jobId", jobId).addValue("tenantId", tenantId)
+                            .addValue("total", total).addValue("succeeded", succeeded).addValue("failed", failed)
+                            .addValue("now", timestamp(now))
+                            .addValue("lastError", failed == 0 ? null : failed + " row(s) failed validation"));
+        });
     }
 
     private ImportRowError error(UUID jobId, UUID tenantId, int rowNumber, Object row, RuntimeException exception) {
