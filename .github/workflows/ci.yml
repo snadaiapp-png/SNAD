@@ -1015,7 +1015,20 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$PGHOME/bin:$PATH"
-          "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          # Fresh ephemeral credentials for this canonical run (masked), mirroring
+          # the provisioning contract of the other CI jobs: psql :variables must
+          # be bound on the command line or ON_ERROR_STOP=1 aborts the whole
+          # provisioning script (roles/databases are then missing downstream).
+          app_password="$(openssl rand -hex 24)"
+          rls_test_password="$(openssl rand -hex 24)"
+          test -n "$app_password" && test -n "$rls_test_password"
+          echo "::add-mask::$app_password"
+          echo "::add-mask::$rls_test_password"
+          echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          echo "PG_ACCEPTANCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
+          echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
+          "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 \
+            -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
