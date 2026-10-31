@@ -178,6 +178,14 @@ jobs:
             -c "CREATE TABLE IF NOT EXISTS flyway_schema_history (installed_rank INT PRIMARY KEY, version VARCHAR(50), description VARCHAR(200), type VARCHAR(20), script VARCHAR(1000), checksum INT, installed_by VARCHAR(100), installed_on TIMESTAMP DEFAULT NOW(), execution_time INT DEFAULT 0, success BOOLEAN NOT NULL);"
 
           rank=1
+          # SORT BY VERSION (basename), NOT by full path: a full-path sort -V
+          # orders db/migration/* before db/vendor/* (prefix "m" < "v"), replaying
+          # V20261031_1 BEFORE the vendor migrations that create crm_sales_teams,
+          # crm_assignment_rules, crm_queue_memberships, crm_transfer_steps and
+          # crm_next_best_actions — the exact P0001 abort observed in run
+          # 41243741653 (exit code 3 at V20261031_1:88). Emitting
+          # "<basename>\t<path>" and version-sorting field 1 reproduces Flyway's
+          # version-ordered interleaving of both locations.
           while IFS= read -r file; do
             filename=$(basename "$file")
             version=${filename%%__*}
@@ -202,9 +210,9 @@ jobs:
             rank=$((rank + 1))
           done < <(
             {
-              find "$migration_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%p\n'
-              find "$vendor_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%p\n'
-            } | sort -V
+              find "$migration_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%f\t%p\n'
+              find "$vendor_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%f\t%p\n'
+            } | sort -t $'\t' -k1,1V | cut -f2-
           )
 
           actual_version=$(psql -d sanad_source -At \
