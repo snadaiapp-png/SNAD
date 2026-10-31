@@ -116,6 +116,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Security evidence classifier regression
+        working-directory: ${{ github.workspace }}
+        run: python3 tests/security/test_rls_evidence.py
+
       - name: Unified Workflow final-closure contract
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -891,6 +895,9 @@ jobs:
             echo "SHA_BINDING=PASS"
           } >> "$CANON_ROOT/dispatch-binding.txt"
           echo "SHA_BINDING=PASS (${ACTUAL_GIT_HEAD})"
+
+      - name: Security evidence classifier regression
+        run: python3 tests/security/test_rls_evidence.py
 
       - name: Cache Maven repository
         uses: actions/cache@v4

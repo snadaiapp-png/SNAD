@@ -3,6 +3,9 @@
 
 from pathlib import Path
 import unittest
+import os
+import subprocess
+import textwrap
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "g2-production-identity-provisioning.yml"
@@ -22,18 +25,30 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("capabilityCode", text)
 
     def test_admin_preflight_covers_every_rbac_mutation_dependency(self):
+        # Execute the real capability loop. Dynamic shell output need not
+        # exist literally in the workflow, and every missing grant must fail.
         text = self.text
-        for capability in (
-            "USER.READ",
-            "USER.CREATE",
-            "USER.WRITE",
-            "ROLE.READ",
-            "ROLE.WRITE",
-            "CAPABILITY.READ",
-            "USER.GRANT_ROLE",
-        ):
-            self.assertIn(capability, text)
-            self.assertIn(f"Admin has {capability} capability.", text)
+        start = text.index('          for capability in ')
+        end_marker = '          echo "ADMIN_CAPABILITY_PREFLIGHT=PASS"'
+        end = text.index(end_marker, start) + len(end_marker)
+        script = 'set -euo pipefail\n' + textwrap.dedent(text[start:end])
+        required = (
+            'USER.READ', 'USER.CREATE', 'USER.WRITE', 'ROLE.READ', 'ROLE.WRITE',
+            'CAPABILITY.READ', 'USER.GRANT_ROLE', 'ORGANIZATION.READ',
+            'ORGANIZATION.WRITE', 'HRM.EMPLOYEE.VIEW', 'HRM.EMPLOYEE.CREATE',
+            'HRM.EMPLOYEE.UPDATE', 'HRM.USER_LINK.MANAGE',
+            'HRM.ASSIGNMENT.VIEW', 'HRM.ASSIGNMENT.MANAGE',
+        )
+        for missing in (None, *required):
+            with self.subTest(missing=missing):
+                env = dict(os.environ, CAPABILITIES='\n'.join(c for c in required if c != missing))
+                result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0 if missing is None else 1)
+                if missing is None:
+                    self.assertIn('ADMIN_CAPABILITY_PREFLIGHT=PASS', result.stdout)
+                else:
+                    self.assertIn('ADMIN_CAPABILITY_PREFLIGHT=FAIL', result.stdout)
+                    self.assertNotIn('ADMIN_CAPABILITY_PREFLIGHT=PASS', result.stdout)
 
     def test_canonical_hr_graph_is_provisioned_before_scope_verification(self):
         text = self.text

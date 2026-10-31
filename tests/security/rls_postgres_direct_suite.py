@@ -3,6 +3,7 @@
 Real PostgreSQL, real roles (sanad NOBYPASSRLS), real chain end-state. No mocks.
 Outputs JSON evidence with per-table status; exit code 1 on ANY failure."""
 import psycopg, json, uuid, re, sys, datetime
+from rls_evidence import probe_trigger_execute, summarize_evidence, write_denied, context_denied
 
 DSN = "host=127.0.0.1 port=5433 dbname=sanad user=sanad password=sanad_local_test"
 RESULTS_PATH = '/home/z/my-project/evidence-rls/pgdirect_results.json'
@@ -31,12 +32,13 @@ def q1(cur, sql, params=None):
     except psycopg.Error as e:
         try: cur.connection.rollback()
         except Exception: pass
-        return ("ERROR", str(e).split('\n')[0][:160])
+        return ("ERROR", str(e).split('\n')[0][:160], e.sqlstate)
 
 def denied(r):
-    """A read/write probe result counts as DENIED if it returned no rows or errored (fail-closed)."""
+    """Unrelated SQL failures are not proof of tenant isolation."""
     if r is None: return True
-    if isinstance(r, tuple) and r and r[0] == 'ERROR': return True
+    if isinstance(r, tuple) and r and r[0] == 'ERROR':
+        return len(r) > 2 and r[2] == '42501'
     if isinstance(r, tuple) and len(r) == 1 and r[0] == 0: return True
     return False
 
@@ -48,7 +50,7 @@ def dml(cur, sql, params=None):
     except psycopg.Error as e:
         try: cur.connection.rollback()
         except Exception: pass
-        return ('ERROR', str(e).split('\n')[0][:160])
+        return ('ERROR', str(e).split('\n')[0][:160], e.sqlstate)
 
 # ---------- inventory: all tenant-scoped RLS-protected tables ----------
 admin = connect()
@@ -203,12 +205,12 @@ for table, tenant_dtype in tables[CHUNK_START:CHUNK_END]:
         # RLS-03: B cannot read/update/delete A row
         set_ctx(cur, TEN_B)
         r = q1(cur, f"SELECT count(*) FROM public.{table} WHERE {probe_col}=%s", (row_id,))
-        b_reads = denied(r) if not (r and r[0] == 0) else True
         b_reads = (r and r[0] == 0)
         upd = dml(cur, f"UPDATE public.{table} SET tenant_id = tenant_id WHERE {probe_col}=%s", (row_id,))
-        upd_denied = (upd[0] == 'OK' and upd[1] == 0) or upd[0] == 'ERROR'   # 0 rows or refused = isolation held
+        upd_denied = write_denied(upd)
+        set_ctx(cur, TEN_B)
         dele = dml(cur, f"DELETE FROM public.{table} WHERE {probe_col}=%s", (row_id,))
-        del_denied = (dele[0] == 'OK' and dele[1] == 0) or dele[0] == 'ERROR'
+        del_denied = write_denied(dele)
         c.rollback()
         # cross-tenant INSERT (WITH CHECK): B attempts to create A-owned row.
         # PostgreSQL evaluates RLS WITH CHECK BEFORE table CHECK constraints,
@@ -245,18 +247,19 @@ for table, tenant_dtype in tables[CHUNK_START:CHUNK_END]:
         cur2conn = connect()
         cur2 = cur2conn.cursor()
         r = q1(cur2, f"SELECT count(*) FROM public.{table} WHERE {probe_col}=%s", (row_id,))
-        no_ctx = (r and r[0] == 0) or (isinstance(r, tuple) and r[0] == 'ERROR')
+        no_ctx = context_denied(r)
         # empty context
         cur2.execute("SELECT set_config('app.tenant_id', '', true)")
         r = q1(cur2, f"SELECT count(*) FROM public.{table} WHERE {probe_col}=%s", (row_id,))
-        empty_ctx = (r and r[0] == 0) or (isinstance(r, tuple) and r[0] == 'ERROR')
+        empty_ctx = context_denied(r)
         # malformed context: uuid-cast error or zero rows both = denied
         try:
             cur2.execute("SELECT set_config('app.tenant_id', 'not-a-uuid', true)")
             r = q1(cur2, f"SELECT count(*) FROM public.{table} WHERE {probe_col}=%s", (row_id,))
-            malformed = (isinstance(r, tuple) and r[0] == 'ERROR') or (r and r[0] == 0)
+            malformed = context_denied(r, malformed=True)
         except psycopg.Error:
-            malformed = True
+            # Failure to establish the probe context is not a successful denial.
+            malformed = False
         ok = (a_reads and b_reads and upd_denied and del_denied
               and cross_insert.startswith(("DENIED-RLS", "DENIED-IMMUTABLE-GUARD"))
               and swap_ok and no_ctx and empty_ctx and malformed)
@@ -317,19 +320,9 @@ unpinned = admin2.execute("""SELECT count(*) FROM pg_proc p JOIN pg_namespace n 
 record("FN-01", "All non-extension public functions have pinned search_path", "PASS" if unpinned==0 else "FAIL", f"count={unpinned}")
 
 # ---------- RPC / pre-auth boundary (5.5) ----------
-try:
-    print('RPC-01 probe', flush=True)
-    ca = connect(role_as='anon')
-    ca.execute("SELECT sync_login_tenant_index()")
-    record("RPC-01", "anon cannot execute sync_login_tenant_index()", "FAIL", "executed without error")
-except psycopg.Error as e:
-    record("RPC-01", "anon cannot execute sync_login_tenant_index()", "PASS", str(e).split('\n')[0][:100])
-try:
-    cb = connect(role_as='authenticated')
-    cb.execute("SELECT sync_login_tenant_index()")
-    record("RPC-02", "authenticated cannot execute sync_login_tenant_index()", "FAIL", "executed without error")
-except psycopg.Error as e:
-    record("RPC-02", "authenticated cannot execute sync_login_tenant_index()", "PASS", str(e).split('\n')[0][:100])
+for role, tid in (('anon', 'RPC-01'), ('authenticated', 'RPC-02')):
+    status, detail = probe_trigger_execute(connect, role)
+    record(tid, f"{role} cannot execute sync_login_tenant_index()", status, detail)
 # trigger behavior RPC-03
 try:
     cu = connect()
@@ -384,7 +377,7 @@ try:
         cur2.execute("UPDATE tenants SET name='hijack' WHERE id=%s", (TEN_A,))
         record("TX-04", "B cannot update A tenant row (owner subject to FORCE RLS)", "PASS" if cur2.rowcount==0 else "FAIL", f"rowcount={cur2.rowcount}")
     except psycopg.Error as e:
-        record("TX-04", "B cannot update A tenant row", "PASS", str(e).split('\n')[0][:80])
+        record("TX-04", "B cannot update A tenant row", "PASS" if e.sqlstate == "42501" else "ERROR", f"SQLSTATE={e.sqlstate}")
 except Exception as e:
     record("TX-01", "transaction locality suite", "ERROR", str(e)[:150])
 
@@ -420,7 +413,7 @@ pt_synths = [p for p in per_table if p["status"] in ("SYNTH-UNABLE","SYNTH-INSER
 results["summary"]["catalog_tests_failed"] = len(fails)
 results["summary"]["per_table_failed"] = len(pt_fails)
 results["summary"]["per_table_synthetic_blocked"] = len(pt_synths)
-results["summary"]["overall"] = "PASS" if (not fails and not pt_fails) else "FAIL"
+results["summary"].update(summarize_evidence(results["tests"], per_table))
 with open('/home/z/my-project/evidence-rls/pgdirect_results.json','w') as f:
     json.dump(results, f, indent=1, default=str)
 print("\n==== SUMMARY ====")

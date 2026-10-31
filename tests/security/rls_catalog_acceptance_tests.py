@@ -2,6 +2,7 @@
 """Catalog/RPC/Transaction/Negative-control acceptance tests — standalone runner.
 Writes into pgdirect_results.json (merged with per-table results)."""
 import psycopg, json, uuid, sys
+from rls_evidence import probe_trigger_execute, summarize_evidence
 
 DSN = "host=127.0.0.1 port=5433 dbname=sanad user=sanad password=sanad_local_test"
 TEN_A = str(uuid.UUID(int=0xA1)); TEN_B = str(uuid.UUID(int=0xB2))
@@ -28,7 +29,7 @@ sd = admin2.execute("""SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.o
  WHERE n.nspname='public' AND p.prosecdef
  AND (has_function_privilege('anon', p.oid,'EXECUTE') OR has_function_privilege('authenticated', p.oid,'EXECUTE'))""").fetchone()[0]
 record("RPC-01a", "No anon/authenticated-callable SECURITY DEFINER functions", "PASS" if sd == 0 else "FAIL", f"count={sd}")
-fo = admin2.execute("""
+fo = admin2.execute(r"""
 SELECT count(*) FROM pg_policies WHERE schemaname='public'
  AND (qual ~* $q$current_setting\('app\.tenant_id'[^)]*\)\s+IS(?!\s+NOT)\s+NULL$q$
       OR with_check ~* $q$current_setting\('app\.tenant_id'[^)]*\)\s+IS(?!\s+NOT)\s+NULL$q$)
@@ -48,20 +49,8 @@ record("RLS-06c", "Tables without RLS remaining (must be platform/reference/T2 o
 
 # RPC-01/02: anon/authenticated cannot execute the pre-auth trigger function
 for role, tid in (('anon', 'RPC-01'), ('authenticated', 'RPC-02')):
-    try:
-        c = psycopg.connect(DSN); cur = c.cursor()
-        try: cur.execute(f"SET ROLE {role}")
-        except psycopg.Error as e:
-            record(tid, f"{role} cannot execute sync_login_tenant_index()", "PASS", f"set-role denied: {str(e).splitlines()[0][:70]}")
-            c.close(); continue
-        try:
-            cur.execute("SELECT sync_login_tenant_index()")
-            record(tid, f"{role} cannot execute sync_login_tenant_index()", "FAIL", "executed without error")
-        except psycopg.Error as e:
-            record(tid, f"{role} cannot execute sync_login_tenant_index()", "PASS", str(e).splitlines()[0][:90])
-        c.close()
-    except Exception as e:
-        record(tid, f"{role} rpc probe", "ERROR", str(e)[:120])
+    status, detail = probe_trigger_execute(lambda: psycopg.connect(DSN), role)
+    record(tid, f"{role} cannot execute sync_login_tenant_index()", status, detail)
 
 # RPC-03: trigger maintains login_tenant_index across INSERT/DELETE
 try:
@@ -136,18 +125,9 @@ except Exception as e:
 
 # verdict
 pt = data.get('per_table', [])
-seen = {}
-for p in pt: seen[p['table']] = p
-status_counts = {}
-for p in seen.values(): status_counts[p['status']] = status_counts.get(p['status'], 0) + 1
-fails = [t for t in tests if t['status'] in ('FAIL', 'ERROR')]
-data['summary'] = {
-    'per_table_status': status_counts,
-    'per_table_total': len(seen),
-    'catalog_tests_failed': len(fails),
-    'catalog_failures': [t['id'] for t in fails],
-    'overall': 'PASS' if (not fails) else 'FAIL',
-}
+data['summary'] = summarize_evidence(tests, pt)
+status_counts = data['summary']['per_table_status']
+fails = [t for t in tests if t['status'] in ('FAIL', 'ERROR', 'BLOCKED')]
 json.dump(data, open(RESULTS, 'w'), indent=1, default=str)
 print("\n==== SUMMARY ====")
 print("per-table:", dict(status_counts))
