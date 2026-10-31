@@ -179,6 +179,11 @@ class ManagementEndToEndTest {
                 .andExpect(jsonPath("$.status").value("OFF_TRACK"));
 
         // Verify alert was created
+        // MockMvc request post-processors reset the thread's SecurityContext
+        // after each request; re-bind the tenant identity before the direct
+        // service read so TenantRlsConnectionHandler applies SET LOCAL
+        // app.tenant_id (FORCE RLS, V20261029_1 — fail-closed unchanged).
+        RlsTestSupport.setSecurityContext(tenantId, userId);
         var alerts = alertService.findOpenAlerts(tenantId, 100);
         assertThat(alerts).anyMatch(a -> a.type() == ExecutiveAlert.AlertType.OBJECTIVE_OFF_TRACK);
 

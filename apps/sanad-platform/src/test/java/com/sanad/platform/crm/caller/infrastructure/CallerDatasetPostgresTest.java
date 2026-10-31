@@ -187,7 +187,11 @@ class CallerDatasetPostgresTest {
         UUID tenantA = tenant("ds-iso-a");
         UUID tenantB = tenant("ds-iso-b");
         UUID contactA = contact(tenantA, "عميل أ");
-        method(tenantA, contactA, "+966541234567", "ACTIVE", "INTERNAL");
+        // FORCE-RLS (V20261029_1): tenant("ds-iso-b") re-bound the fixture's
+        // session GUC to tenantB, so the tenantA seed must re-scope explicitly
+        // to its owning tenant — fail-closed predicate unchanged, not a bypass.
+        inTenantTransaction(tenantA, () ->
+                method(tenantA, contactA, "+966541234567", "ACTIVE", "INTERNAL"));
         UUID contactB = contact(tenantB, "عميل ب");
         method(tenantB, contactB, "+966541234567", "ACTIVE", "INTERNAL");
 

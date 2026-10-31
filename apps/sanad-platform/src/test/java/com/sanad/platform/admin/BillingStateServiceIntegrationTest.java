@@ -3,6 +3,7 @@ package com.sanad.platform.admin;
 import com.sanad.platform.admin.api.SaasAdminDtos.MarkInvoicePaidRequest;
 import com.sanad.platform.admin.service.BillingStateService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -245,10 +246,20 @@ class BillingStateServiceIntegrationTest {
         try {
             // The payment transaction must commit even though the after-commit
             // billing recovery transaction is deliberately forced to fail.
-            saasAdministrationService.markInvoicePaid(
-                    invoiceId,
-                    new MarkInvoicePaidRequest("tx-isolation-proof", "payment transaction isolation"),
-                    null);
+            // SaasAdministrationService resolves its tenant from the
+            // authenticated context (TenantRlsConnectionHandler applies SET
+            // LOCAL inside the service transaction), so bind the thread
+            // identity explicitly — FORCE RLS (V20261029_1), fail-closed
+            // predicate unchanged, not a bypass.
+            RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+            try {
+                saasAdministrationService.markInvoicePaid(
+                        invoiceId,
+                        new MarkInvoicePaidRequest("tx-isolation-proof", "payment transaction isolation"),
+                        null);
+            } finally {
+                RlsTestSupport.clearSecurityContext();
+            }
 
             assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                     "SELECT status FROM billing_invoices WHERE id = ?",
