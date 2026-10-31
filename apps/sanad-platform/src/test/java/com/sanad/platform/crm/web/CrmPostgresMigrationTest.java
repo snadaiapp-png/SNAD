@@ -581,6 +581,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
                         MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
+                        MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -827,6 +828,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
                         MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
+                        MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

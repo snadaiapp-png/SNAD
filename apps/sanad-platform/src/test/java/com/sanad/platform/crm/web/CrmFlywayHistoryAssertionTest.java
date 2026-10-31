@@ -326,11 +326,6 @@ class CrmFlywayHistoryAssertionTest {
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
             // enabled FORCE RLS on role_template_bindings).
             , "20261028.1"   // role-template matrix revalidation under tenant RLS context
-            // SANAD P0 RLS closure (Issue #1462, T2 batch 2): fail-closed FORCE RLS on
-            // provisioning_jobs / provisioning_job_steps / subscription_commands,
-            // login_tenant_index ACL closure, owner-bypass FORCE bind for five
-            // legacy-shaped CRM tables (PostgreSQL Direct evidence).
-            , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
             // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460): forward-only fail-closed RLS
             // for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
             // owner-bypass tables at the sequence tail.
@@ -340,6 +335,11 @@ class CrmFlywayHistoryAssertionTest {
             // the external-portal pre-auth token pointer index (V20261011_4 pattern).
             , "20261029.2"   // tenant policy empty-GUC fail-closed alignment
             , "20261029.3"   // external-portal pre-auth token index
+            // SANAD P0 RLS closure (Issue #1462, T2 batch 2): fail-closed FORCE RLS on
+            // provisioning_jobs / provisioning_job_steps / subscription_commands,
+            // login_tenant_index ACL closure, owner-bypass FORCE bind for five
+            // legacy-shaped CRM tables (PostgreSQL Direct evidence).
+            , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
     );
 
 

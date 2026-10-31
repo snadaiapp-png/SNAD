@@ -49,7 +49,7 @@ class HrG1MigrationTest {
     // role-template matrix revalidation under RLS context; re-derives V20260820_7's blind assertions).
     // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at 20261029.1 (fail-closed RLS for the
     // 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables).
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261029.3";
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261031.1"; // V20261031_1 (Issue #1462, T2 batch 2) heads the ledger
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
@@ -96,6 +96,10 @@ class HrG1MigrationTest {
     private Flyway flyway(String targetVersion) {
         org.flywaydb.core.api.configuration.FluentConfiguration builder = Flyway.configure()
                 .dataSource(url.replaceFirst("/sanad", "/test_migration"), username, password)
+                // Chain fidelity (Issue #1462): same locations as production
+                // Flyway — V20261031_1's fail-closed guard requires tables
+                // created by the db/vendor/postgresql migrations.
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .validateOnMigrate(false)
                 // Flyway 10+ disables clean by default; the disposable
                 // test_migration database is the one place it is legitimate.

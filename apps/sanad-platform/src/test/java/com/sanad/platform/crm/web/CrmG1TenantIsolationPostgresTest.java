@@ -42,7 +42,7 @@ class CrmG1TenantIsolationPostgresTest {
     void rejectsCrossTenantContactLookupReferenceAndAcceptsSameTenantReference() {
         Flyway flyway = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
-                .locations("classpath:db/migration")
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();

@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.api;
 
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.subscription.change.SubscriptionChangeService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
@@ -14,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -48,17 +50,20 @@ public class LifecycleController {
     private final SubscriptionCommandService commandService;
     private final SubscriptionChangeService changeService;
     private final ProvisioningJobRunner provisioningRunner;
+    private final TenantRlsTransactionContext rlsContext;
     private final JdbcTemplate jdbc;
 
     public LifecycleController(ControlPlaneAccessGuard accessGuard,
                                SubscriptionCommandService commandService,
                                SubscriptionChangeService changeService,
                                ProvisioningJobRunner provisioningRunner,
+                               TenantRlsTransactionContext rlsContext,
                                JdbcTemplate jdbc) {
         this.accessGuard = accessGuard;
         this.commandService = commandService;
         this.changeService = changeService;
         this.provisioningRunner = provisioningRunner;
+        this.rlsContext = rlsContext;
         this.jdbc = jdbc;
     }
 
@@ -142,11 +147,26 @@ public class LifecycleController {
 
     @GetMapping("/provisioning/jobs")
     @RequireCapability("EXECUTIVE_VIEW")
+    @Transactional(readOnly = true)
     public ResponseEntity<List<ProvisioningJobResponse>> listJobs(
             @RequestParam(name = "tenantId", required = false) UUID tenantId,
             @RequestParam(name = "status", required = false) String status,
             Authentication authentication) {
         accessGuard.require(authentication);
+        // V20261031_1 (Issue #1462, T2 batch 2) placed provisioning_jobs under
+        // fail-closed FORCE RLS. The bare autocommit query returned an empty
+        // list because SET LOCAL app.tenant_id only applies inside an explicit
+        // transaction. Bind the GUC inside a real transaction boundary, with
+        // the same pattern as HrPerformanceReviewV2Controller#bind.
+        //
+        // Scope selection is trusted by construction: the JWT filter rejects
+        // (403) any non-owner request whose tenantId param differs from the
+        // JWT tenant, and governed control-plane owners may cross tenants only
+        // on this allow-listed executive route (JwtAuthenticationFilter).
+        UUID scope = tenantId != null
+                ? tenantId
+                : principalUuid(authentication, "tenant_id");
+        rlsContext.applyForCurrentTransaction(scope);
         List<ProvisioningJobResponse> jobs = jdbc.query(
                 "SELECT id, tenant_id, subscription_id, action, status, attempts, "
                         + "started_at, completed_at, error_code, created_at "

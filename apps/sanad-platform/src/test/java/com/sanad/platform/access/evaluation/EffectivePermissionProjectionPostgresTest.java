@@ -31,7 +31,7 @@ class EffectivePermissionProjectionPostgresTest {
 
     @Test
     void rebuildPersistsRoleAndOverrideRowsAtCurrentAuthorizationVersionAndIsIdempotent() throws Exception {
-        Flyway flyway=Flyway.configure().dataSource(isolatedUrl(),USER,PASSWORD).locations("classpath:db/migration").cleanDisabled(false).validateOnMigrate(true).load();
+        Flyway flyway=Flyway.configure().dataSource(isolatedUrl(),USER,PASSWORD).locations("classpath:db/migration", "classpath:db/vendor/postgresql").cleanDisabled(false).validateOnMigrate(true).load();
         flyway.clean();flyway.migrate();flyway.validate();
         try(Connection connection=DriverManager.getConnection(isolatedUrl(),USER,PASSWORD)){
             Fixture f=findFixture(connection);setTenant(connection,f.tenantId());

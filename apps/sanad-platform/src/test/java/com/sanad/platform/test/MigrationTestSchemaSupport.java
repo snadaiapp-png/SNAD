@@ -62,7 +62,7 @@ import java.sql.Statement;
  *                     System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
  *                     System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
  *                     System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
- *             .locations("classpath:db/migration")
+ *             .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
  *             .cleanDisabled(false)
  *             .validateOnMigrate(true);
  *     if (target != null) configuration.target(target);

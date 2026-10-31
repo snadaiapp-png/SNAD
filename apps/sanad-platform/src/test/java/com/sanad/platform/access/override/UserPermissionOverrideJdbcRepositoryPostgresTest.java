@@ -133,7 +133,7 @@ class UserPermissionOverrideJdbcRepositoryPostgresTest {
     private static void migrate() {
         Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl(), USER, PASSWORD)
-                .locations("classpath:db/migration")
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();

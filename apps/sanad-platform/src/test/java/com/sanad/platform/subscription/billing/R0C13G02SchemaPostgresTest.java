@@ -123,7 +123,10 @@ class R0C13G02SchemaPostgresTest {
             // V20261029_1 (SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28, PR #1460) heads the chain with the
             // fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60
             // ENABLE-only owner-bypass tables.
-            assertThat(rs.getString(1)).isEqualTo("20261029.3");
+            // V20261031_1 (SANAD P0 RLS closure, Issue #1462, T2 batch 2) heads the chain with
+            // fail-closed FORCE RLS on provisioning_jobs/provisioning_job_steps/subscription_commands,
+            // login_tenant_index ACL closure, and the five legacy-shaped CRM tables.
+            assertThat(rs.getString(1)).isEqualTo("20261031.1");
         }
     }
 
