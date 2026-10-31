@@ -177,13 +177,20 @@ class G1GDynamic403ForensicPostgresTest {
 
         UUID planId = jdbc.queryForObject(
                 "SELECT id FROM saas_plans WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1", UUID.class);
-        jdbc.update("""
-                INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
-                        seat_quantity, credit_balance_minor, started_at, current_period_start,
-                        current_period_end, cancel_at_period_end, created_at, updated_at)
-                VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 5, 0, NOW(), NOW(),
-                        NOW() + INTERVAL '30 days', FALSE, NOW(), NOW())
-                """, forensicSubscriptionId, forensicTenantId, planId);
+        // V20261029_1: tenant_subscriptions is FORCE RLS — seed the forensic
+        // tenant's subscription under its own GUC (same tx-scoped pattern as
+        // the identity chain above); fail-closed predicate unchanged.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, forensicTenantIdFinal.toString());
+            jdbc.update("""
+                    INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
+                            seat_quantity, credit_balance_minor, started_at, current_period_start,
+                            current_period_end, cancel_at_period_end, created_at, updated_at)
+                    VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 5, 0, NOW(), NOW(),
+                            NOW() + INTERVAL '30 days', FALSE, NOW(), NOW())
+                    """, forensicSubscriptionId, forensicTenantIdFinal, planId);
+        });
     }
 
     @AfterEach
@@ -213,13 +220,15 @@ class G1GDynamic403ForensicPostgresTest {
             // fk_refresh_tokens_user blocks the DELETE if refresh_tokens still
             // reference the user. Fix: delete refresh_tokens by tenant_id first.
             jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
-            // V20261029_1: user_role_assignments / role_capabilities / roles are
-            // FORCE RLS — delete them inside the tenant-scoped transaction.
+            // V20261029_1: tenant_subscriptions / user_role_assignments /
+            // role_capabilities / roles are FORCE RLS — delete them inside the
+            // tenant-scoped transaction (an unbound DELETE matches zero rows
+            // and would leave rows blocking the tenants delete via FK).
             tx.executeWithoutResult(txStatus -> {
                 jdbc.queryForObject(
                         "SELECT set_config('app.tenant_id', ?, true)",
                         String.class, tenantId.toString());
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);

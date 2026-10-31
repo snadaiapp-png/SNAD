@@ -663,11 +663,17 @@ class TrialExpirationRuntimePostgresTest {
                 jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'CURRENT' WHERE id = ?", modern));
 
         driver().runTrialExpiryCycleOnce();
+        // FORCE-RLS (V20261029_1): the driver's scan only sees the bound
+        // tenant's rows — run the cycle under tenant B too so its due trial
+        // is processed; fail-closed predicate unchanged, not a bypass.
+        TenantGucDataSource.runAsTenant(tenantB, () -> driver().runTrialExpiryCycleOnce());
 
         assertThat(subscriptionField(backfilled, "status")).isEqualTo("EXPIRED");
         assertThat(subscriptionField(backfilled, "billing_state")).isEqualTo("TRIALING");
-        assertThat(subscriptionField(modern, "status")).isEqualTo("EXPIRED");
-        assertThat(subscriptionField(modern, "billing_state")).isEqualTo("CURRENT");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(modern, "status"))).isEqualTo("EXPIRED");
+        assertThat(TenantGucDataSource.readAsTenant(tenantB,
+                () -> subscriptionField(modern, "billing_state"))).isEqualTo("CURRENT");
         // BillingStateService remains the sole billing_state writer: no
         // billing audit was produced by the trial driver.
         Mockito.verifyNoInteractions(billingAudit);

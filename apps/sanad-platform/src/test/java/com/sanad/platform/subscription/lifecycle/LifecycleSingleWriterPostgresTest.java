@@ -9,6 +9,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -123,8 +124,7 @@ class LifecycleSingleWriterPostgresTest {
         // binds per request; the fail-closed predicate stays authoritative.
         DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
         rawDs.setDriverClassName("org.postgresql.Driver");
-        com.sanad.platform.test.TenantGucDataSource ds =
-                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -619,7 +619,7 @@ class LifecycleSingleWriterPostgresTest {
         UUID third = UUID.randomUUID();
         seedTenant(third);
         UUID subA = createSubscription(tenant, planA);
-        UUID subB = createSubscription(other, planA);
+        UUID subB = TenantGucDataSource.readAsTenant(other, () -> createSubscription(other, planA));
 
         // Dunning actually transitions tenant A's subscription first.
         insertOverdueInvoice(subA, Instant.now().minus(5, ChronoUnit.DAYS));
@@ -629,13 +629,19 @@ class LifecycleSingleWriterPostgresTest {
         transactions.executeWithoutResult(status ->
                 legacy.cancelSubscription(subA, new CancelSubscriptionRequest(true, "r0c7 isolation"), null));
         // Provision a third tenant's subscription through the canonical path.
-        UUID subC = seedSubscription(UUID.randomUUID(), third, planA, versionA, "PENDING_ACTIVATION", "CURRENT");
-        seedPlanItem(subC, third, planA, versionA);
-        provisioning.run(enqueueProvisioningJobFor(subC, third));
+        // FORCE-RLS (V20261029_1): seed + canonical provisioning of the THIRD
+        // tenant's rows run under that tenant's GUC scope — fail-closed
+        // predicate unchanged, not a bypass.
+        UUID subC = TenantGucDataSource.readAsTenant(third, () ->
+                seedSubscription(UUID.randomUUID(), third, planA, versionA, "PENDING_ACTIVATION", "CURRENT"));
+        TenantGucDataSource.runAsTenant(third, () -> seedPlanItem(subC, third, planA, versionA));
+        TenantGucDataSource.runAsTenant(third, () ->
+                provisioning.run(enqueueProvisioningJobFor(subC, third)));
         assertThat(ledgerCount(subC, "ACTIVATE")).isEqualTo(1L);
 
         // Tenant B: untouched status, zero command ledger, zero events.
-        assertThat(subscriptionField(subB, "status")).isEqualTo("ACTIVE");
+        assertThat(TenantGucDataSource.readAsTenant(other,
+                () -> subscriptionField(subB, "status"))).isEqualTo("ACTIVE");
         assertThat(ledgerCount(subB, "CANCEL")).isZero();
         assertThat(ledgerCount(subB, "MARK_PAST_DUE")).isZero();
         assertThat(ledgerCount(subB, "ACTIVATE")).isZero();
@@ -645,10 +651,10 @@ class LifecycleSingleWriterPostgresTest {
         assertThat(bCommands).isZero();
         // Tenant B's only change event is its own creation — no lifecycle
         // event ever leaked across the tenant boundary.
-        Long bChangeEvents = jdbc.queryForObject(
+        Long bChangeEvents = TenantGucDataSource.readAsTenant(other, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                         + "AND action <> 'SUBSCRIPTION.CREATED'",
-                Long.class, subB);
+                Long.class, subB));
         assertThat(bChangeEvents).isZero();
         // No cross-tenant ledger row was ever written under tenant B's id.
         Long bLedgerByTenant = jdbc.queryForObject(

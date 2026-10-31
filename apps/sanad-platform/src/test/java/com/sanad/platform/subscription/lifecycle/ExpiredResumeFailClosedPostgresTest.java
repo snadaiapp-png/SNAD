@@ -6,6 +6,7 @@ import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -105,8 +106,14 @@ class ExpiredResumeFailClosedPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated request.
+        // Not a bypass: the fail-closed policy predicate stays authoritative.
+        // The default tenant is bound once generated below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -117,6 +124,7 @@ class ExpiredResumeFailClosedPostgresTest {
 
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
         seedTenant(tenant);
         seedPlan(planA, "R0C10-G");
     }
@@ -243,14 +251,12 @@ class ExpiredResumeFailClosedPostgresTest {
     }
 
     private TrialExpirationService driver() {
+        // FORCE-RLS (V20261029_1): the expire re-check runs on this transaction
+        // manager's connection — reuse the GUC-bound fixture plumbing so the
+        // driver sees the rows it owns; fail-closed predicate unchanged.
         return new TrialExpirationService(jdbc,
                 new SubscriptionCommandService(jdbc, audit, publishedEvents::add),
-                new TransactionTemplate(
-                        new org.springframework.jdbc.datasource.DataSourceTransactionManager(
-                                new DriverManagerDataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(isolatedUrl),
-                                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
-                                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")))),
-                Clock.systemUTC());
+                transactions, Clock.systemUTC());
     }
 
     private UUID createTrial(int trialDays) {
