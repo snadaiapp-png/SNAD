@@ -158,10 +158,14 @@ class R0C13G06SettlementReconciliationPostgresTest {
         assertThat(subscription.get("status")).isEqualTo("ACTIVE");
         assertThat(subscription.get("billing_state")).isEqualTo("CURRENT");
 
-        Long commands = jdbc.queryForObject(
+        // subscription_commands is FORCE-RLS (V20261031_1): the assertion read
+        // must run inside the tenant's transaction-local GUC scope — the same
+        // pattern as the other FORCE-RLS reads in this fixture; the fail-closed
+        // predicate is unchanged and nothing is bypassed.
+        Long commands = inTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_commands "
                         + "WHERE subscription_id = ? AND command = 'PAYMENT_RECEIVED'",
-                Long.class, subscriptionId);
+                Long.class, subscriptionId));
         assertThat(commands).isEqualTo(1L);
     }
 
