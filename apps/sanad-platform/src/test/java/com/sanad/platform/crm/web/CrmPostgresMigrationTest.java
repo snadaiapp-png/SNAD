@@ -274,7 +274,10 @@ class CrmPostgresMigrationTest {
     // SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29: empty-GUC policy alignment + pre-auth token index.
     private static final String TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION = "20261029.2";
     private static final String EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION = "20261029.3";
-    private static final String LATEST_MIGRATION_VERSION = EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION;
+    // TEST_ALIGNMENT_REASON: SANAD P0 RLS closure (Issue #1462, T2 batch 2) adds a
+    // forward-only migration at the sequence tail (V20261031_1).
+    private static final String D6_T2_BATCH2_RLS_VERSION = "20261031.1";
+    private static final String LATEST_MIGRATION_VERSION = D6_T2_BATCH2_RLS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

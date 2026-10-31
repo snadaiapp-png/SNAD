@@ -1,0 +1,26 @@
+{
+ "probes": [
+  {
+   "probe": "crm_next_best_actions.error",
+   "sqlstate": "23502",
+   "msg": "null value in column \"account_id\" of relation \"crm_next_best_actions\" violates not-null constraint\nDETAIL:  Failing row contains (9ec55765-2e41-4da4-a6a7-97b787b02f31, 00000000-0000-0000-0000-00000000"
+  },
+  {
+   "probe": "crm_assignment_rules.error",
+   "sqlstate": "42703",
+   "msg": "column \"name\" of relation \"crm_assignment_rules\" does not exist\nLINE 1: INSERT INTO crm_assignment_rules (id, tenant_id, name, rule_...\n                                                         ^"
+  },
+  {
+   "probe": "T2_functional_RED",
+   "details": {
+    "refresh_tokens.b_reads_a": 0,
+    "password_reset_tokens.b_reads_a": 0,
+    "login_tenant_index.rows_visible_to_B_ctx": 4,
+    "provisioning_jobs.b_reads_a": 1,
+    "provisioning_job_steps.b_reads_a": 1,
+    "subscription_commands.b_reads_a": 1
+   },
+   "verdict": "VULNERABLE_PRE_FIX"
+  }
+ ]
+}
