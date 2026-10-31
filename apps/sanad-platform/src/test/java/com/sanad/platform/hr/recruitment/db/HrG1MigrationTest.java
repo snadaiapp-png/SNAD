@@ -47,7 +47,9 @@ class HrG1MigrationTest {
     // PR #1422 heads it at 20261021.1 (forward-only fail-closed RLS on the nine post-baseline CRM tables).
     // SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at 20261028.1 (validation-only per-tenant
     // role-template matrix revalidation under RLS context; re-derives V20260820_7's blind assertions).
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261029.1"; // SANAD-SEC-G1-D6-CLOSURE: V20261029_1 (D6 identity-plane FORCE fail-closed tenant RLS)
+    // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at 20261029.1 (fail-closed RLS for the
+    // 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables).
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261029.3";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",

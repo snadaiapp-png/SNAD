@@ -97,7 +97,7 @@ class Crm008bFoundationAcceptanceTest {
     //   V20261001_2..6 = Platform IAM membership/role/capability/bootstrap chain
     //   V20261001_7 = canonical Platform Owner executive-admin reconciliation
     //   V20261001_8..12 = forward-only UAC Wave 1 execution overlay
-    private static final String CRM_LATEST_VERSION = "20261029.1"; // PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables); SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at V20261028_1 (validation-only per-tenant role-template matrix revalidation under RLS context); SANAD-SEC-G1-D6-CLOSURE (D6) heads it at V20261029_1 (FORCE fail-closed tenant RLS on the identity plane)
+    private static final String CRM_LATEST_VERSION = "20261029.3"; // PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables); SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at V20261028_1 (validation-only per-tenant role-template matrix revalidation under RLS context); SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at V20261029_1 (fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables); SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29 heads it at V20261029_2 (empty-GUC fail-closed policy alignment) + V20261029_3 (external-portal pre-auth token index)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
@@ -162,25 +162,25 @@ class Crm008bFoundationAcceptanceTest {
         //   record_id   = subject_id
         //   owner_user_id = assigned_user_id
         //   owner_type  = 'USER'
-        long unmappableRows = jdbc.queryForObject(
+        long unmappableRows = withTenantScope(jdbc, TENANT_ID, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_assignments " +
                 " WHERE record_type IS NULL OR record_id IS NULL " +
-                "    OR owner_user_id IS NULL OR owner_type IS NULL", Long.class);
+                "    OR owner_user_id IS NULL OR owner_type IS NULL", Long.class));
         assertThat(unmappableRows).as("unmappable rows after backfill").isZero();
 
-        long mismatchedRows = jdbc.queryForObject(
+        long mismatchedRows = withTenantScope(jdbc, TENANT_ID, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_assignments " +
                 " WHERE record_type <> subject_type " +
                 "    OR record_id <> subject_id " +
                 "    OR owner_user_id <> assigned_user_id " +
-                "    OR owner_type <> 'USER'", Long.class);
+                "    OR owner_type <> 'USER'", Long.class));
         assertThat(mismatchedRows).as("rows where backfill mapping does not match G1 source").isZero();
 
         // 3. Row counts preserved (no data loss)
-        long assignmentsAfter = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_assignments", Long.class);
-        long transfersAfter = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_transfers", Long.class);
+        long assignmentsAfter = withTenantScope(jdbc, TENANT_ID, () ->
+                jdbc.queryForObject("SELECT COUNT(*) FROM crm_assignments", Long.class));
+        long transfersAfter = withTenantScope(jdbc, TENANT_ID, () ->
+                jdbc.queryForObject("SELECT COUNT(*) FROM crm_transfers", Long.class));
 
         assertThat(assignmentsAfter).as("crm_assignments row count must be preserved").isEqualTo(assignmentsAfterSeed);
         assertThat(transfersAfter).as("crm_transfers row count must be preserved").isEqualTo(transfersAfterSeed);
@@ -631,6 +631,17 @@ class Crm008bFoundationAcceptanceTest {
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);
         return configuration.load();
+    }
+
+    private <T> T withTenantScope(JdbcTemplate jdbc, UUID tenantId, java.util.function.Supplier<T> action) {
+        var transactionManager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                java.util.Objects.requireNonNull(jdbc.getDataSource()));
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return action.get();
+                });
     }
 
     private JdbcTemplate jdbc() {

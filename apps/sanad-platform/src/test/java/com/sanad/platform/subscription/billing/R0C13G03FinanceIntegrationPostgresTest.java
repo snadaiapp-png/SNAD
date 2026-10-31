@@ -51,10 +51,13 @@ class R0C13G03FinanceIntegrationPostgresTest {
     void setUp() {
         tenantId = seedTenant();
         UUID planId = seedPlan("SAR");
-        subscriptionId = seedSubscription(tenantId, planId);
-        billingInvoiceId = seedBillingInvoice(
+        // FORCE-RLS seed writes (V20261029_1) run inside the owning tenant's
+        // transaction-local GUC scope — fail-closed predicate unchanged, not a
+        // bypass. The Finance port resolves and binds the tenant itself.
+        subscriptionId = inTenant(tenantId, () -> seedSubscription(tenantId, planId));
+        billingInvoiceId = inTenant(tenantId, () -> seedBillingInvoice(
                 tenantId, subscriptionId, "SAR",
-                10_000L, 1_000L, 1_350L, 10_350L);
+                10_000L, 1_000L, 1_350L, 10_350L));
     }
 
     @AfterEach
@@ -77,8 +80,15 @@ class R0C13G03FinanceIntegrationPostgresTest {
             } catch (RuntimeException ignored) {
                 // Best-effort cleanup; the disposable CI database is authoritative.
             }
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // FORCE-RLS tables (V20261029_1): the billing_invoices and
+            // tenant_subscriptions deletes must run inside the tenant's
+            // transaction-local GUC scope — an unbound DELETE matches zero
+            // rows and would leave FK-blocking orphans.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);
@@ -204,12 +214,14 @@ class R0C13G03FinanceIntegrationPostgresTest {
 
     @Test
     void financeFailureAfterInvoiceWriteRollsBackWholeIntegrationTransaction() {
-        UUID conflictingBillingInvoice = seedBillingInvoice(
+        // FORCE-RLS (V20261029_1): invoice seeds are bound to the owning
+        // tenant's transaction-local GUC — fail-closed predicate unchanged.
+        UUID conflictingBillingInvoice = inTenant(tenantId, () -> seedBillingInvoice(
                 tenantId, subscriptionId, "SAR",
-                5_000L, 0L, 0L, 5_000L);
-        UUID targetBillingInvoice = seedBillingInvoice(
+                5_000L, 0L, 0L, 5_000L));
+        UUID targetBillingInvoice = inTenant(tenantId, () -> seedBillingInvoice(
                 tenantId, subscriptionId, "SAR",
-                7_000L, 0L, 0L, 7_000L);
+                7_000L, 0L, 0L, 7_000L));
         String targetExternalRef = "SCP_INVOICE:" + targetBillingInvoice;
 
         UUID dummyFinanceInvoice = UUID.randomUUID();

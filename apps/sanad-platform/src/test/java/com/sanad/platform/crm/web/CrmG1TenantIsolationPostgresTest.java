@@ -128,12 +128,22 @@ class CrmG1TenantIsolationPostgresTest {
                     """, sameTenantLookupId, tenantA, contactA);
         });
 
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE id=? AND tenant_id=? AND contact_id=?",
-                Long.class, sameTenantLookupId, tenantA, contactA)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE tenant_id=? AND contact_id=?",
-                Long.class, tenantB, contactA)).isZero();
+        // crm_contact_lookup_index is FORCE RLS (V20261029_1): the committed
+        // row is invisible to a bare connection, so the verification SELECTs
+        // run inside tenant-scoped transactions — tenantA must see its own
+        // row and tenantB must still see nothing.
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE id=? AND tenant_id=? AND contact_id=?",
+                    Long.class, sameTenantLookupId, tenantA, contactA)).isOne();
+        });
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE tenant_id=? AND contact_id=?",
+                    Long.class, tenantB, contactA)).isZero();
+        });
     }
 
     private void insertTenant(JdbcTemplate jdbc, UUID id, String name, String subdomain) {

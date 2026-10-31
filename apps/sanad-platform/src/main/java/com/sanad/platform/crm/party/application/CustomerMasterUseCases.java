@@ -45,26 +45,38 @@ public class CustomerMasterUseCases {
         this.mapper = mapper;
     }
 
+    /**
+     * Read boundary: opens a transaction so {@code TenantRlsConnectionHandler}
+     * can bind {@code app.tenant_id} on the connection that serves the read.
+     * Without a transaction the bare autocommit read is fail-closed filtered
+     * to zero rows (FORCE RLS on crm_accounts, V20261029_1).
+     */
+    @Transactional(readOnly = true)
     public CustomerMasterProfile getProfile(UUID tenantId, UUID accountId) {
         return repository.findProfile(tenantId, accountId);
     }
 
+    @Transactional(readOnly = true)
     public List<AccountAddress> listAddresses(UUID tenantId, UUID accountId) {
         return repository.listAddresses(tenantId, accountId);
     }
 
+    @Transactional(readOnly = true)
     public AccountAddress getAddress(UUID tenantId, UUID accountId, UUID addressId) {
         return repository.findAddress(tenantId, accountId, addressId);
     }
 
+    @Transactional(readOnly = true)
     public List<AccountIdentifier> listIdentifiers(UUID tenantId, UUID accountId) {
         return repository.listIdentifiers(tenantId, accountId);
     }
 
+    @Transactional(readOnly = true)
     public List<AccountRelationship> listRelationships(UUID tenantId, UUID accountId) {
         return repository.listRelationships(tenantId, accountId);
     }
 
+    @Transactional(readOnly = true)
     public List<DuplicateCandidate> duplicateCandidates(UUID tenantId, UUID accountId, int limit) {
         return repository.findDuplicateCandidates(tenantId, accountId, Math.max(1, Math.min(limit, 100)));
     }

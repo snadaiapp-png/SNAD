@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.read;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -30,6 +31,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PinnedPlanVersionCurrencyPostgresTest {
 
     private static String baseUrl;
+
+    /** FORCE-RLS GUC-binding wrapper — same instance jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     private JdbcTemplate jdbc;
     private SubscriptionGridQueryService gridService;
     private SubscriptionDetailService detailService;
@@ -70,9 +75,15 @@ class PinnedPlanVersionCurrencyPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative
+        // (not a bypass). The owning tenant is bound once generated in the
+        // test method below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         gridService = new SubscriptionGridQueryService(jdbc);
         detailService = new SubscriptionDetailService(jdbc);
     }
@@ -84,6 +95,10 @@ class PinnedPlanVersionCurrencyPostgresTest {
         UUID planId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
+
+        // FORCE-RLS (V20261029_1): bind the fixture to the owning tenant —
+        // fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(tenantId);
 
         jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, country_code, currency_code,

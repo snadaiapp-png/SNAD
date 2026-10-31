@@ -120,7 +120,10 @@ class R0C13G02SchemaPostgresTest {
             // nine post-baseline CRM tables at the sequence tail.
             // V20261028_1 (SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28, D1) heads the chain with the
             // validation-only per-tenant role-template matrix revalidation under RLS context.
-            assertThat(rs.getString(1)).isEqualTo("20261029.1"); // D6 identity-plane FORCE fail-closed tenant RLS (SANAD-SEC-G1-D6-CLOSURE)
+            // V20261029_1 (SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28, PR #1460) heads the chain with the
+            // fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60
+            // ENABLE-only owner-bypass tables.
+            assertThat(rs.getString(1)).isEqualTo("20261029.3");
         }
     }
 

@@ -5,6 +5,7 @@ import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -66,6 +67,10 @@ class ConcurrentSuccessorCreationPostgresTest {
     private PlatformAuditService audit;
     private List<Object> publishedEvents;
 
+    /** FORCE-RLS GUC-binding wrapper (V20261029_1) — the DataSource jdbc, the
+     * transaction manager and every racer's JdbcTemplate run on. */
+    private TenantGucDataSource gucDs;
+
     private UUID planA;
 
     @BeforeAll
@@ -109,11 +114,17 @@ class ConcurrentSuccessorCreationPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated request.
+        // Not a bypass: the fail-closed policy predicate stays authoritative.
+        // The default tenant is bound per generated tenant in newTenant() below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         transactions = new TransactionTemplate(
-                new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(gucDs));
         audit = Mockito.mock(PlatformAuditService.class);
         publishedEvents = new ArrayList<>();
         planA = seedPlan("R0C10-J");
@@ -222,12 +233,11 @@ class ConcurrentSuccessorCreationPostgresTest {
 
     /** Each racer gets its own service + connection plumbing (independent transactions). */
     private SaasAdministrationService service() {
-        String url = MigrationTestSchemaSupport.getIsolatedJdbcUrl(isolatedUrl);
-        String user = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
-        String password = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        JdbcTemplate racerJdbc = new JdbcTemplate(ds);
+        // FORCE-RLS (V20261029_1): racers create subscriptions for the current
+        // test tenant — reuse the GUC-bound fixture wrapper; every physical
+        // connection is freshly acquired per call, so the plumbing stays
+        // independent. Fail-closed predicate unchanged, not a bypass.
+        JdbcTemplate racerJdbc = new JdbcTemplate(gucDs);
         return new SaasAdministrationService(racerJdbc, audit, publishedEvents::add, null);
     }
 
@@ -249,6 +259,9 @@ class ConcurrentSuccessorCreationPostgresTest {
 
     private UUID newTenant() {
         UUID id = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): re-bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(id);
         jdbc.update("""
                         INSERT INTO tenants (id, name, subdomain, status, country_code, currency_code,
                                              created_at, updated_at)

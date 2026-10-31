@@ -42,6 +42,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WorkflowDatabaseForensicsTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** Tenant-scoped transaction template (FORCE RLS — V20261029_1). */
+    private org.springframework.transaction.support.TransactionTemplate tx() {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    }
 
     // ===== ALL WORKFLOW TABLES EXIST =====
 
@@ -129,19 +135,28 @@ class WorkflowDatabaseForensicsTest {
 
     @Test
     void foreignKeysValid() {
-        // Inserting a row with an invalid tenant_id should fail
+        // Inserting a row with an invalid tenant_id should fail.
+        // The probe row carries a FAKE tenant id; the FORCE-RLS WITH CHECK
+        // (V20261029_1) is satisfied by matching the row's own fake tenant in
+        // the transaction-local scope, so the REFERENCED FK (tenant_id ->
+        // tenants) is what actually rejects the row — not the policy.
+        var fakeTenantId = java.util.UUID.randomUUID();
         try {
-            jdbc.update("INSERT INTO workflow_definitions "
-                    + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
-                    + "created_by, version_lock, created_at, updated_at) "
-                    + "VALUES (?, ?, ?, 'TEST-FK', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
-                    + "?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), // fake tenant_id
-                    java.util.UUID.randomUUID(), // fake definition_family_id
-                    java.util.UUID.randomUUID() // fake user_id
-            );
-            // If the insert succeeded, FK is not enforced — that's a bug
-            throw new AssertionError("FK constraint not enforced on workflow_definitions.tenant_id");
+            tx().executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, fakeTenantId.toString());
+                jdbc.update("INSERT INTO workflow_definitions "
+                        + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                        + "created_by, version_lock, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'TEST-FK', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
+                        + "?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        java.util.UUID.randomUUID(), fakeTenantId, // fake tenant_id
+                        java.util.UUID.randomUUID(), // fake definition_family_id
+                        java.util.UUID.randomUUID() // fake user_id
+                );
+                // If the insert succeeded, FK is not enforced — that's a bug
+                throw new AssertionError("FK constraint not enforced on workflow_definitions.tenant_id");
+            });
         } catch (Exception e) {
             // Expected: FK violation
             assertThat(e.getMessage()).satisfiesAnyOf(
@@ -243,33 +258,54 @@ class WorkflowDatabaseForensicsTest {
             return null;
         });
 
-        // Insert 1 row in tenantA, 1 row in tenantB
-        jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
-                + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'RLS-A-1', 'A', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
-                java.util.UUID.randomUUID(), tenantA, java.util.UUID.randomUUID(), userIdA, now, now);
-        jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
-                + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'RLS-B-1', 'B', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
-                java.util.UUID.randomUUID(), tenantB, java.util.UUID.randomUUID(), userIdB, now, now);
+        // Insert 1 row in tenantA, 1 row in tenantB — each under its own
+        // transaction-local tenant scope (FORCE RLS, V20261029_1).
+        tx().executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantA.toString());
+            jdbc.update("INSERT INTO workflow_definitions "
+                    + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                    + "created_by, version_lock, created_at, updated_at) "
+                    + "VALUES (?, ?, ?, 'RLS-A-1', 'A', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
+                    java.util.UUID.randomUUID(), tenantA, java.util.UUID.randomUUID(), userIdA, now, now);
+        });
+        tx().executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantB.toString());
+            jdbc.update("INSERT INTO workflow_definitions "
+                    + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                    + "created_by, version_lock, created_at, updated_at) "
+                    + "VALUES (?, ?, ?, 'RLS-B-1', 'B', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
+                    java.util.UUID.randomUUID(), tenantB, java.util.UUID.randomUUID(), userIdB, now, now);
+        });
 
-        // Tenant-scoped query (WHERE tenant_id = ?) should return 1 row each
-        var aCount = jdbc.queryForObject(
+        // Tenant-scoped query under tenant A's own scope: 1 row
+        var aCount = tx().execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantA.toString());
+            return jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_definitions WHERE tenant_id = ? AND code = 'RLS-A-1'",
                 Integer.class, tenantA);
+        });
         assertThat(aCount).isEqualTo(1);
 
-        var bCount = jdbc.queryForObject(
+        var bCount = tx().execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantB.toString());
+            return jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_definitions WHERE tenant_id = ? AND code = 'RLS-B-1'",
                 Integer.class, tenantB);
+        });
         assertThat(bCount).isEqualTo(1);
 
-        // Cross-tenant query — should NOT see tenantA's row when scoped to tenantB
-        var crossCount = jdbc.queryForObject(
+        // Cross-tenant query scoped to tenantB — must NOT see tenantA's row
+        var crossCount = tx().execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantB.toString());
+            return jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_definitions WHERE tenant_id = ? AND code = 'RLS-A-1'",
                 Integer.class, tenantB);
+        });
         assertThat(crossCount).isZero();
     }
 

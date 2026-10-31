@@ -15,6 +15,7 @@ import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -125,8 +126,12 @@ class ExpiredContinuationDeadEndPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -141,6 +146,7 @@ class ExpiredContinuationDeadEndPostgresTest {
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
         versionA = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
         seedTenant(tenant, "SA");
         seedPlan(planA, "R0C9-A");
         seedPlanVersion(versionA, planA, 1, "ACTIVE", 30000L);
@@ -472,8 +478,11 @@ class ExpiredContinuationDeadEndPostgresTest {
         UUID other = UUID.randomUUID();
         seedTenant(other, "AE");
         UUID subA = createDueTrial(tenant, planA);
-        UUID subB = transactions.execute(status -> legacy.createSubscription(
-                new CreateSubscriptionRequest(other, planA, "MONTHLY", 2, 0), null).id());
+        // FORCE-RLS (V20261029_1): tenant B rows are seeded/verified under B's
+        // own GUC scope — fail-closed predicate unchanged, not a bypass.
+        UUID subB = TenantGucDataSource.readAsTenant(other, () ->
+                transactions.execute(status -> legacy.createSubscription(
+                        new CreateSubscriptionRequest(other, planA, "MONTHLY", 2, 0), null).id()));
 
         driver().runTrialExpiryCycleOnce();
         assertThat(subscriptionField(subA, "status")).isEqualTo("EXPIRED");
@@ -487,20 +496,21 @@ class ExpiredContinuationDeadEndPostgresTest {
                 .isInstanceOf(IllegalStateException.class);
 
         // ...and tenant B is completely untouched.
-        assertThat(subscriptionField(subB, "status")).isEqualTo("ACTIVE");
+        assertThat(TenantGucDataSource.readAsTenant(other,
+                () -> subscriptionField(subB, "status"))).isEqualTo("ACTIVE");
         assertThat(ledgerCount(subB, "RESUME")).isZero();
         assertThat(ledgerCount(subB, "RENEW")).isZero();
         assertThat(ledgerCount(subB, "EXPIRE")).isZero();
-        Long bInvoices = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?", Long.class, subB);
+        Long bInvoices = TenantGucDataSource.readAsTenant(other, () -> jdbc.queryForObject(
+                "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?", Long.class, subB));
         assertThat(bInvoices).isGreaterThanOrEqualTo(1L); // its own initial invoice only
 
         // Entitlement resolution is tenant-scoped: B resolves via its own
         // ACTIVE subscription, A resolves to nothing.
         List<Map<String, Object>> aActive = jdbc.queryForList(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1", tenant);
-        List<Map<String, Object>> bActive = jdbc.queryForList(
-                "SELECT id FROM tenant_subscriptions WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1", other);
+        List<Map<String, Object>> bActive = TenantGucDataSource.readAsTenant(other, () -> jdbc.queryForList(
+                "SELECT id FROM tenant_subscriptions WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1", other));
         assertThat(aActive).isEmpty();
         assertThat(bActive).hasSize(1);
         assertThat(bActive.get(0).get("id")).isEqualTo(subB);

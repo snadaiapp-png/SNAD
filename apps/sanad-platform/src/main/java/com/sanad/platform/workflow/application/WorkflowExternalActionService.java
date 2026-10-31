@@ -45,10 +45,19 @@ public class WorkflowExternalActionService {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
-    public WorkflowExternalActionService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public WorkflowExternalActionService(JdbcTemplate jdbc, ObjectMapper objectMapper,
+                                         com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.tenantRlsContext = tenantRlsContext;
+    }
+
+    /** Backward-compatible harness constructor (no trusted RLS scoping). */
+    public WorkflowExternalActionService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        this(jdbc, objectMapper, null);
     }
 
     // ===== participants =====
@@ -134,28 +143,63 @@ public class WorkflowExternalActionService {
         return new CreatedExternalAction(toAction(id, tenantId), opaque);
     }
 
-    /** Opaque-token validation (R1.18): hash lookup binds request→action. */
+    /**
+     * Opaque-token validation (R1.18): hash lookup binds request to action.
+     *
+     * <p>Pre-auth resolution under fail-closed FORCE RLS (V20261029_1):
+     * an external participant has no tenant context BEFORE the row is found
+     * - the tenant id is the RESULT of the lookup, never an input. The
+     * V20261029_3 pointer index (token_hash -> action_id, tenant_id; no RLS by
+     * design, hash + ids only, trigger-synced) provides the cross-tenant
+     * discovery step; the AUTHORITATIVE row is then re-read from
+     * workflow_external_actions strictly under the resolved tenant's RLS
+     * scope. Status/expiry/revocation always come from the protected table,
+     * never from the index.</p>
+     */
     @Transactional(readOnly = true)
     public Optional<ExternalAction> findByToken(String opaqueToken) {
         if (opaqueToken == null || opaqueToken.isBlank()) return Optional.empty();
         String hash = sha256Hex(opaqueToken);
+        if (tenantRlsContext != null) {
+            // Step 1 - pointer resolution on the pre-auth index (no RLS by design).
+            java.util.Map<String, Object> pointer = jdbc.query(
+                    "SELECT action_id, tenant_id FROM workflow_external_action_token_index "
+                    + "WHERE token_hash = ?",
+                    rs -> rs.next()
+                            ? java.util.Map.of(
+                                    "action_id", rs.getObject("action_id", UUID.class),
+                                    "tenant_id", rs.getObject("tenant_id", UUID.class))
+                            : null,
+                    hash);
+            if (pointer == null) return Optional.empty();
+            UUID scopedTenantId = (UUID) pointer.get("tenant_id");
+            // Step 2 - authoritative read under the resolved tenant's RLS scope.
+            tenantRlsContext.applyForCurrentTransaction(scopedTenantId);
+            return loadActionById((UUID) pointer.get("action_id"), scopedTenantId);
+        }
+        // Harness mode (no trusted RLS context wired): legacy direct lookup.
         UUID id = jdbc.query("""
                 SELECT id, tenant_id FROM workflow_external_actions WHERE token_hash = ?
                 """, rs -> rs.next() ? rs.getObject("id", UUID.class) : null, hash);
         if (id == null) return Optional.empty();
+        return loadActionById(id, null);
+    }
+
+    /** Authoritative RLS-scoped read; tenantId null means legacy id-only lookup. */
+    private Optional<ExternalAction> loadActionById(UUID actionId, UUID tenantId) {
         return jdbc.query("""
                 SELECT id, tenant_id, workflow_instance_id, workflow_step_instance_id, participant_id,
                        action_type, status, token_expires_at, responded_at
-                  FROM workflow_external_actions WHERE id = ?
+                  FROM workflow_external_actions
+                 WHERE id = ? AND (?::uuid IS NULL OR tenant_id = ?::uuid)
                 """, rs -> {
             if (!rs.next()) return Optional.<ExternalAction>empty();
             return Optional.of(new ExternalAction(rs.getObject("id", UUID.class),
                     rs.getObject("tenant_id", UUID.class), rs.getObject("workflow_instance_id", UUID.class),
-                    rs.getObject("workflow_step_instance_id", UUID.class),
-                    rs.getObject("participant_id", UUID.class), rs.getString("action_type"),
-                    rs.getString("status"), toInstant(rs.getTimestamp("token_expires_at")),
+                    rs.getObject("workflow_step_instance_id", UUID.class), rs.getObject("participant_id", UUID.class),
+                    rs.getString("action_type"), rs.getString("status"), toInstant(rs.getTimestamp("token_expires_at")),
                     toInstant(rs.getTimestamp("responded_at"))));
-        }, id);
+        }, actionId, tenantId, tenantId);
     }
 
     @Transactional

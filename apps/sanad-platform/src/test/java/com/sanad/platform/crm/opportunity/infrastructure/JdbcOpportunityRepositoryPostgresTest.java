@@ -48,18 +48,18 @@ class JdbcOpportunityRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
         actorId = UUID.randomUUID();
 
         // create a pipeline whose stage derivation gives us an open stage + a Won terminal stage
-        PipelineRecord pipeline = inTransaction(() -> pipelines.create(tenantId, actorId,
+        PipelineRecord pipeline = inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Sales " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Qualified", "Won"))));
         pipelineId = pipeline.id();
-        List<StageRecord> stages = pipelines.findStages(tenantId, pipelineId);
+        List<StageRecord> stages = inTenantTransaction(tenantId, () -> pipelines.findStages(tenantId, pipelineId));
         openStageId = stages.get(0).id();
         wonStageId = stages.get(stages.size() - 1).id();
     }
 
     @Test
     void create_persistsOpportunityWithDefaults() {
-        OpportunityRecord saved = inTransaction(() -> opportunities.create(tenantId, actorId,
+        OpportunityRecord saved = inTenantTransaction(tenantId, () -> opportunities.create(tenantId, actorId,
                 new CreateOpportunityCommand(null, null, pipelineId, openStageId,
                         "Big Deal", new BigDecimal("100000"), "SAR",
                         LocalDate.now().plusDays(30), actorId)));
@@ -70,16 +70,16 @@ class JdbcOpportunityRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
         assertThat(saved.probability()).isEqualByComparingTo(BigDecimal.ZERO); // create hardcodes 0
         assertThat(saved.amount()).isEqualByComparingTo(new BigDecimal("100000"));
         assertThat(saved.currencyCode()).isEqualTo("SAR");
-        assertThat(opportunities.findById(tenantId, saved.id()).name()).isEqualTo("Big Deal");
+        assertThat(inTenantTransaction(tenantId, () -> opportunities.findById(tenantId, saved.id())).name()).isEqualTo("Big Deal");
     }
 
     @Test
     void update_bumpsVersionAndAppliesChanges() {
-        OpportunityRecord created = inTransaction(() -> opportunities.create(tenantId, actorId,
+        OpportunityRecord created = inTenantTransaction(tenantId, () -> opportunities.create(tenantId, actorId,
                 new CreateOpportunityCommand(null, null, pipelineId, openStageId,
                         "Deal", new BigDecimal("1000"), "SAR", null, actorId)));
 
-        OpportunityRecord updated = inTransaction(() -> opportunities.update(tenantId, actorId,
+        OpportunityRecord updated = inTenantTransaction(tenantId, () -> opportunities.update(tenantId, actorId,
                 created.id(), new UpdateOpportunityCommand("Bigger Deal",
                         new BigDecimal("5000"), actorId, null), 0));
 
@@ -90,13 +90,13 @@ class JdbcOpportunityRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
 
     @Test
     void update_withStaleVersionThrowsConcurrencyConflict() {
-        OpportunityRecord created = inTransaction(() -> opportunities.create(tenantId, actorId,
+        OpportunityRecord created = inTenantTransaction(tenantId, () -> opportunities.create(tenantId, actorId,
                 new CreateOpportunityCommand(null, null, pipelineId, openStageId,
                         "Deal", new BigDecimal("1000"), "SAR", null, actorId)));
-        inTransaction(() -> opportunities.update(tenantId, actorId, created.id(),
+        inTenantTransaction(tenantId, () -> opportunities.update(tenantId, actorId, created.id(),
                 new UpdateOpportunityCommand("v1", null, actorId, null), 0)); // -> v1
 
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 opportunities.update(tenantId, actorId, created.id(),
                         new UpdateOpportunityCommand("stale", null, actorId, null), 0)))
                 .isInstanceOf(CrmContractException.class)
@@ -106,11 +106,11 @@ class JdbcOpportunityRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
 
     @Test
     void moveStage_recordsNewStageStatusAndReason() {
-        OpportunityRecord created = inTransaction(() -> opportunities.create(tenantId, actorId,
+        OpportunityRecord created = inTenantTransaction(tenantId, () -> opportunities.create(tenantId, actorId,
                 new CreateOpportunityCommand(null, null, pipelineId, openStageId,
                         "Deal", new BigDecimal("1000"), "SAR", null, actorId)));
 
-        OpportunityRecord moved = inTransaction(() -> opportunities.moveStage(tenantId, actorId,
+        OpportunityRecord moved = inTenantTransaction(tenantId, () -> opportunities.moveStage(tenantId, actorId,
                 created.id(), wonStageId, "WON", "Customer signed", 0));
 
         assertThat(moved.version()).isEqualTo(1);

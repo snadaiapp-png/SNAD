@@ -620,7 +620,12 @@ class AuthApiIntegrationTest {
                         VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
                         """,
                 planId, "login-" + tenantId.toString().substring(0, 8));
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS fail-closed (V20261029_1): the
+        // fixture INSERT must run inside a transaction whose GUC is bound to
+        // the fixture tenant, exactly like the user save in setUp(). A bare
+        // autocommit INSERT is rejected (42501 row-level security violation).
+        withTenantFixtureScope(tenantId, () ->
+                jdbc.update("""
                         INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
                                                           billing_cycle, seat_quantity, credit_balance_minor,
                                                           started_at, current_period_start, current_period_end,
@@ -628,7 +633,7 @@ class AuthApiIntegrationTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
-                UUID.randomUUID(), tenantId, planId);
+                        UUID.randomUUID(), tenantId, planId));
     }
 
     /**

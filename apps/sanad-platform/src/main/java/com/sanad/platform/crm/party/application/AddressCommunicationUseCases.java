@@ -56,10 +56,18 @@ public class AddressCommunicationUseCases {
         this.mapper = mapper;
     }
 
+    /**
+     * Read boundary: opens a transaction so {@code TenantRlsConnectionHandler}
+     * can bind {@code app.tenant_id} on the connection that serves the read.
+     * Without a transaction the bare autocommit read is fail-closed filtered
+     * to zero rows (FORCE RLS, V20261029_1).
+     */
+    @Transactional(readOnly = true)
     public AddressRecord address(UUID tenantId, UUID addressId) {
         return repository.address(required(tenantId, "tenantId"), required(addressId, "addressId"));
     }
 
+    @Transactional(readOnly = true)
     public List<AddressRecord> addresses(
             UUID tenantId, String ownerType, UUID ownerId, boolean includeArchived,
             int limit, Instant beforeUpdatedAt, UUID beforeId) {
@@ -130,15 +138,18 @@ public class AddressCommunicationUseCases {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public List<AddressHistoryRecord> addressHistory(UUID tenantId, UUID addressId, int limit) {
         address(tenantId, addressId);
         return repository.addressHistory(tenantId, addressId, bounded(limit));
     }
 
+    @Transactional(readOnly = true)
     public CommunicationMethodRecord communicationMethod(UUID tenantId, UUID communicationMethodId) {
         return repository.communicationMethod(required(tenantId, "tenantId"), required(communicationMethodId, "communicationMethodId"));
     }
 
+    @Transactional(readOnly = true)
     public List<CommunicationMethodRecord> communicationMethods(
             UUID tenantId, String ownerType, UUID ownerId, boolean includeArchived,
             String methodType, String verificationStatus, int limit, Instant beforeUpdatedAt, UUID beforeId) {
@@ -247,6 +258,7 @@ public class AddressCommunicationUseCases {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public List<CommunicationHistoryRecord> communicationHistory(
             UUID tenantId, UUID communicationMethodId, int limit) {
         communicationMethod(tenantId, communicationMethodId);

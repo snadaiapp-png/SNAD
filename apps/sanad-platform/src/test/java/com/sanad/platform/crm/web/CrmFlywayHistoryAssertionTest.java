@@ -320,12 +320,21 @@ class CrmFlywayHistoryAssertionTest {
             // PR #1422: forward-only fail-closed RLS hardening for the nine post-baseline CRM
             // tables (missing/empty app.tenant_id must deny) at the sequence tail.
             , "20261021.1"   // fail-closed RLS on post-baseline CRM tables
+            , "20261026.4"   // RLS forensic function search_path and ACL hardening
             // SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1): forward-only, validation-only
             // per-tenant revalidation of the role capability matrix under RLS context
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
             // enabled FORCE RLS on role_template_bindings).
             , "20261028.1"   // role-template matrix revalidation under tenant RLS context
-            , "20261029.1"   // D6: FORCE fail-closed tenant RLS on the identity plane (roles, role_capabilities, user_role_assignments, organizations, organization_memberships)
+            // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460): forward-only fail-closed RLS
+            // for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
+            // owner-bypass tables at the sequence tail.
+            , "20261029.1"   // tenant-owned business data fail-closed RLS + owner FORCE-bind
+            // SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29: empty-GUC fail-closed policy
+            // alignment (data-driven rewrite of the unguarded ::uuid tenant casts) and
+            // the external-portal pre-auth token pointer index (V20261011_4 pattern).
+            , "20261029.2"   // tenant policy empty-GUC fail-closed alignment
+            , "20261029.3"   // external-portal pre-auth token index
     );
 
 

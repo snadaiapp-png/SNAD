@@ -300,8 +300,7 @@ class CrmApiIntegrationTest {
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        // V20261029_1: roles carries FORCE fail-closed tenant RLS — the seed
-        // needs the tenant GUC on its own GUC-bound transaction (same as seedUser).
+        // roles is FORCE RLS (V20261029_1): seed inside the tenant context.
         seedTx.executeWithoutResult(status -> {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
@@ -312,7 +311,7 @@ class CrmApiIntegrationTest {
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        // V20261029_1: user_role_assignments carries FORCE fail-closed tenant RLS.
+        // user_role_assignments is FORCE RLS (V20261029_1).
         seedTx.executeWithoutResult(status -> {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
@@ -323,12 +322,12 @@ class CrmApiIntegrationTest {
 
     private void grantCrmCapabilities(UUID tenantId, UUID roleId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
-        // V20261029_1: role_capabilities carries FORCE fail-closed tenant RLS.
+        // role_capabilities is FORCE RLS (V20261029_1).
         seedTx.executeWithoutResult(status -> {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
                     String.class, tenantId.toString());
+            List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
             for (UUID capabilityId : capabilityIds) {
                 jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
             }

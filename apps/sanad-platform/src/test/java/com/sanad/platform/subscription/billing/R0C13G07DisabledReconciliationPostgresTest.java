@@ -84,8 +84,15 @@ class R0C13G07DisabledReconciliationPostgresTest {
             } catch (RuntimeException ignored) {
                 // Disposable CI database remains authoritative.
             }
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // billing_invoices / tenant_subscriptions are FORCE RLS
+            // (V20261029_1): an unbound DELETE matches zero rows and would
+            // orphan FKs before the tenants delete below. Bind the owning
+            // tenant — fail-closed predicate unchanged, not a bypass.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);
@@ -145,15 +152,17 @@ class R0C13G07DisabledReconciliationPostgresTest {
 
     @Test
     void disabledReconciliationMutatesOnlyItsOwnEvidence() {
-        long financePaymentsBefore = scalarLong(
-                "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ?", tenantId);
-        Map<String, Object> subscriptionBefore = jdbc.queryForMap(
+        // FORCE RLS (V20261029_1): the before/after verification reads must
+        // run under the owning tenant or they fail closed to zero rows.
+        long financePaymentsBefore = inTenant(tenantId, () -> scalarLong(
+                "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ?", tenantId));
+        Map<String, Object> subscriptionBefore = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, billing_state FROM tenant_subscriptions WHERE id = ?",
-                subscriptionId);
-        Map<String, Object> invoiceBefore = jdbc.queryForMap(
+                subscriptionId));
+        Map<String, Object> invoiceBefore = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, amount_paid_minor FROM billing_invoices "
                         + "WHERE tenant_id = ? AND id = ?",
-                tenantId, billingInvoiceId);
+                tenantId, billingInvoiceId));
         Map<String, Object> attemptBefore = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT state FROM subscription_billing_payment_attempts "
                         + "WHERE tenant_id = ? AND id = ?",
@@ -162,16 +171,16 @@ class R0C13G07DisabledReconciliationPostgresTest {
         reconciliationService.reconcileReadOnly(
                 tenantId, "g07-disabled-mutation-" + compact(UUID.randomUUID()), null);
 
-        assertThat(scalarLong(
-                "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ?", tenantId))
+        assertThat(inTenant(tenantId, () -> scalarLong(
+                "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ?", tenantId)))
                 .isEqualTo(financePaymentsBefore);
-        assertThat(jdbc.queryForMap(
+        assertThat(inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, billing_state FROM tenant_subscriptions WHERE id = ?",
-                subscriptionId)).isEqualTo(subscriptionBefore);
-        assertThat(jdbc.queryForMap(
+                subscriptionId))).isEqualTo(subscriptionBefore);
+        assertThat(inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, amount_paid_minor FROM billing_invoices "
                         + "WHERE tenant_id = ? AND id = ?",
-                tenantId, billingInvoiceId)).isEqualTo(invoiceBefore);
+                tenantId, billingInvoiceId))).isEqualTo(invoiceBefore);
         assertThat(inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT state FROM subscription_billing_payment_attempts "
                         + "WHERE tenant_id = ? AND id = ?",
@@ -218,17 +227,22 @@ class R0C13G07DisabledReconciliationPostgresTest {
     ) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update(
-                "INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, status, billing_state, billing_cycle, "
-                        + "seat_quantity, credit_balance_minor, started_at, current_period_start, "
-                        + "current_period_end, cancel_at_period_end, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, 'MONTHLY', 1, 0, ?, ?, ?, FALSE, ?, ?)",
-                id, tenant, plan, status, billingState,
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now.plus(Duration.ofDays(1))),
-                Timestamp.from(now), Timestamp.from(now));
+        // tenant_subscriptions is FORCE RLS (V20261029_1): seed under the
+        // owning tenant's tx-local GUC — fail-closed predicate unchanged.
+        inTenant(tenant, () -> {
+            jdbc.update(
+                    "INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, status, billing_state, billing_cycle, "
+                            + "seat_quantity, credit_balance_minor, started_at, current_period_start, "
+                            + "current_period_end, cancel_at_period_end, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, ?, 'MONTHLY', 1, 0, ?, ?, ?, FALSE, ?, ?)",
+                    id, tenant, plan, status, billingState,
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now.plus(Duration.ofDays(1))),
+                    Timestamp.from(now), Timestamp.from(now));
+            return null;
+        });
         return id;
     }
 
@@ -242,19 +256,24 @@ class R0C13G07DisabledReconciliationPostgresTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         long subtotal = totalMinor;
-        jdbc.update(
-                "INSERT INTO billing_invoices "
-                        + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
-                        + "subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
-                        + "description, period_start, period_end, due_at, paid_at, payment_reference, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, ?, 0, "
-                        + "'R13 G07.0 disabled reconciliation invoice', ?, ?, ?, NULL, NULL, ?, ?)",
-                id, tenant, subscription, "BILL-G070D-" + compact(id), currency,
-                subtotal, totalMinor,
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now),
-                Timestamp.from(now.plus(dueOffset)),
-                Timestamp.from(now), Timestamp.from(now));
+        // billing_invoices is FORCE RLS (V20261029_1): seed under the owning
+        // tenant's tx-local GUC — fail-closed predicate unchanged.
+        inTenant(tenant, () -> {
+            jdbc.update(
+                    "INSERT INTO billing_invoices "
+                            + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
+                            + "subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
+                            + "description, period_start, period_end, due_at, paid_at, payment_reference, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, ?, 0, "
+                            + "'R13 G07.0 disabled reconciliation invoice', ?, ?, ?, NULL, NULL, ?, ?)",
+                    id, tenant, subscription, "BILL-G070D-" + compact(id), currency,
+                    subtotal, totalMinor,
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now),
+                    Timestamp.from(now.plus(dueOffset)),
+                    Timestamp.from(now), Timestamp.from(now));
+            return null;
+        });
         return id;
     }
 

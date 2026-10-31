@@ -85,9 +85,19 @@ class CustomerMasterSecurityIntegrationTest {
         // Restore SecurityContext after MockMvc — Spring clears it after each request.
         com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA.tenantId(), tenantA.userId());
 
+        // FORCE RLS (V20261029_1): the fail-closed policy hides the OTHER
+        // tenant's row, so each existence probe re-applies its own tenant
+        // context first (last-set GUC wins on the single @Transactional
+        // connection) — otherwise the cross-tenant row reads as absent.
+        jdbc.getJdbcTemplate().queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.tenantId().toString());
         String sourceStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
+        jdbc.getJdbcTemplate().queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantB.tenantId().toString());
         String targetStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantB.tenantId()).addValue("id", foreignTarget), String.class);
@@ -139,6 +149,15 @@ class CustomerMasterSecurityIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        // crm_accounts is FORCE RLS (V20261029_1). This test class is
+        // @Transactional: one connection backs the whole method, and the LAST
+        // set_config wins. Multi-fixture tests (tenantA + tenantB) leave the
+        // GUC pointing at the most recent tenant, so the context MUST be
+        // re-applied for THIS account's tenant immediately before the insert,
+        // otherwise the fail-closed WITH CHECK rejects the row.
+        jdbc.getJdbcTemplate().queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, fixture.tenantId().toString());
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +

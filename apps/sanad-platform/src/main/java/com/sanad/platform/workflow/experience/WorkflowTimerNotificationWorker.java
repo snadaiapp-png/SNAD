@@ -78,6 +78,13 @@ public class WorkflowTimerNotificationWorker {
     @Transactional
     public int runScan() {
         int enqueued = 0;
+        // scanTenant re-scopes app.tenant_id per tenant (is_local last-wins).
+        // When invoked inside a CALLER-managed transaction (tests, control
+        // flows) that ambient scope must survive the loop — save it first and
+        // restore it after, so the caller's RLS context is never left pointing
+        // at an unrelated tenant.
+        String callerScope = jdbc.queryForObject(
+                "SELECT current_setting('app.tenant_id', true)", String.class);
         List<UUID> tenants = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT ?",
                 UUID.class, MAX_TENANTS_PER_TICK);
@@ -89,6 +96,10 @@ public class WorkflowTimerNotificationWorker {
                 log.error("Timer notification scan failed for tenant {}: {}",
                         tenantId, e.getMessage());
             }
+        }
+        if (callerScope != null) {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, callerScope);
         }
         return enqueued;
     }

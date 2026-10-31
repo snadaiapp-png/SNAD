@@ -714,9 +714,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # tenant_subscriptions is fail-closed FORCE RLS (V20261029_1): the
+          # verification read runs under the owning tenant's transaction-local
+          # scope (SET LOCAL dies with the statement's transaction).
           state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
-            "SELECT status || '|' || plan_id::text || '|' || plan_version_id::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"
+            "BEGIN; SELECT set_config('app.tenant_id', '${SANAD_CONTROL_PLANE_TENANT_ID}', true); SELECT status || '|' || plan_id::text || '|' || plan_version_id::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'; COMMIT;" \
+            | tail -n1)"
           test "$state" = "ACTIVE|33333333-3333-4333-8333-333333333333|33333333-3333-4333-8333-333333333334"
 
       - name: Start Spring Boot backend
@@ -798,6 +802,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # FORCE RLS (V20261029_1): tenant_subscriptions and
+          # subscription_change_events are fail-closed tenant-owned tables.
+          # A bare psql session (table owner, no app.tenant_id) reads zero
+          # rows. Bind the tenant GUC at connection start via PGOPTIONS so
+          # every durable-readback query below evaluates under the same
+          # tenant scope the application used.
+          export PGOPTIONS="-c app.tenant_id=${SANAD_CONTROL_PLANE_TENANT_ID}"
           state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
             "SELECT status || '|' || cancel_at_period_end::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"

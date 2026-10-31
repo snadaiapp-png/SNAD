@@ -14,6 +14,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,6 +34,30 @@ class WorkflowEntitlementPolicyTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private EntitlementResolver resolver;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** Tenant-scoped transaction template (FORCE RLS — V20261029_1). */
+    private org.springframework.transaction.support.TransactionTemplate tx() {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    }
+
+    /** FORCE-RLS scoped write helper (tenant_subscriptions — V20261029_1). */
+    private void scopedWrite(UUID tenantId, Runnable body) {
+        tx().executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            body.run();
+        });
+    }
+
+    /** FORCE-RLS scoped read of the resolver (tenant_subscriptions/roles). */
+    private boolean moduleEnabledInTenant(UUID tenantId, String module) {
+        return tx().execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return resolver.isModuleEnabled(tenantId, module);
+        });
+    }
 
     private final List<UUID> tenantIds = new ArrayList<>();
     private final List<UUID> planIds = new ArrayList<>();
@@ -53,10 +78,18 @@ class WorkflowEntitlementPolicyTest {
     @AfterEach
     void cleanup() {
         for (UUID id : entitlementRowIds) jdbc.update("DELETE FROM plan_module_entitlements WHERE id = ?", id);
-        for (UUID id : subscriptionIds) jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id);
+        // tenant_subscriptions is FORCE RLS (V20261029_1): sweep inside the
+        // owning tenant's transaction-local scope so the DELETE is visible.
+        for (Map.Entry<UUID, UUID> e : subscriptionTenantById.entrySet()) {
+            scopedWrite(e.getValue(), () ->
+                    jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", e.getKey()));
+        }
         for (UUID id : planIds) jdbc.update("DELETE FROM saas_plans WHERE id = ?", id);
         for (UUID id : tenantIds) jdbc.update("DELETE FROM tenants WHERE id = ?", id);
     }
+
+    /** Subscription id -> owning tenant id (for FORCE-RLS scoped sweep). */
+    private final java.util.Map<UUID, UUID> subscriptionTenantById = new java.util.HashMap<>();
 
     private UUID moduleId(String code) {
         return jdbc.queryForObject("SELECT id FROM modules WHERE code = ?", UUID.class, code);
@@ -86,14 +119,17 @@ class WorkflowEntitlementPolicyTest {
     private void newActiveSubscription(UUID tenantId, UUID planId) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
+        // FORCE RLS (V20261029_1): seed inside the owning tenant's
+        // transaction-local trusted scope.
+        scopedWrite(tenantId, () -> jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                      seat_quantity, credit_balance_minor, started_at, current_period_start,
                      current_period_end, cancel_at_period_end, created_at, updated_at)
                 VALUES (?,?,?, 'ACTIVE', 'MONTHLY', 5, 0, ?, ?, ?, false, NOW(), NOW())
                 """, id, tenantId, planId, Timestamp.from(now), Timestamp.from(now),
-                Timestamp.from(now.plusSeconds(30 * 24 * 3600)));
+                Timestamp.from(now.plusSeconds(30 * 24 * 3600))));
         subscriptionIds.add(id);
+        subscriptionTenantById.put(id, tenantId);
     }
 
     private UUID newWorkflowEntitlementRow(UUID planId, boolean enabled) {
@@ -110,7 +146,7 @@ class WorkflowEntitlementPolicyTest {
     @Test
     void NO_SUBSCRIPTION_WORKFLOW_DENIED() {
         UUID tenant = newTenant("nosub");
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
     }
 
     @Test
@@ -123,7 +159,7 @@ class WorkflowEntitlementPolicyTest {
         Boolean catalogEnabled = jdbc.queryForObject(
                 "SELECT enabled FROM modules WHERE id = ?", Boolean.class, workflowModuleId);
         assertThat(catalogEnabled).isTrue(); // precondition: catalog flag does not grant paid use
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
     }
 
     @Test
@@ -132,7 +168,7 @@ class WorkflowEntitlementPolicyTest {
         UUID plan = newPlan("dis");
         newActiveSubscription(tenant, plan);
         newWorkflowEntitlementRow(plan, false);
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
     }
 
     @Test
@@ -141,7 +177,7 @@ class WorkflowEntitlementPolicyTest {
         UUID plan = newPlan("en");
         newActiveSubscription(tenant, plan);
         newWorkflowEntitlementRow(plan, true);
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isTrue();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isTrue();
     }
 
     @Test
@@ -151,10 +187,10 @@ class WorkflowEntitlementPolicyTest {
         UUID tenant = newTenant("catflag");
         UUID plan = newPlan("catflag");
         newActiveSubscription(tenant, plan);
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
         jdbc.update("UPDATE modules SET enabled = NOT enabled WHERE id = ?", workflowModuleId);
         try {
-            assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+            assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
         } finally {
             jdbc.update("UPDATE modules SET enabled = NOT enabled WHERE id = ?", workflowModuleId);
         }
@@ -165,14 +201,14 @@ class WorkflowEntitlementPolicyTest {
         UUID tenant = newTenant("unknown");
         UUID plan = newPlan("unknown");
         newActiveSubscription(tenant, plan);
-        assertThat(resolver.isModuleEnabled(tenant, "NOT_A_MODULE")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "NOT_A_MODULE")).isFalse();
     }
 
     @Test
     void NULL_AND_BLANK_MODULE_DENIED() {
         UUID tenant = newTenant("blank");
-        assertThat(resolver.isModuleEnabled(tenant, null)).isFalse();
-        assertThat(resolver.isModuleEnabled(tenant, "  ")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, null)).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "  ")).isFalse();
     }
 
     @Test
@@ -183,8 +219,8 @@ class WorkflowEntitlementPolicyTest {
         UUID tenant = newTenant("erp");
         UUID plan = newPlan("erp");
         newActiveSubscription(tenant, plan);
-        assertThat(resolver.isModuleEnabled(tenant, "ERP")).isTrue();
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "ERP")).isTrue();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
     }
 
     @Test
@@ -201,7 +237,7 @@ class WorkflowEntitlementPolicyTest {
                 VALUES (?,?,?,?, NULL, NOW(), NOW())
                 """, row, plan, crmModuleId, true);
         entitlementRowIds.add(row);
-        assertThat(resolver.isModuleEnabled(tenant, "CRM")).isTrue();
-        assertThat(resolver.isModuleEnabled(tenant, "WORKFLOW")).isFalse();
+        assertThat(moduleEnabledInTenant(tenant, "CRM")).isTrue();
+        assertThat(moduleEnabledInTenant(tenant, "WORKFLOW")).isFalse();
     }
 }

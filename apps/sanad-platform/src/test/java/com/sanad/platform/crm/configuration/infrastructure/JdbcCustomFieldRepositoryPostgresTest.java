@@ -43,7 +43,7 @@ class JdbcCustomFieldRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
 
     @Test
     void create_persistsDefinitionWithZeroVersionAndAuditColumns() {
-        CustomFieldRecord saved = inTransaction(() -> customFields.create(tenantId, actorId,
+        CustomFieldRecord saved = inTenantTransaction(tenantId, () -> customFields.create(tenantId, actorId,
                 new CreateCustomFieldCommand("ACCOUNT", "vip_tier_" + suffix(),
                         "VIP", "VIP Tier", "TEXT", false, false, false)));
 
@@ -61,7 +61,7 @@ class JdbcCustomFieldRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
     void findById_roundTripsCreatedDefinition() {
         CustomFieldRecord saved = createOne("lead_source", "TEXT");
 
-        CustomFieldRecord fetched = customFields.findById(tenantId, saved.id());
+        CustomFieldRecord fetched = inTenantTransaction(tenantId, () -> customFields.findById(tenantId, saved.id()));
         assertThat(fetched).isEqualTo(saved);
     }
 
@@ -69,7 +69,7 @@ class JdbcCustomFieldRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
     void update_bumpsVersionAndMutatesProvidedFields() {
         CustomFieldRecord saved = createOne("industry", "TEXT");
 
-        CustomFieldRecord updated = inTransaction(() -> customFields.update(tenantId, actorId, saved.id(),
+        CustomFieldRecord updated = inTenantTransaction(tenantId, () -> customFields.update(tenantId, actorId, saved.id(),
                 new UpdateCustomFieldCommand("Updated AR", "Updated EN", null, true, null),
                 saved.version()));
 
@@ -87,7 +87,7 @@ class JdbcCustomFieldRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
         // The UPDATE ... WHERE version=:expectedVersion matches 0 rows when the presented
         // version is stale; the repository maps that to CRM_CONCURRENCY_CONFLICT.
         long staleVersion = saved.version() + 99;
-        assertThatThrownBy(() -> inTransaction(() -> customFields.update(tenantId, actorId, saved.id(),
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () -> customFields.update(tenantId, actorId, saved.id(),
                 new UpdateCustomFieldCommand("AR", "EN", null, null, null), staleVersion)))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
@@ -108,19 +108,19 @@ class JdbcCustomFieldRepositoryPostgresTest extends CrmRepositoryPostgresTestBas
         createOne("acct_field2", "TEXT");
 
         UUID otherTenant = newTenant();
-        inTransaction(() -> customFields.create(otherTenant, actorId,
+        inTenantTransaction(otherTenant, () -> customFields.create(otherTenant, actorId,
                 new CreateCustomFieldCommand("ACCOUNT", "other_tenant_field", "AR", "EN",
                         "TEXT", false, false, false)));
 
-        assertThat(customFields.findAll(tenantId, null)).hasSize(2);
-        assertThat(customFields.findAll(tenantId, "ACCOUNT")).hasSize(2);
-        assertThat(customFields.findAll(otherTenant, null)).hasSize(1);   // tenant isolation
+        assertThat(inTenantTransaction(tenantId, () -> customFields.findAll(tenantId, null))).hasSize(2);
+        assertThat(inTenantTransaction(tenantId, () -> customFields.findAll(tenantId, "ACCOUNT"))).hasSize(2);
+        assertThat(inTenantTransaction(otherTenant, () -> customFields.findAll(otherTenant, null))).hasSize(1);   // tenant isolation
     }
 
     // ---- helpers ----
 
     private CustomFieldRecord createOne(String keySuffix, String dataType) {
-        return inTransaction(() -> customFields.create(tenantId, actorId,
+        return inTenantTransaction(tenantId, () -> customFields.create(tenantId, actorId,
                 new CreateCustomFieldCommand("ACCOUNT", keySuffix + "_" + suffix(),
                         "AR " + keySuffix, "EN " + keySuffix, dataType, false, false, false)));
     }

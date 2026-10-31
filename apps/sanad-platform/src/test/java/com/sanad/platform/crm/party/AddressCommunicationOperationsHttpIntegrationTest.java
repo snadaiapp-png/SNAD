@@ -159,20 +159,47 @@ class AddressCommunicationOperationsHttpIntegrationTest {
 
         JsonNode data = mapper.readTree(response.getResponse().getContentAsString()).path("data");
         UUID jobId = UUID.fromString(data.path("jobId").asText());
-        Map<String, Object> job = jdbc.queryForMap(
-                "SELECT status,total_rows,processed_rows,succeeded_rows,failed_rows FROM crm_import_jobs " +
-                        "WHERE tenant_id=:tenantId AND id=:jobId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId));
+        // This test method runs with Propagation.NEVER (no test-managed
+        // transaction), so bare autocommit reads carry no app.tenant_id GUC
+        // and are fail-closed filtered to zero rows on the FORCE RLS tables
+        // (V20261029_1). Bind the tenant GUC inside one read transaction —
+        // same established pattern as the seed fixtures. The service-side
+        // writes committed independently (tenantScopeTx), so the committed
+        // rows are visible here.
+        org.springframework.transaction.support.TransactionTemplate verifyTx =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        Map<String, Object> job = verifyTx.execute(tx -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class, fixture.tenantId().toString());
+            return jdbc.queryForMap(
+                    "SELECT status,total_rows,processed_rows,succeeded_rows,failed_rows FROM crm_import_jobs " +
+                            "WHERE tenant_id=:tenantId AND id=:jobId",
+                    p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId));
+        });
         assertThat(job.get("status")).isEqualTo("COMPLETED");
         assertThat(((Number) job.get("processed_rows")).intValue()).isEqualTo(2);
         assertThat(((Number) job.get("succeeded_rows")).intValue()).isEqualTo(1);
         assertThat(((Number) job.get("failed_rows")).intValue()).isEqualTo(1);
-        Long errors = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_import_errors WHERE tenant_id=:tenantId AND import_job_id=:jobId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId), Long.class);
-        Long rows = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
+        // crm_import_errors and crm_party_addresses reads each open a NEW
+        // transaction: SET LOCAL from the job-read verifyTx does not carry
+        // over. Re-bind app.tenant_id inside EACH verification transaction —
+        // otherwise the fail-closed TO PUBLIC policy (V20261029_1) filters
+        // crm_party_addresses to zero rows and the assertion counts a false
+        // negative (the imported row IS committed — see job bookkeeping).
+        Long errors = verifyTx.execute(tx -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class, fixture.tenantId().toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_import_errors WHERE tenant_id=:tenantId AND import_job_id=:jobId",
+                    p().addValue("tenantId", fixture.tenantId()).addValue("jobId", jobId), Long.class);
+        });
+        Long rows = verifyTx.execute(tx -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)", String.class, fixture.tenantId().toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
+                    p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
+        });
         assertThat(errors).isOne();
         assertThat(rows).isOne();
     }

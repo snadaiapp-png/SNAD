@@ -2,6 +2,7 @@ package com.sanad.platform.analytics;
 
 import com.sanad.platform.analytics.application.*;
 import com.sanad.platform.analytics.domain.*;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,12 @@ class AnalyticsModuleIntegrationTest {
         }
         jdbc.execute("TRUNCATE TABLE analytics_reports, analytics_dashboards, analytics_data_sources RESTART IDENTITY CASCADE");
         tenantId = UUID.randomUUID(); userId = UUID.randomUUID();
+        // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every @Transactional service boundary (analytics_dashboards /
+        // analytics_reports / analytics_data_sources writes) — fail-closed
+        // predicate unchanged, not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
         var now = java.sql.Timestamp.from(java.time.Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)", tenantId, "an-"+tenantId.toString().substring(0,8), now, now);
         // FORCE ROW LEVEL SECURITY on public.users (V20261011_3) rejects
@@ -60,6 +67,11 @@ class AnalyticsModuleIntegrationTest {
             var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'ANALYTICS.%'");
             for (var cap : caps) jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), seedTenantId, roleId, cap.get("id"), seedTs);
         });
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test void dashboardLifecycle() {

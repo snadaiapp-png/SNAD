@@ -82,10 +82,20 @@ class ModuleRegistryUatPostgresAcceptanceTest {
     private final List<UUID> createdTenants = new ArrayList<>();
     private final List<UUID> createdUsers = new ArrayList<>();
     private final List<UUID> createdRoles = new ArrayList<>();
+    /** Seed rows tracked with their owning tenant so {@code @AfterEach} can
+     * bind the tenant GUC for each delete. roles / role_capabilities /
+     * user_role_assignments / users are FORCE RLS (V20261029_1): a bare
+     * pooled-connection DELETE is fail-closed filtered to zero rows, leaving
+     * residue that trips uk_roles_tenant_code on the next method's seed. */
+    private record SeededRow(UUID tenantId, UUID id) {}
+    private final List<SeededRow> seededUsers = new ArrayList<>();
+    private final List<SeededRow> seededRoles = new ArrayList<>();
     private final List<UUID> createdModules = new ArrayList<>();
     private final List<UUID> createdAuditRows = new ArrayList<>();
     private final List<UUID> createdProvisioningJobs = new ArrayList<>();
-    private final List<UUID> createdSubscriptions = new ArrayList<>();
+    /** Subscription seed rows tracked with their owning tenant: tenant_subscriptions
+     * is FORCE RLS fail-closed (V20261029_1) — cleanup deletes must bind the GUC. */
+    private final List<SeededRow> seededSubscriptions = new ArrayList<>();
 
     // ------------------------------------------------------------------
     // Fixtures
@@ -120,7 +130,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         // flows of later methods (and their audit/subscription rows) still
         // reference a live control tenant. Rows this test creates inside the
         // sentinel are reverted precisely via createdUsers / createdRoles /
-        // createdSubscriptions / createdProvisioningJobs / createdAuditRows,
+        // seededSubscriptions / createdProvisioningJobs / createdAuditRows,
         // so random fixture cleanup stays intact with zero accumulation.
     }
 
@@ -143,53 +153,77 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                     """, id, tenantId, email, Timestamp.from(now), Timestamp.from(now));
                     });
         createdUsers.add(id);
+        seededUsers.add(new SeededRow(tenantId, id));
         return id;
     }
 
-    // V20261029_1 binds FORCE fail-closed tenant RLS on the identity plane,
-    // so fixture writes MUST bind app.tenant_id on the same transaction —
-    // the certified seedUser pattern (TransactionTemplate + set_config local).
     private UUID seedRole(UUID tenantId, String code) {
-        UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant stamp = Instant.now();
+        return inTenantContextResult(tenantId, () -> {
+            // Resolve-or-create: the identity sentinel rows persist across test
+            // methods (see seedControlTenant), so the seed must be idempotent
+            // against uk_roles_tenant_code even if a prior cleanup pass lagged.
+            java.util.List<UUID> found = jdbc.query(
+                    "SELECT id FROM roles WHERE tenant_id = ? AND code = ?",
+                    (rs, i) -> rs.getObject("id", UUID.class), tenantId, code);
+            UUID id = found.isEmpty() ? UUID.randomUUID() : found.get(0);
+            jdbc.update("""
+                    INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'R0C-12 UAT corrective acceptance role', 'ACTIVE', ?, ?)
+                    ON CONFLICT (tenant_id, code) DO NOTHING
+                    """, id, tenantId, code, code + " role", Timestamp.from(stamp), Timestamp.from(stamp));
+            java.util.List<UUID> resolved = jdbc.query(
+                    "SELECT id FROM roles WHERE tenant_id = ? AND code = ?",
+                    (rs, i) -> rs.getObject("id", UUID.class), tenantId, code);
+            UUID roleId = resolved.get(0);
+            createdRoles.add(roleId);
+            seededRoles.add(new SeededRow(tenantId, roleId));
+            return roleId;
+        });
+    }
+
+    /**
+     * Runs the given write inside a transaction whose connection carries the
+     * transaction-local {@code app.tenant_id} GUC. roles / role_capabilities /
+     * user_role_assignments are FORCE RLS (V20261029_1): without this context
+     * the fail-closed WITH CHECK rejects every tenant-scoped seed write.
+     */
+    private void inTenantContext(UUID tenantId, Runnable write) {
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
-                .executeWithoutResult(tx -> {
+                .executeWithoutResult(status -> {
                     jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
                             String.class, tenantId.toString());
-                    jdbc.update("""
-                            INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, 'R0C-12 UAT corrective acceptance role', 'ACTIVE', ?, ?)
-                            """, id, tenantId, code, code + " role", Timestamp.from(now), Timestamp.from(now));
+                    write.run();
                 });
-        createdRoles.add(id);
-        return id;
+    }
+
+    /** Supplier variant of {@link #inTenantContext} returning the write's result. */
+    private <T> T inTenantContextResult(UUID tenantId, java.util.function.Supplier<T> write) {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return write.get();
+                });
     }
 
     private void grantCapability(UUID tenantId, UUID roleId, String capabilityCode) {
-        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
-                .executeWithoutResult(tx -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
-                    jdbc.update("""
-                            INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                            SELECT gen_random_uuid(), ?, ?, c.id, NOW()
-                            FROM access_capabilities c
-                            WHERE c.code = UPPER(?) AND c.status = 'ACTIVE'
-                            """, tenantId, roleId, capabilityCode);
-                });
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
+                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                SELECT gen_random_uuid(), ?, ?, c.id, NOW()
+                FROM access_capabilities c
+                WHERE c.code = UPPER(?) AND c.status = 'ACTIVE'
+                """, tenantId, roleId, capabilityCode));
     }
 
     private void assignRole(UUID tenantId, UUID userId, UUID roleId) {
         Instant now = Instant.now();
-        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
-                .executeWithoutResult(tx -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
-                    jdbc.update("""
-                            INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
-                            VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
-                            """, tenantId, userId, roleId, Timestamp.from(now), Timestamp.from(now));
-                });
+        inTenantContext(tenantId, () ->
+                jdbc.update("""
+                INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+                VALUES (gen_random_uuid(), ?, ?, ?, NULL, 'ACTIVE', ?, ?)
+                """, tenantId, userId, roleId, Timestamp.from(now), Timestamp.from(now)));
     }
 
     /** Provision the ADMIN-shaped control-plane identity (V20260813_1 + V20260830_2 semantics). */
@@ -246,9 +280,13 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         for (UUID id : createdProvisioningJobs) {
             jdbc.update("DELETE FROM provisioning_jobs WHERE id = ?", id);
         }
-        for (UUID id : createdSubscriptions) {
-            jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", id);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", id);
+        for (SeededRow row : seededSubscriptions) {
+            // provisioning_jobs has no RLS (T2 deferral) — bare delete is fine;
+            // tenant_subscriptions is FORCE RLS fail-closed — bind the GUC so
+            // the cleanup delete actually matches its row.
+            jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", row.id());
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", row.id()));
         }
         for (UUID id : createdAuditRows) {
             jdbc.update("DELETE FROM platform_audit_logs WHERE id = ?", id);
@@ -263,42 +301,30 @@ class ModuleRegistryUatPostgresAcceptanceTest {
             jdbc.update("DELETE FROM module_capabilities WHERE module_id = ?", id);
             jdbc.update("DELETE FROM modules WHERE id = ?", id);
         }
-        // createdUsers / createdRoles live inside the sentinel control-plane
-        // tenant, so their per-row cleanup MUST bind the sentinel tenant GUC:
-        // bare DELETEs silently match zero rows under the FORCE fail-closed
-        // RLS applied by V20261029_1 and leave duplicate-key residue behind.
-        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
-            try (var stmt = con.createStatement()) {
-                stmt.execute(
-                    "SELECT set_config('app.tenant_id', '" + CONTROL_TENANT_ID + "', false)");
-                for (UUID userId : createdUsers) {
-                    try (var ps = con.prepareStatement(
-                            "DELETE FROM user_role_assignments WHERE user_id = ?")) {
-                        ps.setObject(1, userId);
-                        ps.executeUpdate();
-                    }
-                }
-                for (UUID roleId : createdRoles) {
-                    try (var ps = con.prepareStatement(
-                            "DELETE FROM role_capabilities WHERE role_id = ?")) {
-                        ps.setObject(1, roleId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                            "DELETE FROM user_role_assignments WHERE role_id = ?")) {
-                        ps.setObject(1, roleId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                            "DELETE FROM roles WHERE id = ?")) {
-                        ps.setObject(1, roleId);
-                        ps.executeUpdate();
-                    }
-                }
-                stmt.execute("SELECT set_config('app.tenant_id', '', false)");
-            }
-            return null;
-        });
+        for (UUID userId : createdUsers) {
+            jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
+        }
+        for (SeededRow row : seededUsers) {
+            // FORCE RLS: bind the tenant GUC for each delete (same-transaction),
+            // otherwise the bare DELETE silently matches zero rows.
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", row.id()));
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM users WHERE id = ?", row.id()));
+        }
+        for (UUID roleId : createdRoles) {
+            jdbc.update("DELETE FROM role_capabilities WHERE role_id = ?", roleId);
+            jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", roleId);
+            jdbc.update("DELETE FROM roles WHERE id = ?", roleId);
+        }
+        for (SeededRow row : seededRoles) {
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM role_capabilities WHERE role_id = ?", row.id()));
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", row.id()));
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM roles WHERE id = ?", row.id()));
+        }
         // Under FORCE RLS (V20261011_3), DELETE FROM users requires
         // app.tenant_id to be set on the same connection. Use a
         // ConnectionCallback to ensure set_config and DELETE execute
@@ -460,9 +486,16 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         AdminIdentity admin = provisionControlPlaneAdmin("uat-f");
         Instant now = Instant.now();
 
-        // FK target: one control-tenant subscription + one FAILED provisioning job
+        // FK target: one control-tenant subscription + one FAILED provisioning job.
+        // tenant_subscriptions / provisioning_jobs are FORCE RLS (V20261029_1):
+        // fixture writes MUST bind app.tenant_id on the same transaction —
+        // the certified inTenantContext pattern (TransactionTemplate + set_config local).
         UUID subscriptionId = UUID.randomUUID();
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS fail-closed (V20261029_1): the seed
+        // INSERT must run inside a tenant-scoped transaction, otherwise the
+        // bare pooled-connection write is rejected with 42501.
+        inTenantContext(admin.tenantId(), () ->
+                jdbc.update("""
                 INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                     seat_quantity, credit_balance_minor, started_at, current_period_start,
                     current_period_end, cancel_at_period_end, created_at, updated_at)
@@ -470,17 +503,21 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                 """, subscriptionId, admin.tenantId(), anySeededPlanId(),
                 Timestamp.from(now), Timestamp.from(now),
                 Timestamp.from(now.plus(30, ChronoUnit.DAYS)),
-                Timestamp.from(now), Timestamp.from(now));
-        createdSubscriptions.add(subscriptionId);
+                Timestamp.from(now), Timestamp.from(now)));
+        seededSubscriptions.add(new SeededRow(admin.tenantId(), subscriptionId));
 
         UUID jobId = UUID.randomUUID();
-        jdbc.update("""
+        // provisioning_jobs carries no RLS yet (T2 deferral per the
+        // V20261029_1 header) — seeded under the same tenant scope for
+        // uniformity with the established fixture pattern.
+        inTenantContext(admin.tenantId(), () ->
+                jdbc.update("""
                 INSERT INTO provisioning_jobs (id, tenant_id, subscription_id, action, status,
                     attempts, started_at, completed_at, error_code, created_at, updated_at)
                 VALUES (?, ?, ?, 'PROVISION_SUBSCRIPTION', 'FAILED', 2, ?, NULL,
                         'UAT_TEST_ERROR', ?, ?)
                 """, jobId, admin.tenantId(), subscriptionId,
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)));
         createdProvisioningJobs.add(jobId);
 
         mockMvc.perform(

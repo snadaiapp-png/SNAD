@@ -51,14 +51,23 @@ public class WorkflowDeadlineEnforcementWorker {
     private final WorkflowJourneyService journey;
     private final WorkflowNotificationService notifications;
     private final boolean enabled;
+    private final org.springframework.transaction.support.TransactionTemplate scoped;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     public WorkflowDeadlineEnforcementWorker(JdbcTemplate jdbc, WorkflowJourneyService journey,
                                              WorkflowNotificationService notifications,
+                                             org.springframework.transaction.PlatformTransactionManager transactionManager,
+                                             com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
                                              @Value("${sanad.workflow.deadline-worker.enabled:true}")
                                              boolean enabled) {
         this.jdbc = jdbc;
         this.journey = journey;
         this.notifications = notifications;
+        this.tenantRlsContext = tenantRlsContext;
+        org.springframework.transaction.support.TransactionTemplate template =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.scoped = template;
         this.enabled = enabled;
     }
 
@@ -158,28 +167,46 @@ public class WorkflowDeadlineEnforcementWorker {
                initialDelayString = "${sanad.workflow.deadline-worker.initial-delay-ms:120000}")
     public void enforceDueDeadlines() {
         if (!enabled) return; // OFF in profiles that don't opt into background mutation
-        List<Map<String, Object>> claimed = claimDueTimers();
-        for (Map<String, Object> row : claimed) {
+        // workflow_timers is fail-closed FORCE RLS (V20261029_1) and this
+        // worker runs on a scheduled thread WITHOUT a SecurityContextHolder
+        // tenant: a single cross-tenant claim query would silently return
+        // zero rows. Enumerate the platform tenant directory (non-RLS) and
+        // claim per tenant inside a REQUIRES_NEW transaction-local
+        // app.tenant_id scope — RLS stays fully enforced.
+        List<UUID> tenantIds = jdbc.queryForList("SELECT id FROM tenants ORDER BY id", UUID.class);
+        for (UUID tenantId : tenantIds) {
             try {
-                applyTimeout(row);
+                List<Map<String, Object>> claimed = scoped.execute(status -> {
+                    tenantRlsContext.applyForCurrentTransaction(tenantId);
+                    return claimDueTimersInTenant(tenantId);
+                });
+                for (Map<String, Object> row : claimed) {
+                    try {
+                        scoped.executeWithoutResult(status -> {
+                            tenantRlsContext.applyForCurrentTransaction(tenantId);
+                            applyTimeout(row);
+                        });
+                    } catch (Exception e) {
+                        log.error("Deadline worker: failed to apply timeout for timer {}: {}",
+                                row.get("id"), e.getMessage(), e);
+                    }
+                }
             } catch (Exception e) {
-                log.error("Deadline worker: failed to apply timeout for timer {}: {}",
-                        row.get("id"), e.getMessage(), e);
+                log.error("Deadline worker: claim failed for tenant {}: {}", tenantId, e.getMessage(), e);
             }
         }
     }
 
-    @Transactional
-    protected List<Map<String, Object>> claimDueTimers() {
+    private List<Map<String, Object>> claimDueTimersInTenant(UUID tenantId) {
         List<Map<String, Object>> due = jdbc.queryForList("""
                 SELECT id, tenant_id, scope, scope_id, policy, response_mode, due_at,
                        workflow_instance_id, work_item_id, external_action_id,
                        definition_version_id, correlation_id
                   FROM workflow_timers
-                 WHERE purpose='EXECUTION_DEADLINE' AND state='RUNNING' AND due_at <= NOW()
+                 WHERE tenant_id=? AND purpose='EXECUTION_DEADLINE' AND state='RUNNING' AND due_at <= NOW()
                  ORDER BY due_at
                  LIMIT 50
-                """);
+                """, tenantId);
         for (Map<String, Object> row : due) {
             int claimedRows = jdbc.update("""
                     UPDATE workflow_timers SET state='TIMED_OUT', breached_at=NOW(), updated_at=NOW()

@@ -1,11 +1,13 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.api.WorkflowController;
 import com.sanad.platform.workflow.domain.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -128,38 +130,46 @@ class WorkflowSecurityNegativeTest {
 
         // Grant ALL workflow capabilities to userA and userB (tenantA and tenantB admins).
         // noCapsUserA is intentionally NOT granted any workflow capabilities.
-        // Grant ALL workflow capabilities to userA and userB (tenantA and tenantB admins).
-        // noCapsUserA is intentionally NOT granted any workflow capabilities.
-        // V20261029_1: roles / role_capabilities are FORCE RLS — each tenant's
-        // RBAC rows must be inserted inside a transaction scoped to that tenant
-        // (same contract as the users seeding above).
+        // roles / role_capabilities are FORCE RLS (V20261029_1), so the role and
+        // capability grants for each tenant are wrapped in a transaction-local
+        // app.tenant_id context — same contract as the users inserts above.
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
             var roleId = UUID.randomUUID();
-            var tenantFinal = tid;
-            var roleIdFinal = roleId;
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantFinal.toString());
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tid.toString());
                 jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                                + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                        roleIdFinal, tenantFinal, now, now);
+                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                        roleId, tid, now, now);
                 var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%'");
                 for (var cap : caps) {
                     jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                            + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantFinal, roleIdFinal, cap.get("id"), now);
+                            + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tid, roleId, cap.get("id"), now);
                 }
             });
         }
         // noCapsUserA gets an ADMIN role with NO workflow capabilities attached.
         var noCapsRole = UUID.randomUUID();
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
                     String.class, tenantA.toString());
             jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                            + "VALUES (?, ?, 'VIEWER', 'Viewer (no caps)', 'Test', 'ACTIVE', ?, ?)",
+                    + "VALUES (?, ?, 'VIEWER', 'Viewer (no caps)', 'Test', 'ACTIVE', ?, ?)",
                     noCapsRole, tenantA, now, now);
         });
+        // Intentionally do NOT grant WORKFLOW.* capabilities to noCapsRole.
+        // Service-level calls use TenantRlsConnectionHandler, which derives its
+        // transaction-local RLS scope from SecurityContextHolder. Seed the default
+        // actor explicitly; per-tenant tests switch this context before cross-tenant work.
+        RlsTestSupport.setSecurityContext(tenantA, userA);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth(UUID tid, UUID uid) {
@@ -169,18 +179,26 @@ class WorkflowSecurityNegativeTest {
         return token;
     }
 
-    /** Build a workflow definition with one step and activate it. */
+    /** Build a workflow definition with one step and activate it under an explicit tenant RLS scope. */
     private WorkflowDefinition buildActiveWorkflow(UUID tid, String code, UUID uid) {
-        var def = WorkflowDefinition.create(
-                tid, code, "Test Workflow " + code, "Test",
-                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
-        var savedDef = defService.create(def, uid);
-        defService.addStep(WorkflowStep.create(
-                tid, savedDef.id(), "step1", "First",
-                WorkflowStep.StepType.APPROVAL, 1, null, 48,
-                "WORKFLOW.APPROVE", null), uid);
-        defService.activate(tid, savedDef.id(), uid);
-        return defService.findById(tid, savedDef.id()).orElseThrow();
+        // FORCE RLS is intentional. These fixture writes must use the same transaction-bound
+        // connection as the transaction-local tenant GUC; never bypass the policy or use a
+        // session-scoped setting that can leak across pooled connections.
+        return tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tid.toString());
+            var def = WorkflowDefinition.create(
+                    tid, code, "Test Workflow " + code, "Test",
+                    "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);
+            var savedDef = defService.create(def, uid);
+            defService.addStep(WorkflowStep.create(
+                    tid, savedDef.id(), "step1", "First",
+                    WorkflowStep.StepType.APPROVAL, 1, null, 48,
+                    "WORKFLOW.APPROVE", null), uid);
+            defService.activate(tid, savedDef.id(), uid);
+            return defService.findById(tid, savedDef.id()).orElseThrow();
+        });
     }
 
     /** Anonymous authentication — bypass disabled because there IS an authentication (anonymous). */
@@ -515,19 +533,23 @@ class WorkflowSecurityNegativeTest {
     @Test
     void rls_tenantScopedQuery_returnsOnlyOwnRows() {
         // Create definitions in both tenants
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         defService.create(WorkflowDefinition.create(
                 tenantA, "WF-RLS-A1", "A1", "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userA), userA);
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         defService.create(WorkflowDefinition.create(
                 tenantB, "WF-RLS-B1", "B1", "Test",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, userB), userB);
 
-        // Application-level query with tenantA — should see only A's definition
+        // Application-level query with tenantA — should see only A's definition.
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         var aDefs = defService.findByTenant(tenantA, 100);
         assertThat(aDefs).hasSize(1);
         assertThat(aDefs.get(0).code()).isEqualTo("WF-RLS-A1");
 
-        // Application-level query with tenantB — should see only B's definition
+        // Application-level query with tenantB — should see only B's definition.
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         var bDefs = defService.findByTenant(tenantB, 100);
         assertThat(bDefs).hasSize(1);
         assertThat(bDefs.get(0).code()).isEqualTo("WF-RLS-B1");
@@ -538,6 +560,10 @@ class WorkflowSecurityNegativeTest {
         // Create definitions, instances, and approvals in both tenants
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
+            // Service-level RLS scope follows the authenticated tenant, not the
+            // tenantId argument alone. Switch the test actor for each tenant's
+            // fixture creation rather than bypassing FORCE ROW LEVEL SECURITY.
+            RlsTestSupport.setSecurityContext(tid, uid);
             var def = WorkflowDefinition.create(
                     tid, "WF-RLS-APP-" + tid.toString().substring(0, 4),
                     "RLS App Test", "Test",
@@ -566,11 +592,13 @@ class WorkflowSecurityNegativeTest {
         }
 
         // Tenant A should see only A's approvals
+        RlsTestSupport.setSecurityContext(tenantA, userA);
         var aApprovals = approvalService.findByTenant(tenantA, 100);
         assertThat(aApprovals).hasSize(1);
         assertThat(aApprovals.get(0).tenantId()).isEqualTo(tenantA);
 
         // Tenant B should see only B's approvals
+        RlsTestSupport.setSecurityContext(tenantB, userB);
         var bApprovals = approvalService.findByTenant(tenantB, 100);
         assertThat(bApprovals).hasSize(1);
         assertThat(bApprovals.get(0).tenantId()).isEqualTo(tenantB);

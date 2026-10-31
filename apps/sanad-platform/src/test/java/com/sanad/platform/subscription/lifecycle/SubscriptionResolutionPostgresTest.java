@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.lifecycle;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -44,6 +45,10 @@ class SubscriptionResolutionPostgresTest {
 
     private static String isolatedUrl;
     private JdbcTemplate jdbc;
+
+    /** FORCE-RLS GUC-binding wrapper (V20261029_1) — the DataSource jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     private SubscriptionResolutionService resolution;
 
     @BeforeAll
@@ -82,9 +87,15 @@ class SubscriptionResolutionPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound in newTenant() below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         resolution = new SubscriptionResolutionService(jdbc);
     }
 
@@ -208,6 +219,10 @@ class SubscriptionResolutionPostgresTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'SA', 'SAR', NOW(), NOW())
                         """,
                 id, "Tenant " + id, "t-" + id.toString().substring(0, 8));
+        // Bind every subsequent connection handed to this fixture to the
+        // freshly generated tenant (session scope); a later newTenant() call
+        // re-binds, and cross-tenant seeds/reads re-scope explicitly.
+        gucDs.setDefaultTenant(id);
         return id;
     }
 

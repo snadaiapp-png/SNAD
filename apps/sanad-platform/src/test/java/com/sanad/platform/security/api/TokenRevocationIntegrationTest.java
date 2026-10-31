@@ -505,14 +505,23 @@ class TokenRevocationIntegrationTest {
                         VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
                         """,
                 planId, "login-" + tenantId.toString().substring(0, 8));
-        jdbc.update("""
-                        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
-                                                          billing_cycle, seat_quantity, credit_balance_minor,
-                                                          started_at, current_period_start, current_period_end,
-                                                          cancel_at_period_end, billing_state, created_at, updated_at)
-                        VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
-                                NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
-                        """,
-                UUID.randomUUID(), tenantId, planId);
+        // V20261029_1: tenant_subscriptions is FORCE RLS fail-closed — bind the
+        // fixture tenant transaction-locally for this seed (same contract as the
+        // user save in setUp). Not a bypass: the policy predicate is unchanged.
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(txStatus -> {
+                    jdbc.queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("""
+                            INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
+                                                              billing_cycle, seat_quantity, credit_balance_minor,
+                                                              started_at, current_period_start, current_period_end,
+                                                              cancel_at_period_end, billing_state, created_at, updated_at)
+                            VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
+                                    NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
+                            """,
+                            UUID.randomUUID(), tenantId, planId);
+                });
     }
 }

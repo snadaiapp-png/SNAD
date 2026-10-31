@@ -27,6 +27,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.TenantGucDataSource;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -43,6 +45,7 @@ class OwnershipReadQueueLifecyclePostgresTest {
 
     private static NamedParameterJdbcTemplate jdbc;
     private static TransactionTemplate transactions;
+    private static TenantGucDataSource gucDs;
     private static JdbcQueueRepository queues;
     private static JdbcQueueMembershipRepository queueMemberships;
     private static JdbcOwnershipHistoryRepository history;
@@ -73,10 +76,17 @@ class OwnershipReadQueueLifecyclePostgresTest {
                 .load()
                 .migrate();
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        // FORCE-RLS tenant binding (V20261029_1): every connection this fixture
+        // hands out carries the session-scoped app.tenant_id GUC — the same
+        // identity the application binds per authenticated request. Not a
+        // bypass: the fail-closed policy predicate stays authoritative. The
+        // default tenant is bound once per test in createTenant(); the
+        // cross-tenant denial probes keep their unbound-from-primary scope.
+        DriverManagerDataSource rawDataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        jdbc = new NamedParameterJdbcTemplate(dataSource);
-        transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        gucDs = new TenantGucDataSource(rawDataSource, null);
+        jdbc = new NamedParameterJdbcTemplate(gucDs);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(gucDs));
 
         queues = new JdbcQueueRepository(jdbc);
         queueMemberships = new JdbcQueueMembershipRepository(jdbc);
@@ -94,6 +104,9 @@ class OwnershipReadQueueLifecyclePostgresTest {
     void createTenant() {
         tenantId = UUID.randomUUID();
         actorId = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(tenantId);
         insertTenant(tenantId, "read-queue");
     }
 

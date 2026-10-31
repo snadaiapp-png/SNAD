@@ -13,11 +13,10 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class CrmPostgresMigrationTest {
     private static final String MAIN_SCHEMA_VERSION = "20260629.2";
@@ -263,12 +262,19 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: PR #1422 adds the forward-only fail-closed RLS hardening for the
     // nine post-baseline CRM tables (missing/empty tenant context must deny) at the sequence tail.
     private static final String POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION = "20261021.1";
+    private static final String RLS_FORENSIC_FUNCTION_HARDENING_VERSION = "20261026.4";
     // TEST_ALIGNMENT_REASON: SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) adds a forward-only,
     // validation-only per-tenant revalidation of the role capability matrix under RLS context
     // at the sequence tail (V20260820_7's global aggregation is blind under FORCE RLS).
     private static final String ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION = "20261028.1";
-    private static final String D6_IDENTITY_PLANE_RLS_VERSION = "20261029.1";
-    private static final String LATEST_MIGRATION_VERSION = D6_IDENTITY_PLANE_RLS_VERSION;
+    // TEST_ALIGNMENT_REASON: SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) adds the forward-only
+    // fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
+    // owner-bypass tables at the sequence tail.
+    private static final String TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION = "20261029.1";
+    // SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29: empty-GUC policy alignment + pre-auth token index.
+    private static final String TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION = "20261029.2";
+    private static final String EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION = "20261029.3";
+    private static final String LATEST_MIGRATION_VERSION = EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -568,7 +574,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(RLS_FORENSIC_FUNCTION_HARDENING_VERSION),
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
+                        MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -811,7 +820,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SUPABASE_DATA_API_DEFAULT_DENY_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_RLS_VERSION),
                         MigrationVersion.fromVersion(POST_BASELINE_CRM_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(RLS_FORENSIC_FUNCTION_HARDENING_VERSION),
                         MigrationVersion.fromVersion(ROLE_TEMPLATE_MATRIX_REVALIDATION_VERSION),
+                        MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
+                        MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
@@ -1018,42 +1030,32 @@ class CrmPostgresMigrationTest {
         assertThat(partialIndexPredicateMatches(jdbc, "crm_assignment_rule_versions", "uk_rule_versions_active", "status = 'ACTIVE'")).isTrue();
         assertThat(partialIndexPredicateMatches(jdbc, "crm_assignments", "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
 
-        Long activeTenantCount = jdbc.queryForObject("SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'", Long.class);
-        if (activeTenantCount != null && activeTenantCount > 0) {
-            // V20261029_1: roles / role_capabilities are FORCE RLS — the
-            // per-tenant provisioning assertions must be evaluated under each
-            // tenant's GUC (the V20261028_1 D1 pattern), then summed.
-            List<String> d6TenantIds = jdbc.queryForList(
-                    "SELECT id::text FROM tenants WHERE status = 'ACTIVE'", String.class);
-            long salesManagerTenants = 0;
-            long salesRepTenants = 0;
-            long salesManagerCaps = 0;
-            long salesRepCaps = 0;
-            for (String d6TenantId : d6TenantIds) {
-                java.util.Map<String, Object> d6 = jdbc.queryForMap(
-                        "SELECT "
-                        + "(SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_MANAGER' AND status = 'ACTIVE') AS mgr_tenants, "
-                        + "(SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE') AS rep_tenants, "
-                        + "(SELECT COUNT(*) FROM role_capabilities rc "
-                        + "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id "
-                        + "JOIN access_capabilities c ON c.id = rc.capability_id "
-                        + "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' "
-                        + "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ','CRM.OWNERSHIP_HISTORY.READ')) AS mgr_caps, "
-                        + "(SELECT COUNT(*) FROM role_capabilities rc "
-                        + "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id "
-                        + "JOIN access_capabilities c ON c.id = rc.capability_id "
-                        + "WHERE r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' "
-                        + "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')) AS rep_caps "
-                        + "FROM (SELECT set_config('app.tenant_id', ?, true) AS g) ctx", d6TenantId);
-                salesManagerTenants += ((Number) d6.get("mgr_tenants")).longValue();
-                salesRepTenants += ((Number) d6.get("rep_tenants")).longValue();
-                salesManagerCaps += ((Number) d6.get("mgr_caps")).longValue();
-                salesRepCaps += ((Number) d6.get("rep_caps")).longValue();
-            }
-            assertThat(salesManagerTenants).isEqualTo(activeTenantCount);
-            assertThat(salesRepTenants).isEqualTo(activeTenantCount);
-            assertThat(salesManagerCaps).isEqualTo(activeTenantCount * 11L);
-            assertThat(salesRepCaps).isEqualTo(activeTenantCount * 8L);
+        List<UUID> activeTenantIds = jdbc.queryForList(
+                "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id", UUID.class);
+        for (UUID tenantId : activeTenantIds) {
+            withTenantScope(jdbc, tenantId, () -> {
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM roles WHERE tenant_id = ? AND code = 'SALES_MANAGER' AND status = 'ACTIVE'",
+                        Long.class, tenantId)).isEqualTo(1L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM roles WHERE tenant_id = ? AND code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'",
+                        Long.class, tenantId)).isEqualTo(1L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM role_capabilities rc " +
+                                "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                                "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                                "WHERE r.tenant_id = ? AND r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
+                                "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ','CRM.OWNERSHIP_HISTORY.READ')",
+                        Long.class, tenantId)).isEqualTo(11L);
+                assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM role_capabilities rc " +
+                                "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                                "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                                "WHERE r.tenant_id = ? AND r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
+                                "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')",
+                        Long.class, tenantId)).isEqualTo(8L);
+                return null;
+            });
         }
 
         assertThat(constraintExists(jdbc, "fk_crm_contacts_account_same_tenant")).isTrue();
@@ -1138,6 +1140,17 @@ class CrmPostgresMigrationTest {
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);
         return configuration.load();
+    }
+
+    private <T> T withTenantScope(JdbcTemplate jdbc, UUID tenantId, java.util.function.Supplier<T> action) {
+        var transactionManager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                java.util.Objects.requireNonNull(jdbc.getDataSource()));
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    return action.get();
+                });
     }
 
     private JdbcTemplate jdbc() {

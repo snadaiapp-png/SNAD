@@ -13,6 +13,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -43,11 +45,16 @@ class RevenueOversightIntegrationTest {
     @Autowired private RevenueOversightService revenueService;
     @Autowired private CrmManagementIntegrationService crmService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
+    private TransactionTemplate tx;
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
+        if (tx == null) {
+            tx = new TransactionTemplate(transactionManager);
+        }
         tenantId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
@@ -135,18 +142,27 @@ class RevenueOversightIntegrationTest {
         var now = Timestamp.from(Instant.now());
 
         // Create prerequisite CRM entities
-        jdbc.update("INSERT INTO crm_pipelines (id, tenant_id, name, currency_code, active, created_by, created_at, updated_at) "
-                        + "VALUES (?, ?, 'Test Pipeline', 'SAR', TRUE, ?, ?, ?)",
-                pipelineId, tenantId, userId, now, now);
-        jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
-                        + "VALUES (?, ?, ?, 'Closed Won', 10, 100.00, TRUE)",
-                stageId, tenantId, pipelineId);
-        jdbc.update("INSERT INTO crm_accounts (id, tenant_id, display_name, normalized_name, account_type, lifecycle_status, created_by, updated_by, created_at, updated_at) "
-                        + "VALUES (?, ?, 'Test Account', 'test account', 'BUSINESS', 'ACTIVE', ?, ?, ?, ?)",
-                accountId, tenantId, userId, userId, now, now);
-        jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'Test Opp', 15000.00, 'SAR', 100.00, 'WON', ?, ?, ?, ?)",
-                oppId, tenantId, pipelineId, stageId, userId, userId, now, now);
+        // crm_* tables are FORCE RLS (fail-closed tenant matching): raw
+        // JdbcTemplate seeds run in autocommit, so bind the tenant GUC
+        // transaction-locally first (V20261029_1-era contract; predicate
+        // unchanged — not a bypass).
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO crm_pipelines (id, tenant_id, name, currency_code, active, created_by, created_at, updated_at) "
+                            + "VALUES (?, ?, 'Test Pipeline', 'SAR', TRUE, ?, ?, ?)",
+                    pipelineId, tenantId, userId, now, now);
+            jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
+                            + "VALUES (?, ?, ?, 'Closed Won', 10, 100.00, TRUE)",
+                    stageId, tenantId, pipelineId);
+            jdbc.update("INSERT INTO crm_accounts (id, tenant_id, display_name, normalized_name, account_type, lifecycle_status, created_by, updated_by, created_at, updated_at) "
+                            + "VALUES (?, ?, 'Test Account', 'test account', 'BUSINESS', 'ACTIVE', ?, ?, ?, ?)",
+                    accountId, tenantId, userId, userId, now, now);
+            jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'Test Opp', 15000.00, 'SAR', 100.00, 'WON', ?, ?, ?, ?)",
+                    oppId, tenantId, pipelineId, stageId, userId, userId, now, now);
+        });
 
         var overview = crmService.getCrmOverview(tenantId);
         // wonRevenue should be 15000 (from the amount column, not estimated_value)
@@ -163,15 +179,24 @@ class RevenueOversightIntegrationTest {
         UUID userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
 
-        jdbc.update("INSERT INTO crm_pipelines (id, tenant_id, name, currency_code, active, created_by, created_at, updated_at) "
-                        + "VALUES (?, ?, 'Test Pipeline 2', 'SAR', TRUE, ?, ?, ?)",
-                pipelineId, tenantId, userId, now, now);
-        jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
-                        + "VALUES (?, ?, ?, 'Negotiation', 5, 50.00, TRUE)",
-                stageId, tenantId, pipelineId);
-        jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'Open Opp', 5000.00, 'SAR', 50.00, 'OPEN', ?, ?, ?, ?)",
-                oppId, tenantId, pipelineId, stageId, userId, userId, now, now);
+        // crm_* tables are FORCE RLS (fail-closed tenant matching): raw
+        // JdbcTemplate seeds run in autocommit, so bind the tenant GUC
+        // transaction-locally first (V20261029_1-era contract; predicate
+        // unchanged — not a bypass).
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO crm_pipelines (id, tenant_id, name, currency_code, active, created_by, created_at, updated_at) "
+                            + "VALUES (?, ?, 'Test Pipeline 2', 'SAR', TRUE, ?, ?, ?)",
+                    pipelineId, tenantId, userId, now, now);
+            jdbc.update("INSERT INTO crm_pipeline_stages (id, tenant_id, pipeline_id, name, sequence, probability, active) "
+                            + "VALUES (?, ?, ?, 'Negotiation', 5, 50.00, TRUE)",
+                    stageId, tenantId, pipelineId);
+            jdbc.update("INSERT INTO crm_opportunities (id, tenant_id, pipeline_id, stage_id, name, amount, currency_code, probability, status, created_by, updated_by, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'Open Opp', 5000.00, 'SAR', 50.00, 'OPEN', ?, ?, ?, ?)",
+                    oppId, tenantId, pipelineId, stageId, userId, userId, now, now);
+        });
 
         var overview = crmService.getCrmOverview(tenantId);
         // estimatedPipelineValue should include the 5000 from the OPEN opportunity

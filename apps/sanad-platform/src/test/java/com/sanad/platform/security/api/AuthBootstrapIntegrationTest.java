@@ -134,7 +134,13 @@ class AuthBootstrapIntegrationTest {
                         VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
                         """,
                 planId, "login-" + tenantId.toString().substring(0, 8));
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS fail-closed (V20261029_1): the
+        // fixture INSERT must run inside a transaction whose GUC is bound to
+        // the fixture tenant (same contract as AuthApiIntegrationTest). A bare
+        // autocommit INSERT is rejected (42501 row-level security violation).
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> jdbc.update("""
                         INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
                                                           billing_cycle, seat_quantity, credit_balance_minor,
                                                           started_at, current_period_start, current_period_end,
@@ -142,7 +148,10 @@ class AuthBootstrapIntegrationTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
-                UUID.randomUUID(), tenantId, planId);
+                    UUID.randomUUID(), tenantId, planId));
+        } finally {
+            clearTenantContext();
+        }
     }
 
     /**

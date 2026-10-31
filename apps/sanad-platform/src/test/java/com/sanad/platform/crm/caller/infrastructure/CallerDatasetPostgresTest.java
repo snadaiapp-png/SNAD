@@ -5,6 +5,7 @@ import com.sanad.platform.crm.caller.application.CallerDatasetTokenProvider;
 import com.sanad.platform.crm.caller.CallerPhoneVectorsParityTest;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -37,7 +38,7 @@ class CallerDatasetPostgresTest {
     private JdbcTemplate jdbc;
     private TransactionTemplate transactions;
     private CallerDatasetService service;
-    private DriverManagerDataSource ds;
+    private TenantGucDataSource ds;
 
     @BeforeAll
     static void requirePostgreSql() {
@@ -68,11 +69,18 @@ class CallerDatasetPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        ds = new DriverManagerDataSource(
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound per generated tenant in
+        // tenant(...) below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        ds.setDriverClassName("org.postgresql.Driver");
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
         service = new CallerDatasetService(new NamedParameterJdbcTemplate(ds),
@@ -179,7 +187,11 @@ class CallerDatasetPostgresTest {
         UUID tenantA = tenant("ds-iso-a");
         UUID tenantB = tenant("ds-iso-b");
         UUID contactA = contact(tenantA, "عميل أ");
-        method(tenantA, contactA, "+966541234567", "ACTIVE", "INTERNAL");
+        // FORCE-RLS (V20261029_1): tenant("ds-iso-b") re-bound the fixture's
+        // session GUC to tenantB, so the tenantA seed must re-scope explicitly
+        // to its owning tenant — fail-closed predicate unchanged, not a bypass.
+        inTenantTransaction(tenantA, () ->
+                method(tenantA, contactA, "+966541234567", "ACTIVE", "INTERNAL"));
         UUID contactB = contact(tenantB, "عميل ب");
         method(tenantB, contactB, "+966541234567", "ACTIVE", "INTERNAL");
 
@@ -247,6 +259,9 @@ class CallerDatasetPostgresTest {
 
     private UUID tenant(String key) {
         UUID id = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        ds.setDefaultTenant(id);
         Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (?,?,?,'ACTIVE',?,?)",

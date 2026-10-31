@@ -204,19 +204,37 @@ class CommerceOrderConcurrencyTest {
         seedTenant(tenantA, "ta");
         seedTenant(tenantB, "tb");
 
-        UUID storeA = createStoreFor(tenantA, "sta");
-        storeService.activate(tenantA, storeA, null);
-        UUID prodA = createProductFor(tenantA, storeA, "pa");
-        productService.publish(tenantA, storeA, prodA, null);
-        productService.createPrice(tenantA, storeA, prodA,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        // V20261029_1: commerce_stores / commerce_products / commerce_prices are
+        // FORCE RLS — each tenant's service calls run under their own
+        // SecurityContext binding (TenantRlsConnectionHandler applies SET LOCAL
+        // app.tenant_id inside @Transactional boundaries). Not a bypass.
+        final UUID storeA;
+        final UUID prodA;
+        RlsTestSupport.setSecurityContext(tenantA, userId);
+        try {
+            storeA = createStoreFor(tenantA, "sta");
+            storeService.activate(tenantA, storeA, null);
+            prodA = createProductFor(tenantA, storeA, "pa");
+            productService.publish(tenantA, storeA, prodA, null);
+            productService.createPrice(tenantA, storeA, prodA,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
 
-        UUID storeB = createStoreFor(tenantB, "stb");
-        storeService.activate(tenantB, storeB, null);
-        UUID prodB = createProductFor(tenantB, storeB, "pb");
-        productService.publish(tenantB, storeB, prodB, null);
-        productService.createPrice(tenantB, storeB, prodB,
-                new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        final UUID storeB;
+        final UUID prodB;
+        RlsTestSupport.setSecurityContext(tenantB, userId);
+        try {
+            storeB = createStoreFor(tenantB, "stb");
+            storeService.activate(tenantB, storeB, null);
+            prodB = createProductFor(tenantB, storeB, "pb");
+            productService.publish(tenantB, storeB, prodB, null);
+            productService.createPrice(tenantB, storeB, prodB,
+                    new CreatePriceRequest(null, "SAR", new BigDecimal("50.00"), null, null, null), null);
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
 
         var orderA1 = checkout(tenantA, storeA, prodA);
         var orderB1 = checkout(tenantB, storeB, prodB);
@@ -242,7 +260,15 @@ class CommerceOrderConcurrencyTest {
         var o1 = checkout(tenantId, storeId, productId);
         var o2 = checkout(tenantId, storeId, productId);
         // Cancel o1 — the order_number remains allocated
-        orderService.cancel(tenantId, storeId, o1.orderId(), null);
+        // checkout() clears the thread's SecurityContext in its finally; re-bind
+        // the fixture tenant so the @Transactional cancel read sees the
+        // FORCE-RLS commerce_orders row (V20261029_1). Not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+        try {
+            orderService.cancel(tenantId, storeId, o1.orderId(), null);
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
         var o3 = checkout(tenantId, storeId, productId);
 
         // o1's order number is NOT reused by o3 (gap-free monotonic counter)
@@ -319,19 +345,31 @@ class CommerceOrderConcurrencyTest {
         // idempotency-replay-return-winner). Exactly one must succeed silently.
         assertThat(errors.get()).as("losers saw expected exception").isGreaterThan(0);
 
-        // Exactly ONE order exists for this idempotency key.
-        Integer orderCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND store_id = ? AND idempotency_key = ?",
-                Integer.class, tenantId, storeId, idempotencyKey);
+        // Exactly ONE order exists for this idempotency key. Both verification
+        // counts run inside a tenant-bound transaction: commerce_orders and
+        // commerce_order_status_history are FORCE RLS (V20261029_1), so a raw
+        // autocommit read fails closed to 0. Not a bypass.
+        Integer[] counts = tx.execute(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return new Integer[]{
+                    jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND store_id = ? AND idempotency_key = ?",
+                            Integer.class, tenantId, storeId, idempotencyKey),
+                    jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM commerce_order_status_history WHERE tenant_id = ? AND order_id IN " +
+                                    "(SELECT id FROM commerce_orders WHERE tenant_id = ? AND store_id = ? AND idempotency_key = ?)",
+                            Integer.class, tenantId, tenantId, storeId, idempotencyKey)
+            };
+        });
+        Integer orderCount = counts[0];
         assertThat(orderCount).as("exactly one logical order per idempotency key").isEqualTo(1);
 
         // Verify no duplicate payment/finance/inventory side-effects by counting
         // order-status-history rows (one INSERT per status transition). 1 initial
         // PENDING insert + 1 PAID/CONFIRMED transition = 2 history rows (not 2*N).
-        Integer historyCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM commerce_order_status_history WHERE tenant_id = ? AND order_id IN " +
-                        "(SELECT id FROM commerce_orders WHERE tenant_id = ? AND store_id = ? AND idempotency_key = ?)",
-                Integer.class, tenantId, tenantId, storeId, idempotencyKey);
+        Integer historyCount = counts[1];
         assertThat(historyCount).as("no duplicate status history").isEqualTo(2);
     }
 

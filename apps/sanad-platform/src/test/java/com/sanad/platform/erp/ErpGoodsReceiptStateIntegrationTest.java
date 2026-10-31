@@ -1,5 +1,6 @@
 package com.sanad.platform.erp;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.erp.api.ErpDtos.CreateGoodsReceiptItem;
 import com.sanad.platform.erp.api.ErpDtos.CreateGoodsReceiptRequest;
 import com.sanad.platform.erp.api.ErpDtos.CreateItemRequest;
@@ -15,6 +16,7 @@ import com.sanad.platform.erp.application.ErpSupplierService;
 import com.sanad.platform.erp.application.ErpWarehouseService;
 import com.sanad.platform.erp.domain.ErpDomain;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -46,15 +49,28 @@ class ErpGoodsReceiptStateIntegrationTest {
     @Autowired private ErpGoodsReceiptService goodsReceiptService;
     @Autowired private ErpPurchaseOrderService poService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TransactionTemplate tx;
 
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        // V20261029_1 FORCE-RLS: erp_warehouses/erp_purchase_* are fail-closed
+        // without a tenant GUC — bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every Spring-managed service transaction (the same identity
+        // JwtAuthenticationFilter binds in production); fail-closed predicate
+        // unchanged, not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'ERP Receipt State Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "erp-gr-state-" + tenantId.toString().substring(0, 8), now, now);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
@@ -282,9 +298,16 @@ class ErpGoodsReceiptStateIntegrationTest {
     private void setPoStatusViaSql(UUID poId, String newStatus) {
         // Used to emulate external PO state transitions (e.g. SENT) that are
         // not exposed by ErpPurchaseOrderService but are valid enum values.
-        jdbc.update("UPDATE erp_purchase_orders SET status = ?, updated_at = ?, version = version + 1 "
-                        + "WHERE tenant_id = ? AND id = ?",
-                newStatus, Timestamp.from(Instant.now()), tenantId, poId);
+        // V20261029_1 FORCE-RLS: erp_purchase_orders is fail-closed without a
+        // tenant GUC, so a bare autocommit UPDATE would silently match zero
+        // rows — run it in a transaction-local GUC scope (fail-closed
+        // predicate unchanged, not a bypass).
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            jdbc.update("UPDATE erp_purchase_orders SET status = ?, updated_at = ?, version = version + 1 "
+                            + "WHERE tenant_id = ? AND id = ?",
+                    newStatus, Timestamp.from(Instant.now()), tenantId, poId);
+        });
     }
 
     private com.sanad.platform.erp.api.ErpDtos.ItemResponse createActiveItem(String code) {

@@ -1,10 +1,13 @@
 package com.sanad.platform.subscription.read;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,23 +37,58 @@ public class TenantDirectoryQueryService {
 
     private final JdbcTemplate jdbc;
     private final TenantCommercialStateService commercialStateService;
+    private final TransactionTemplate transactions;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
     @Autowired
     public TenantDirectoryQueryService(
             JdbcTemplate jdbc,
-            TenantCommercialStateService commercialStateService
+            TenantCommercialStateService commercialStateService,
+            PlatformTransactionManager transactionManager,
+            TenantRlsTransactionContext tenantRlsContext
     ) {
         this.jdbc = jdbc;
         this.commercialStateService = commercialStateService;
+        this.transactions = new TransactionTemplate(transactionManager);
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     /**
      * Backward-compatible direct-test constructor. Production Spring wiring
-     * always uses the canonical commercial-state service above.
+     * always uses the canonical commercial-state service above. In this mode
+     * the per-tenant FORCE RLS enrichment degrades to the raw SQL subqueries
+     * (no transaction manager is available to scope a GUC).
      */
     public TenantDirectoryQueryService(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-        this.commercialStateService = null;
+        this(jdbc, null, null, null);
+    }
+
+    /**
+     * Two-argument harness constructor (commercial state wired, no FORCE RLS
+     * scoping). Used by pure-JDBC unit harnesses that run against mocked or
+     * non-PostgreSQL datasources where no transaction manager exists.
+     */
+    public TenantDirectoryQueryService(JdbcTemplate jdbc, TenantCommercialStateService commercialStateService) {
+        this(jdbc, commercialStateService, null, null);
+    }
+
+    /**
+     * Runs a per-tenant read inside a transaction-local {@code app.tenant_id}
+     * scope. tenant_subscriptions / tenant_domains are fail-closed FORCE RLS
+     * (V20261029_1): the executive console directory is a control-plane view
+     * across tenants, so each tenant's commercial evidence is resolved through
+     * the trusted scoped path — the tenant ids come from the platform tenant
+     * directory (a non-RLS table), never from user input. Without a wired
+     * transaction manager (direct-test harness) the action runs unscoped.
+     */
+    private <T> T scopedPerTenant(UUID tenantId, java.util.function.Supplier<T> action) {
+        if (transactions == null || tenantRlsContext == null) {
+            return action.get();
+        }
+        return transactions.execute(status -> {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+            return action.get();
+        });
     }
 
     @Transactional(readOnly = true)
@@ -112,9 +150,52 @@ public class TenantDirectoryQueryService {
                 .map(r -> {
                     UUID tenantId = (UUID) r.get("id");
                     String tenantStatus = (String) r.get("status");
+                    boolean scoped = transactions != null && tenantRlsContext != null;
+                    int subscriptionCount;
+                    String applicationHostname;
+                    String subscriptionStatus = (String) r.get("subscription_status");
+                    if (scoped) {
+                        // FORCE RLS (V20261029_1): resolve this tenant's
+                        // subscription evidence through the trusted scoped path
+                        // instead of the caller-ambient GUC (which cannot see
+                        // OTHER tenants' rows).
+                        subscriptionCount = scopedPerTenant(tenantId, () -> jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?",
+                                Integer.class, tenantId));
+                        applicationHostname = scopedPerTenant(tenantId, () -> {
+                            List<String> hostnames = jdbc.queryForList(
+                                    "SELECT d.hostname FROM tenant_domains d " +
+                                    "WHERE d.tenant_id = ? AND d.domain_type = 'APPLICATION' " +
+                                    "  AND d.origin = 'DEFAULT_GENERATED' AND d.status = 'ACTIVE' " +
+                                    "ORDER BY d.is_primary DESC, d.created_at ASC, d.id ASC LIMIT 1",
+                                    String.class, tenantId);
+                            return hostnames.isEmpty() ? null : hostnames.get(0);
+                        });
+                        if (commercialStateService == null) {
+                            // Direct-harness mode still needs the effective
+                            // subscription status, resolved under the same scope.
+                            // CONTRACT: absence of an effective subscription is a
+                            // VALID commercial state (terminal-only history, no
+                            // subscription at all) — represented as null, never
+                            // as an exception. Mirrors the hostname resolution
+                            // above; an empty result maps to null (Optional.empty
+                            // semantics) instead of EmptyResultDataAccessException.
+                            subscriptionStatus = scopedPerTenant(tenantId, () -> {
+                                List<String> statuses = jdbc.queryForList(
+                                        "SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = ? " +
+                                        "  AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED') " +
+                                        "ORDER BY s.created_at DESC, s.id DESC LIMIT 1",
+                                        String.class, tenantId);
+                                return statuses.isEmpty() ? null : statuses.get(0);
+                            });
+                        }
+                    } else {
+                        subscriptionCount = ((Number) r.getOrDefault("subscription_count", 0)).intValue();
+                        applicationHostname = (String) r.get("application_hostname");
+                    }
                     TenantCommercialStateService.TenantCommercialState commercial = commercialStateService != null
-                            ? commercialStateService.resolve(tenantId, tenantStatus)
-                            : directHarnessState(tenantId, tenantStatus, (String) r.get("subscription_status"));
+                            ? scopedPerTenant(tenantId, () -> commercialStateService.resolve(tenantId, tenantStatus))
+                            : directHarnessState(tenantId, tenantStatus, subscriptionStatus);
                     return new TenantRow(
                             tenantId,
                             (String) r.get("name"),
@@ -122,9 +203,9 @@ public class TenantDirectoryQueryService {
                             tenantStatus,
                             (String) r.get("country_code"),
                             (String) r.get("currency_code"),
-                            ((Number) r.getOrDefault("subscription_count", 0)).intValue(),
+                            subscriptionCount,
                             commercial.effectiveSubscriptionStatus(),
-                            (String) r.get("application_hostname"),
+                            applicationHostname,
                             commercial.effectiveSubscriptionId(),
                             commercial.billingState(),
                             commercial.accessDecision().name(),

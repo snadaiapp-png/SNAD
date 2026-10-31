@@ -6,6 +6,7 @@ import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.workflow.application.*;
 import com.sanad.platform.workflow.domain.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +14,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
@@ -20,6 +23,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -61,8 +65,7 @@ class WorkflowManagementE2ETest {
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private WorkflowMonitoringService monitoringService;
     @Autowired private JdbcTemplate jdbc;
-    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
-    private org.springframework.transaction.support.TransactionTemplate tx;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantA;
     private UUID tenantB;
@@ -72,9 +75,6 @@ class WorkflowManagementE2ETest {
 
     @BeforeEach
     void setUp() {
-        if (tx == null) {
-            tx = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
-        }
         jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
                 + "workflow_step_instances, workflow_instances, workflow_steps, "
                 + "workflow_definitions RESTART IDENTITY CASCADE");
@@ -118,6 +118,9 @@ class WorkflowManagementE2ETest {
                     ps.setObject(5, now);
                     ps.executeUpdate();
                 }
+                try (var reset = conn.createStatement()) {
+                    reset.execute("RESET app.tenant_id");
+                }
                 return null;
             });
         }
@@ -135,37 +138,84 @@ class WorkflowManagementE2ETest {
                 ps.setObject(5, now);
                 ps.executeUpdate();
             }
+            try (var reset = conn.createStatement()) {
+                reset.execute("RESET app.tenant_id");
+            }
             return null;
         });
 
-        // Grant ALL capabilities to both tenants
-        // V20261029_1: roles / role_capabilities are FORCE RLS — each tenant's
-        // RBAC rows must be inserted inside a transaction scoped to that tenant.
+        // Grant ALL capabilities to both tenants.
+        // roles / role_capabilities are FORCE RLS (V20261029_1): the grant
+        // writes for each tenant run through a ConnectionCallback that sets
+        // app.tenant_id and executes every statement on the SAME physical
+        // connection (jdbc.update() would fetch a different pooled connection,
+        // invisible to the GUC — same defect the users seeding fixed above).
         for (var tid : List.of(tenantA, tenantB)) {
-            var uid = tid == tenantA ? requesterA : userB;
             var roleId = UUID.randomUUID();
-            var tenantFinal = tid;
-            var roleIdFinal = roleId;
-            tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantFinal.toString());
-                jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                        roleIdFinal, tenantFinal, now, now);
-                var caps = jdbc.queryForList(
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
+                try (var st = con.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '" + tid + "', false)");
+                }
+                try (var ps = con.prepareStatement(
+                        "INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                        + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)")) {
+                    ps.setObject(1, roleId);
+                    ps.setObject(2, tid);
+                    ps.setObject(3, now);
+                    ps.setObject(4, now);
+                    ps.executeUpdate();
+                }
+                java.util.List<UUID> capIds = new java.util.ArrayList<>();
+                try (var ps = con.prepareStatement(
                         "SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%' "
                         + "OR code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' "
                         + "OR code LIKE 'ESCALATION.%'");
-                for (var cap : caps) {
-                    jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                            + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantFinal, roleIdFinal, cap.get("id"), now);
+                     var rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        capIds.add((UUID) rs.getObject(1));
+                    }
                 }
+                try (var ps = con.prepareStatement(
+                        "INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)")) {
+                    for (var capId : capIds) {
+                        ps.setObject(1, UUID.randomUUID());
+                        ps.setObject(2, tid);
+                        ps.setObject(3, roleId);
+                        ps.setObject(4, capId);
+                        ps.setObject(5, now);
+                        ps.executeUpdate();
+                    }
+                }
+                try (var st = con.createStatement()) {
+                    st.execute("RESET app.tenant_id");
+                }
+                return null;
             });
         }
+        // Default authenticated actor for direct service calls in each test. Tests that
+        // intentionally act as another tenant must explicitly switch the context.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA, requesterA);
+    }
+
+    @AfterEach
+    void clearTenantSecurityContext() {
+        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+    }
+
+    private <T> T inTenant(UUID tenantId, Supplier<T> action) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return action.get();
+        });
     }
 
     /** Build a DECISION_APPROVAL workflow definition with 2 steps (REVIEW + APPROVE). */
     private void buildDecisionApprovalWorkflow(UUID tenantId, UUID userId) {
+        // Service-level fixture creation must carry the authenticated tenant into the
+        // transaction so TenantRlsConnectionHandler applies SET LOCAL app.tenant_id.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
         var def = WorkflowDefinition.create(
                 tenantId, DecisionWorkflowIntegrationService.DECISION_APPROVAL_WORKFLOW_CODE,
                 "Decision Approval Workflow", "Auto-created for decision approvals",
@@ -243,14 +293,14 @@ class WorkflowManagementE2ETest {
         assertThat(finalApprovals.get(0).actedBy()).isEqualTo(approverA);
 
         // 9. Verify audit records in both management_audit_trail and workflow_transition_audit
-        var mgmtAuditCount = jdbc.queryForObject(
+        var mgmtAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM management_audit_trail WHERE entity_id = ?",
-                Integer.class, submitted.id());
+                Integer.class, submitted.id()));
         assertThat(mgmtAuditCount).isGreaterThanOrEqualTo(2);  // CREATE + APPROVE (at minimum)
 
-        var wfAuditCount = jdbc.queryForObject(
+        var wfAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(wfAuditCount).isGreaterThanOrEqualTo(2);  // START + APPROVE (at minimum)
 
         // 10. Tenant isolation: tenantB cannot see tenantA's data
@@ -303,9 +353,9 @@ class WorkflowManagementE2ETest {
         assertThat(approvals.get(0).status()).isEqualTo(WorkflowApprovalRequest.Status.PENDING);
 
         // 7. Verify NO APPROVE audit record was created (transaction rolled back)
-        var approveAuditCount = jdbc.queryForObject(
+        var approveAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ? AND action = 'APPROVE'",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(approveAuditCount).isZero();
 
         // 8. A different authorized approver CAN still approve after the failed attempt
@@ -368,9 +418,9 @@ class WorkflowManagementE2ETest {
                 .isInstanceOf(IllegalStateException.class);
 
         // Verify only 1 APPROVE audit record exists in workflow_transition_audit
-        var approveAuditCount = jdbc.queryForObject(
+        var approveAuditCount = inTenant(tenantA, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ? AND action = 'APPROVE'",
-                Integer.class, workflowInstanceId);
+                Integer.class, workflowInstanceId));
         assertThat(approveAuditCount).isEqualTo(1);
     }
 

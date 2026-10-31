@@ -45,7 +45,6 @@ class CrmAddressCommunicationMigrationUpgradeTest {
         previous.clean();
         previous.migrate();
         JdbcTemplate jdbc = jdbc();
-
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID accountId = UUID.randomUUID();
@@ -88,34 +87,42 @@ class CrmAddressCommunicationMigrationUpgradeTest {
         upgrade.migrate();
         upgrade.validate();
 
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT line1 FROM crm_party_addresses WHERE tenant_id=? AND id=?", String.class,
-                tenantId, addressId)).isEqualTo("٢٥ طريق الملك فهد");
-        assertThat(jdbc.queryForObject(
-                "SELECT city FROM crm_party_addresses WHERE tenant_id=? AND id=?", String.class,
-                tenantId, addressId)).isEqualTo("الرياض");
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_account_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_communication_methods WHERE tenant_id=?", Long.class, tenantId)).isEqualTo(4L);
-        assertThat(jdbc.queryForObject(
-                """
-                SELECT normalized_value FROM crm_communication_methods
-                WHERE tenant_id=? AND owner_type='ACCOUNT' AND owner_id=? AND method_type='EMAIL'
-                """, String.class, tenantId, accountId)).isEqualTo("info@arabic.example");
-        assertThat(jdbc.queryForObject(
-                """
-                SELECT consent_state_reference FROM crm_communication_methods
-                WHERE tenant_id=? AND owner_type='PERSON' AND owner_id=? AND method_type='EMAIL'
-                """, String.class, tenantId, contactId)).isEqualTo("GRANTED");
+        // V20261029_1: crm_party_addresses / crm_account_addresses /
+        // crm_communication_methods are FORCE RLS fail-closed — the upgrade
+        // verification reads must run inside the fixture tenant's
+        // transaction-local GUC scope or they see zero rows. Not a bypass.
+        inTenantScope(jdbc, tenantId, () -> {
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
+            assertThat(jdbc.queryForObject(
+                    "SELECT line1 FROM crm_party_addresses WHERE tenant_id=? AND id=?", String.class,
+                    tenantId, addressId)).isEqualTo("٢٥ طريق الملك فهد");
+            assertThat(jdbc.queryForObject(
+                    "SELECT city FROM crm_party_addresses WHERE tenant_id=? AND id=?", String.class,
+                    tenantId, addressId)).isEqualTo("الرياض");
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_account_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_communication_methods WHERE tenant_id=?", Long.class, tenantId)).isEqualTo(4L);
+            assertThat(jdbc.queryForObject(
+                    """
+                    SELECT normalized_value FROM crm_communication_methods
+                    WHERE tenant_id=? AND owner_type='ACCOUNT' AND owner_id=? AND method_type='EMAIL'
+                    """, String.class, tenantId, accountId)).isEqualTo("info@arabic.example");
+            assertThat(jdbc.queryForObject(
+                    """
+                    SELECT consent_state_reference FROM crm_communication_methods
+                    WHERE tenant_id=? AND owner_type='PERSON' AND owner_id=? AND method_type='EMAIL'
+                    """, String.class, tenantId, contactId)).isEqualTo("GRANTED");
+        });
 
         upgrade.migrate();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_communication_methods WHERE tenant_id=?", Long.class, tenantId)).isEqualTo(4L);
+        inTenantScope(jdbc, tenantId, () -> {
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=?", Long.class, tenantId)).isOne();
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_communication_methods WHERE tenant_id=?", Long.class, tenantId)).isEqualTo(4L);
+        });
     }
 
     @Test
@@ -133,7 +140,9 @@ class CrmAddressCommunicationMigrationUpgradeTest {
         OffsetDateTime now = OffsetDateTime.parse("2026-07-17T10:00:00Z");
         insertTenantAndUser(jdbc, tenantA, userA, "a", now);
         insertTenantAndUser(jdbc, tenantB, userB, "b", now);
-        jdbc.update(
+        // V20261029_1: crm_accounts is FORCE RLS fail-closed — seed Tenant B's
+        // account under Tenant B's transaction-local GUC scope. Not a bypass.
+        inTenantScope(jdbc, tenantB, () -> jdbc.update(
                 """
                 INSERT INTO crm_accounts
                     (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,
@@ -142,9 +151,12 @@ class CrmAddressCommunicationMigrationUpgradeTest {
                 VALUES (?,?,?,?,?,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh',?,?,?,?,?)
                 """,
                 accountB, tenantB, 0L, "Tenant B Account", "tenant b account",
-                userB, userB, userB, now, now);
+                userB, userB, userB, now, now));
 
-        assertThatThrownBy(() -> jdbc.update(
+        // Cross-tenant owner linking is rejected by the composite FK
+        // (tenant_id, account_id): the probe runs under Tenant A's GUC scope so
+        // RLS admits the row attempt and the FK constraint itself fires.
+        assertThatThrownBy(() -> inTenantScope(jdbc, tenantA, () -> jdbc.update(
                 """
                 INSERT INTO crm_party_addresses
                     (id,tenant_id,version,owner_type,owner_id,account_id,contact_id,address_type,
@@ -153,7 +165,7 @@ class CrmAddressCommunicationMigrationUpgradeTest {
                 VALUES (?, ?, 0, 'ACCOUNT', ?, ?, NULL, 'OFFICE',
                         'Cross Tenant', 'Riyadh', 'SA', FALSE, NULL, FALSE, 'ACTIVE', ?, ?, ?, ?)
                 """,
-                UUID.randomUUID(), tenantA, accountB, accountB, userA, userA, now, now))
+                UUID.randomUUID(), tenantA, accountB, accountB, userA, userA, now, now)))
                 .hasMessageContaining("fk_crm_party_addresses_account");
     }
 
@@ -185,6 +197,19 @@ class CrmAddressCommunicationMigrationUpgradeTest {
                     """,
                     userId, tenantId, suffix + "-crm007@example.test", "User " + suffix,
                     "ACTIVE", "dummy", now, now);
+        });
+    }
+
+    /** FORCE RLS (V20261029_1): tenant-owned CRM rows are fail-closed — run
+     *  seed/verification statements inside a transaction-local app.tenant_id
+     *  scope on the fixture connection (same pattern as insertTenantAndUser). */
+    private static void inTenantScope(JdbcTemplate jdbc, UUID tenantId, Runnable body) {
+        TransactionTemplate tx = new TransactionTemplate(
+                new DataSourceTransactionManager(jdbc.getDataSource()));
+        tx.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            body.run();
         });
     }
 

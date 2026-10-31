@@ -1,6 +1,7 @@
 package com.sanad.platform.hr.time;
 
 import com.sanad.platform.hr.time.application.HrLeaveWorkflowAdapter;
+import com.sanad.platform.test.TenantGucDataSource;
 import com.sanad.platform.workflow.application.WorkflowApprovalCommandPort;
 import com.sanad.platform.workflow.application.WorkflowEntitlementGuard;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
@@ -104,7 +105,13 @@ class HrG2LeavePostgresIntegrationTest {
                             + "and SPRING_DATASOURCE_USERNAME pointing to a PostgreSQL Direct database.");
         }
 
-        DataSource dataSource = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
+        // V20261029_1: workflow_definitions / workflow_steps / workflow_instances /
+        // workflow_step_instances / workflow_approval_requests are FORCE RLS
+        // (fail-closed) — route all fixture SQL through TenantGucDataSource so
+        // every connection presents the fixture tenant GUC. Not a bypass: the
+        // fail-closed policy predicate stays authoritative.
+        DataSource rawDataSource = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
+        TenantGucDataSource dataSource = new TenantGucDataSource(rawDataSource, null);
         jdbc = new JdbcTemplate(dataSource);
         transactionManager = new DataSourceTransactionManager(dataSource);
         tx = new TransactionTemplate(transactionManager);
@@ -127,6 +134,9 @@ class HrG2LeavePostgresIntegrationTest {
                 mock(WorkflowEntitlementGuard.class));
 
         tenantId = UUID.randomUUID();
+        // Bind the primary fixture tenant as the wrapper's session default
+        // (fresh per test — this class regenerates its tenant in setUp).
+        dataSource.setDefaultTenant(tenantId);
         submitterUserId = UUID.randomUUID();
         managerUserId = UUID.randomUUID();
         hrUserId = UUID.randomUUID();
@@ -444,69 +454,77 @@ class HrG2LeavePostgresIntegrationTest {
         UUID tenantBId = UUID.randomUUID();
         UUID tenantBUser = UUID.randomUUID();
         Timestamp now = Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
-                tenantBId, "Tenant B " + tenantBId.toString().substring(0, 8),
-                "tenant-b-" + tenantBId.toString().substring(0, 8), now, now);
-        // public.users is FORCE RLS (V20261011_3). DriverManagerDataSource
-        // returns a fresh physical Connection per jdbc.update() call (no pooling,
-        // no Spring-managed tx), so set_config + INSERT INTO users must share
-        // ONE tx.executeWithoutResult block to use the same tx-bound Connection.
-        tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantBId.toString());
-            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
-                            + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
-                    tenantBUser, tenantBId, "tenant-b-" + tenantBUser.toString().substring(0, 8) + "@test",
-                    "Tenant B User", now, now);
+        // V20261029_1: workflow_* tables are FORCE RLS — Tenant B rows are
+        // seeded under Tenant B's own GUC scope (TenantGucDataSource.runAsTenant
+        // session binding; same fail-closed predicate, not a bypass).
+        WorkflowInstance[] tenantBInstanceHolder = new WorkflowInstance[1];
+        TenantGucDataSource.runAsTenant(tenantBId, () -> {
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
+                    tenantBId, "Tenant B " + tenantBId.toString().substring(0, 8),
+                    "tenant-b-" + tenantBId.toString().substring(0, 8), now, now);
+            // public.users is FORCE RLS (V20261011_3). DriverManagerDataSource
+            // returns a fresh physical Connection per jdbc.update() call (no pooling,
+            // no Spring-managed tx), so set_config + INSERT INTO users must share
+            // ONE tx.executeWithoutResult block to use the same tx-bound Connection.
+            tx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantBId.toString());
+                jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
+                        tenantBUser, tenantBId, "tenant-b-" + tenantBUser.toString().substring(0, 8) + "@test",
+                        "Tenant B User", now, now);
+            });
+
+            // Tenant B workflow definition + steps + instance + step instance + approval
+            WorkflowDefinition tenantBDef = WorkflowDefinition.createY2Draft(
+                    tenantBId, "HR_LEAVE_APPROVAL", "Leave Approval", "Tenant B def", "HRM",
+                    WorkflowDefinition.TriggerType.MANUAL, tenantBUser);
+            tenantBDef = defRepo.save(tenantBDef);
+            WorkflowStep tenantBSubmit = defRepo.saveStep(WorkflowStep.create(
+                    tenantBId, tenantBDef.id(), "submit", "Submit", WorkflowStep.StepType.START,
+                    1, "{}", null, null, null));
+            WorkflowStep tenantBManagerStep = defRepo.saveStep(WorkflowStep.create(
+                    tenantBId, tenantBDef.id(), "manager_approval", "Manager Approval",
+                    WorkflowStep.StepType.APPROVAL, 2, "{\"approvalPolicy\":\"ANY_ONE\"}",
+                    48, "HRM.LEAVE.TEAM_APPROVE", null));
+            tenantBDef = tenantBDef.publish(tenantBUser, "checksum-b");
+            tenantBDef = defRepo.save(tenantBDef);
+
+            UUID tenantBInstanceId = UUID.randomUUID();
+            WorkflowInstance tenantBInstance = WorkflowInstance.startY2(
+                    tenantBId, tenantBDef.definitionFamilyId(), tenantBDef.id(), tenantBDef.version(),
+                    "LEAVE_REQUEST", UUID.randomUUID(),
+                    "manager_approval", tenantBUser, tenantBInstanceId,
+                    "MANUAL", null, "tenant-b-key-" + tenantBInstanceId, null, null);
+            tenantBInstance = new WorkflowInstance(
+                    tenantBInstanceId, tenantBInstance.tenantId(), tenantBInstance.workflowDefinitionId(),
+                    tenantBInstance.workflowVersion(), tenantBInstance.businessEntityType(),
+                    tenantBInstance.businessEntityId(),
+                    WorkflowInstance.Status.RUNNING, "manager_approval", tenantBInstance.startedBy(),
+                    tenantBInstance.startedAt(), tenantBInstance.completedAt(), tenantBInstance.cancelledAt(),
+                    tenantBInstance.cancelledBy(), tenantBInstance.cancelReason(), tenantBInstance.correlationId(),
+                    WorkflowInstance.EngineGeneration.Y2, tenantBInstance.definitionFamilyId(),
+                    tenantBInstance.definitionVersionId(), tenantBInstance.parentInstanceId(),
+                    tenantBInstance.triggerType(), tenantBInstance.triggerId(),
+                    tenantBInstance.idempotencyKey(), tenantBInstance.causationId(),
+                    tenantBInstance.contextJson(), tenantBInstance.contextSchemaVersion(),
+                    tenantBInstance.version(), tenantBInstance.createdAt(), tenantBInstance.updatedAt());
+            tenantBInstance = instanceRepo.save(tenantBInstance);
+
+            WorkflowStepInstance tenantBManagerSi = WorkflowStepInstance.create(
+                    tenantBId, tenantBInstance.id(), tenantBManagerStep.id(), "manager_approval",
+                    (java.time.Instant) null, tenantBUser, "MANAGER");
+            tenantBManagerSi = stepInstanceRepo.save(tenantBManagerSi);
+
+            WorkflowApprovalRequest tenantBApproval = WorkflowApprovalRequest.create(
+                    tenantBId, tenantBInstance.id(), tenantBManagerSi.id(),
+                    tenantBUser, "MANAGER", null, tenantBUser);
+            tenantBApproval = approvalRepo.save(tenantBApproval);
+            tenantBInstanceHolder[0] = tenantBInstance;
         });
-
-        // Tenant B workflow definition + steps + instance + step instance + approval
-        WorkflowDefinition tenantBDef = WorkflowDefinition.createY2Draft(
-                tenantBId, "HR_LEAVE_APPROVAL", "Leave Approval", "Tenant B def", "HRM",
-                WorkflowDefinition.TriggerType.MANUAL, tenantBUser);
-        tenantBDef = defRepo.save(tenantBDef);
-        WorkflowStep tenantBSubmit = defRepo.saveStep(WorkflowStep.create(
-                tenantBId, tenantBDef.id(), "submit", "Submit", WorkflowStep.StepType.START,
-                1, "{}", null, null, null));
-        WorkflowStep tenantBManagerStep = defRepo.saveStep(WorkflowStep.create(
-                tenantBId, tenantBDef.id(), "manager_approval", "Manager Approval",
-                WorkflowStep.StepType.APPROVAL, 2, "{\"approvalPolicy\":\"ANY_ONE\"}",
-                48, "HRM.LEAVE.TEAM_APPROVE", null));
-        tenantBDef = tenantBDef.publish(tenantBUser, "checksum-b");
-        tenantBDef = defRepo.save(tenantBDef);
-
-        UUID tenantBInstanceId = UUID.randomUUID();
-        WorkflowInstance tenantBInstance = WorkflowInstance.startY2(
-                tenantBId, tenantBDef.definitionFamilyId(), tenantBDef.id(), tenantBDef.version(),
-                "LEAVE_REQUEST", UUID.randomUUID(),
-                "manager_approval", tenantBUser, tenantBInstanceId,
-                "MANUAL", null, "tenant-b-key-" + tenantBInstanceId, null, null);
-        tenantBInstance = new WorkflowInstance(
-                tenantBInstanceId, tenantBInstance.tenantId(), tenantBInstance.workflowDefinitionId(),
-                tenantBInstance.workflowVersion(), tenantBInstance.businessEntityType(),
-                tenantBInstance.businessEntityId(),
-                WorkflowInstance.Status.RUNNING, "manager_approval", tenantBInstance.startedBy(),
-                tenantBInstance.startedAt(), tenantBInstance.completedAt(), tenantBInstance.cancelledAt(),
-                tenantBInstance.cancelledBy(), tenantBInstance.cancelReason(), tenantBInstance.correlationId(),
-                WorkflowInstance.EngineGeneration.Y2, tenantBInstance.definitionFamilyId(),
-                tenantBInstance.definitionVersionId(), tenantBInstance.parentInstanceId(),
-                tenantBInstance.triggerType(), tenantBInstance.triggerId(),
-                tenantBInstance.idempotencyKey(), tenantBInstance.causationId(),
-                tenantBInstance.contextJson(), tenantBInstance.contextSchemaVersion(),
-                tenantBInstance.version(), tenantBInstance.createdAt(), tenantBInstance.updatedAt());
-        tenantBInstance = instanceRepo.save(tenantBInstance);
-
-        WorkflowStepInstance tenantBManagerSi = WorkflowStepInstance.create(
-                tenantBId, tenantBInstance.id(), tenantBManagerStep.id(), "manager_approval",
-                (java.time.Instant) null, tenantBUser, "MANAGER");
-        tenantBManagerSi = stepInstanceRepo.save(tenantBManagerSi);
-
-        WorkflowApprovalRequest tenantBApproval = WorkflowApprovalRequest.create(
-                tenantBId, tenantBInstance.id(), tenantBManagerSi.id(),
-                tenantBUser, "MANAGER", null, tenantBUser);
-        tenantBApproval = approvalRepo.save(tenantBApproval);
+        WorkflowInstance tenantBInstance = tenantBInstanceHolder[0];
 
         // Tenant A's adapter querying Tenant B's instance must return empty (tenant isolation)
         Optional<WorkflowApprovalRequest> crossTenantResult = adapter.findPendingApprovalForCurrentStep(

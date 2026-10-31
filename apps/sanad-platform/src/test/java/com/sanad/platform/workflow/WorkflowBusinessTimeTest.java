@@ -49,6 +49,12 @@ class WorkflowBusinessTimeTest {
     void setUp() {
         tenantId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
+        // FORCE RLS (V20261029_1): the test-managed transaction spans the whole
+        // method — scope it to the fixture tenant up front so the calendar
+        // seeds and every business-time read run under the owning tenant's
+        // identity, immune to pooled-connection GUC leftovers ('') from other
+        // suites. is_local=true dies with the rolled-back test transaction.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Business Time', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-bt-" + tenantId.toString().substring(0, 8), now, now);
