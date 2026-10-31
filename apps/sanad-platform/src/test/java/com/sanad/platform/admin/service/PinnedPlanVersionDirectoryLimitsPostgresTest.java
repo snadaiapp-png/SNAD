@@ -4,6 +4,7 @@ import com.sanad.platform.admin.api.SaasAdminDtos.CreateMembershipAdminRequest;
 import com.sanad.platform.admin.api.SaasAdminDtos.CreateOrganizationAdminRequest;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -39,6 +40,8 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
     private static String baseUrl;
     private JdbcTemplate jdbc;
     private TransactionTemplate seedTx;
+    /** FORCE-RLS GUC-binding wrapper — the same DataSource jdbc/seedTx run on. */
+    private TenantGucDataSource gucDs;
     private TenantDirectoryAdministrationService service;
 
     @BeforeAll
@@ -77,12 +80,19 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative
+        // (not a bypass). The owning tenant is bound once generated inside
+        // seedSubscription below; the tx-local set_config scopes above it
+        // still win inside their transactions.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         // organizations + organization_memberships are FORCE RLS (V20261029_1):
         // identity-plane writes bind the tenant GUC inside one transaction.
-        seedTx = new TransactionTemplate(new DataSourceTransactionManager(ds));
+        seedTx = new TransactionTemplate(new DataSourceTransactionManager(gucDs));
         service = new TenantDirectoryAdministrationService(
                 jdbc, mock(PlatformAuditService.class));
     }
@@ -150,6 +160,11 @@ class PinnedPlanVersionDirectoryLimitsPostgresTest {
         UUID planId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
+
+        // FORCE-RLS (V20261029_1): bind the fixture to the owning tenant —
+        // fail-closed predicate unchanged, not a bypass (same shape as
+        // PinnedPlanVersionCurrencyPostgresTest.newTenant()).
+        gucDs.setDefaultTenant(tenantId);
 
         jdbc.update("""
                 INSERT INTO tenants (

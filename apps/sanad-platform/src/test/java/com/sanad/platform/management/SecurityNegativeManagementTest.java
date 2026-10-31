@@ -1,5 +1,6 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.*;
 import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -153,6 +154,28 @@ class SecurityNegativeManagementTest {
         return token;
     }
 
+    // V20261029_1 FORCE RLS: legitimate seed/verification paths bind the tenant
+    // GUC (SecurityContext -> TenantRlsConnectionHandler applies SET LOCAL inside
+    // @Transactional service boundaries). The fail-closed denial probes below run
+    // OUTSIDE these helpers and stay unbound — predicate unchanged, not a bypass.
+    private void runAsTenant(UUID tid, UUID uid, Runnable block) {
+        RlsTestSupport.setSecurityContext(tid, uid);
+        try {
+            block.run();
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
+    }
+
+    private <T> T readAsTenant(UUID tid, UUID uid, java.util.function.Supplier<T> block) {
+        RlsTestSupport.setSecurityContext(tid, uid);
+        try {
+            return block.get();
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
+    }
+
     // ===== UNAUTHENTICATED =====
 
     private static ResultMatcher isUnauthorizedOrForbidden() {
@@ -204,9 +227,9 @@ class SecurityNegativeManagementTest {
                 StrategicObjective.Priority.HIGH, userA,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
         );
-        var created = objectiveService.createObjective(obj);
+        var created = readAsTenant(tenantA, userA, () -> objectiveService.createObjective(obj));
 
-        // Tenant B should NOT see Tenant A's objective
+        // Tenant B should NOT see Tenant A's objective (unbound read — fail closed)
         var found = objectiveService.findById(tenantB, created.id());
         assertThat(found).isEmpty();
     }
@@ -218,9 +241,9 @@ class SecurityNegativeManagementTest {
                 "OPERATIONAL", KeyResult.MetricUnit.COUNT,
                 KeyResult.Direction.UP, "COUNT", "CRM", userA
         );
-        var created = kpiService.createDefinition(def);
+        var created = readAsTenant(tenantA, userA, () -> kpiService.createDefinition(def));
 
-        // Tenant B should NOT find Tenant A's KPI
+        // Tenant B should NOT find Tenant A's KPI (unbound read — fail closed)
         var found = kpiService.findDefinitionById(tenantB, created.id());
         assertThat(found).isEmpty();
     }
@@ -231,9 +254,9 @@ class SecurityNegativeManagementTest {
                 tenantA, "RISK-SEC-A", "Tenant A Risk", "Test",
                 "OPERATIONAL", 3, 3, userA, userA, null
         );
-        var created = riskService.create(risk, userA);
+        var created = readAsTenant(tenantA, userA, () -> riskService.create(risk, userA));
 
-        // Tenant B should NOT find Tenant A's risk
+        // Tenant B should NOT find Tenant A's risk (unbound read — fail closed)
         var found = riskService.findById(tenantB, created.id());
         assertThat(found).isEmpty();
     }
@@ -245,9 +268,9 @@ class SecurityNegativeManagementTest {
                 "Test", "STRATEGIC", ExecutiveDecision.Priority.HIGH,
                 "HIGH", "Outcome", userA, userA, null
         );
-        var created = decisionService.create(decision, userA);
+        var created = readAsTenant(tenantA, userA, () -> decisionService.create(decision, userA));
 
-        // Tenant B should NOT find Tenant A's decision
+        // Tenant B should NOT find Tenant A's decision (unbound read — fail closed)
         var found = decisionService.findById(tenantB, created.id());
         assertThat(found).isEmpty();
     }
@@ -257,15 +280,17 @@ class SecurityNegativeManagementTest {
     @Test
     void crossTenant_objectiveList_doesNotLeakAcrossTenants() {
         // Create 5 objectives in Tenant A
-        for (int i = 0; i < 5; i++) {
-            objectiveService.createObjective(StrategicObjective.create(
-                    tenantA, "OBJ-SEC-" + i, "Objective " + i, "Test",
-                    StrategicObjective.Priority.NORMAL, userA,
-                    LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
-            ));
-        }
+        runAsTenant(tenantA, userA, () -> {
+            for (int i = 0; i < 5; i++) {
+                objectiveService.createObjective(StrategicObjective.create(
+                        tenantA, "OBJ-SEC-" + i, "Objective " + i, "Test",
+                        StrategicObjective.Priority.NORMAL, userA,
+                        LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
+                ));
+            }
+        });
 
-        // Tenant B should see 0 objectives (not 5)
+        // Tenant B should see 0 objectives (not 5) — unbound read (fail closed)
         var tenantBObjectives = objectiveService.findByTenant(tenantB, 100);
         assertThat(tenantBObjectives).isEmpty();
     }
@@ -280,7 +305,7 @@ class SecurityNegativeManagementTest {
                 StrategicObjective.Priority.NORMAL, userB,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
         );
-        objectiveService.createObjective(obj);
+        runAsTenant(tenantB, userB, () -> objectiveService.createObjective(obj));
 
         // Direct SQL query without tenant context (should see nothing due to RLS)
         // Without setting app.tenant_id, RLS should return 0 rows
@@ -294,25 +319,25 @@ class SecurityNegativeManagementTest {
 
     @Test
     void rls_tenantIsolatedQuery_returnsCorrectRows() {
-        // Create objectives in both tenants
-        objectiveService.createObjective(StrategicObjective.create(
+        // Create objectives in both tenants (per-tenant seed binding)
+        runAsTenant(tenantA, userA, () -> objectiveService.createObjective(StrategicObjective.create(
                 tenantA, "OBJ-RLS-A1", "A1", "Test",
                 StrategicObjective.Priority.NORMAL, userA,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
-        ));
-        objectiveService.createObjective(StrategicObjective.create(
+        )));
+        runAsTenant(tenantB, userB, () -> objectiveService.createObjective(StrategicObjective.create(
                 tenantB, "OBJ-RLS-B1", "B1", "Test",
                 StrategicObjective.Priority.NORMAL, userB,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)
-        ));
+        )));
 
         // Application-level query with tenant A should only see A's objectives
-        var aObjectives = objectiveService.findByTenant(tenantA, 100);
+        var aObjectives = readAsTenant(tenantA, userA, () -> objectiveService.findByTenant(tenantA, 100));
         assertThat(aObjectives).hasSize(1);
         assertThat(aObjectives.get(0).code()).isEqualTo("OBJ-RLS-A1");
 
         // Application-level query with tenant B should only see B's objectives
-        var bObjectives = objectiveService.findByTenant(tenantB, 100);
+        var bObjectives = readAsTenant(tenantB, userB, () -> objectiveService.findByTenant(tenantB, 100));
         assertThat(bObjectives).hasSize(1);
         assertThat(bObjectives.get(0).code()).isEqualTo("OBJ-RLS-B1");
     }
@@ -321,24 +346,29 @@ class SecurityNegativeManagementTest {
 
     @Test
     void segregationOfDuties_creatorCannotApproveOwnDecision() {
-        var decision = ExecutiveDecision.create(
-                tenantA, "DEC-SOD-1", "Test Decision", "Test",
-                "Test", "STRATEGIC", ExecutiveDecision.Priority.HIGH,
-                "HIGH", "Outcome", userA, userA, null
-        );
-        var created = decisionService.create(decision, userA);
-        decisionService.submit(tenantA, created.id(), userA);
-        decisionService.startReview(tenantA, created.id(), userA);
+        // Entire lifecycle is tenantA-scoped; the SoD denial probe is an
+        // application-rule assertion that needs the seeded decision visible
+        // (an unbound read would 404 before the rule fires).
+        runAsTenant(tenantA, userA, () -> {
+            var decision = ExecutiveDecision.create(
+                    tenantA, "DEC-SOD-1", "Test Decision", "Test",
+                    "Test", "STRATEGIC", ExecutiveDecision.Priority.HIGH,
+                    "HIGH", "Outcome", userA, userA, null
+            );
+            var created = decisionService.create(decision, userA);
+            decisionService.submit(tenantA, created.id(), userA);
+            decisionService.startReview(tenantA, created.id(), userA);
 
-        // Try to approve with the SAME user who created it
-        org.assertj.core.api.Assertions.assertThatThrownBy(
-                () -> decisionService.approve(tenantA, created.id(), userA))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Segregation of duties");
+            // Try to approve with the SAME user who created it
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> decisionService.approve(tenantA, created.id(), userA))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Segregation of duties");
 
-        // Different user CAN approve
-        var approved = decisionService.approve(tenantA, created.id(), approverA);
-        assertThat(approved.status()).isEqualTo(ExecutiveDecision.Status.APPROVED);
+            // Different user CAN approve
+            var approved = decisionService.approve(tenantA, created.id(), approverA);
+            assertThat(approved.status()).isEqualTo(ExecutiveDecision.Status.APPROVED);
+        });
     }
 
     // ===== API-LEVEL AUTHORIZATION =====
@@ -411,12 +441,12 @@ class SecurityNegativeManagementTest {
 
     @Test
     void governanceConfiguration_crossTenantAccessDeniedAtService() {
-        // Tenant A creates a configuration
+        // Tenant A creates a configuration (seed path — bound)
         var req = new com.sanad.platform.management.api.GovernanceConfigDtos.CreateConfigurationRequest(
                 "test.cross.tenant", "v-A", com.sanad.platform.management.api.GovernanceConfigDtos.ConfigType.STRING, null);
-        var created = governanceConfigService.create(tenantA, req, null);
+        var created = readAsTenant(tenantA, userA, () -> governanceConfigService.create(tenantA, req, null));
 
-        // Tenant B cannot read it — service throws 404
+        // Tenant B cannot read it — service throws 404 (unbound probes — fail closed)
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> governanceConfigService.get(tenantB, created.id()))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -436,8 +466,8 @@ class SecurityNegativeManagementTest {
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .extracting("statusCode").isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
 
-        // Verify Tenant A still owns the unchanged row
-        var stillThere = governanceConfigService.get(tenantA, created.id());
+        // Verify Tenant A still owns the unchanged row (verification read — bound)
+        var stillThere = readAsTenant(tenantA, userA, () -> governanceConfigService.get(tenantA, created.id()));
         assertThat(stillThere.configValue()).isEqualTo("v-A");
     }
 

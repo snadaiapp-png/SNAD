@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -69,7 +70,10 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
         UUID tenantId = UUID.randomUUID();
         UUID principalId = UUID.randomUUID();
         Instant now = Instant.now();
-        int inserted = jdbc.update("""
+        // FORCE-RLS (V20261029_1): the protected crm_idempotency_records INSERT
+        // and its read-back run under the owning tenant's scope — fail-closed
+        // predicate unchanged, not a bypass.
+        int inserted = TenantGucDataSource.readAsTenant(tenantId, () -> jdbc.update("""
                 INSERT INTO crm_idempotency_records (
                     id, tenant_id, principal_id, endpoint, idempotency_key,
                     request_fingerprint_sha256, response_status,
@@ -79,12 +83,12 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
                 """,
                 id, tenantId, principalId, "/api/v2/crm/accounts/test/addresses", "gap-test-key",
                 "a".repeat(64), 201, "{}", "{}", "application/json",
-                Timestamp.from(now), Timestamp.from(now.plusSeconds(3600)));
+                Timestamp.from(now), Timestamp.from(now.plusSeconds(3600))));
 
         assertThat(inserted).isOne();
-        assertThat(jdbc.queryForObject(
+        assertThat(TenantGucDataSource.readAsTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT response_status FROM crm_idempotency_records WHERE id=?",
-                Integer.class, id)).isEqualTo(201);
+                Integer.class, id))).isEqualTo(201);
 
         complete.migrate();
         complete.validate();
@@ -118,7 +122,11 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     }
 
     private JdbcTemplate jdbc() {
-        return new JdbcTemplate(dataSource());
+        // FORCE-RLS (V20261029_1): connections present the tenant identity via
+        // TenantGucDataSource — RLS-protected statements scope themselves at the
+        // call site (runAsTenant/readAsTenant). Fail-closed predicate unchanged,
+        // not a bypass.
+        return new JdbcTemplate(new TenantGucDataSource(dataSource(), null));
     }
 
     private long historyCount(JdbcTemplate jdbc, String version) {

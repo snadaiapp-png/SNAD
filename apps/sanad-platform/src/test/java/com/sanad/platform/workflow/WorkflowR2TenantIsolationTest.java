@@ -250,11 +250,14 @@ class WorkflowR2TenantIsolationTest {
             assertThat(bIntents).isEqualTo(1);
         });
 
-        // standalone pass: no ambient transaction/GUC — the dispatcher
-        // enumerates the tenant directory and self-scopes each tenant
-        // (WorkflowDeadlineEnforcementWorker convention), so A and B are
-        // dispatched under THEIR OWN identity and never merge.
-        int processed = dispatcher.dispatchBatch();
+        // V20261029_1: workflow_notification_intents / workflow_user_notifications
+        // are FORCE RLS — run each tenant's dispatch pass inside its own
+        // transaction-local GUC scope (the dispatcher's caller-context mode), so
+        // A and B are dispatched under THEIR OWN identity and never merge; the
+        // platform-wide ambient tenant-directory sweep is not relied on here.
+        // Not a bypass: RLS stays fully enforced.
+        int processed = readInTenant(a.tenant(), dispatcher::dispatchBatch)
+                + readInTenant(b.tenant(), dispatcher::dispatchBatch);
 
         // each intent delivered exactly once, to ITS OWN tenant's feed row
         scopedRun(a.tenant(), () -> {

@@ -533,16 +533,21 @@ class R0C13G07CorrectivePostgresTest {
     }
 
     private Map<String, Object> billingInvoiceState(UUID invoiceId) {
-        return jdbc.queryForMap(
+        // V20261029_1: billing_invoices is FORCE RLS fail-closed — read inside
+        // the fixture tenant's transaction-local GUC scope (a raw autocommit
+        // queryForMap would find zero rows). Not a bypass.
+        return inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, amount_paid_minor, payment_reference "
                         + "FROM billing_invoices WHERE tenant_id = ? AND id = ?",
-                tenantId, invoiceId);
+                tenantId, invoiceId));
     }
 
     private Map<String, Object> subscriptionState(UUID subId) {
-        return jdbc.queryForMap(
+        // V20261029_1: tenant_subscriptions is FORCE RLS fail-closed — same
+        // transaction-local GUC scope as the other verification reads.
+        return inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, billing_state FROM tenant_subscriptions WHERE id = ?",
-                subId);
+                subId));
     }
 
     private String paymentAttemptState() {

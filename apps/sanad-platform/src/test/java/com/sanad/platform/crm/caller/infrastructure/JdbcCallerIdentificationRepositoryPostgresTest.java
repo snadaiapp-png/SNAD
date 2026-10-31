@@ -4,6 +4,7 @@ import com.sanad.platform.crm.caller.domain.CallerCandidate;
 import com.sanad.platform.crm.caller.domain.CallerIdentificationRepository;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,6 +37,7 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
     private JdbcTemplate jdbc;
     private TransactionTemplate transactions;
     private CallerIdentificationRepository repository;
+    private TenantGucDataSource gucDs;
 
     @BeforeAll
     static void requirePostgreSql() {
@@ -70,14 +72,20 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection this
+        // fixture hands out carries the session-scoped app.tenant_id GUC — the
+        // same identity the application binds per authenticated request. Not a
+        // bypass: the fail-closed policy predicate stays authoritative. The
+        // default tenant is bound per generated tenant in tenant(...) below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
-        transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
-        repository = new JdbcCallerIdentificationRepository(new NamedParameterJdbcTemplate(ds));
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(gucDs));
+        repository = new JdbcCallerIdentificationRepository(new NamedParameterJdbcTemplate(gucDs));
     }
 
     @Test
@@ -105,8 +113,12 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         UUID tenantB = tenant("caller-iso-b");
         UUID contactA = contact(tenantA, "عميل أ", UUID.randomUUID());
         UUID contactB = contact(tenantB, "عميل ب", UUID.randomUUID());
-        communicationMethod(tenantA, contactA, PHONE, false, "UNVERIFIED", false, "INTERNAL");
-        communicationMethod(tenantB, contactB, PHONE, false, "UNVERIFIED", false, "INTERNAL");
+        // FORCE-RLS (V20261029_1): cross-tenant seeds run under the owning
+        // tenant's scope — fail-closed predicate unchanged, not a bypass.
+        TenantGucDataSource.runAsTenant(tenantA, () ->
+                communicationMethod(tenantA, contactA, PHONE, false, "UNVERIFIED", false, "INTERNAL"));
+        TenantGucDataSource.runAsTenant(tenantB, () ->
+                communicationMethod(tenantB, contactB, PHONE, false, "UNVERIFIED", false, "INTERNAL"));
 
         List<CallerCandidate> onlyA = inTenantTransaction(tenantA,
                 () -> repository.findActiveCallerCandidates(tenantA, PHONE));
@@ -240,6 +252,9 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
 
     private UUID tenant(String key) {
         UUID id = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(id);
         Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (?,?,?,'ACTIVE',?,?)",

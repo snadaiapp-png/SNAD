@@ -1,5 +1,6 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.GovernanceConfigurationDefaults;
 import com.sanad.platform.management.application.GovernanceConfigurationService;
 import com.sanad.platform.management.api.GovernanceConfigDtos.ConfigurationResponse;
@@ -8,6 +9,7 @@ import com.sanad.platform.management.api.GovernanceConfigDtos.CreateConfiguratio
 import com.sanad.platform.management.api.GovernanceConfigDtos.ResolvedValue;
 import com.sanad.platform.management.api.GovernanceConfigDtos.UpdateConfigurationRequest;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +54,18 @@ class GovernanceConfigurationIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "gc-" + tenantId.toString().substring(0, 8), now, now);
+
+        // governance_configurations (and management_audit_trail written by the
+        // service's audit hook) are FORCE RLS (V20261029_1): direct service calls
+        // in the test thread need the tenant GUC, which TenantRlsConnectionHandler
+        // applies transaction-locally from the SecurityContext. Fail-closed
+        // predicate unchanged — not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
@@ -122,11 +136,16 @@ class GovernanceConfigurationIntegrationTest {
 
         configService.create(tenantId,
                 new CreateConfigurationRequest("key.a", "v-a", ConfigType.STRING, null), null);
+
+        // Cross-tenant seed/read call sites bind the GUC per OWNING tenant
+        // (V20261029_1 FORCE RLS; fail-closed predicate unchanged — not a bypass).
+        RlsTestSupport.setSecurityContext(otherTenant, UUID.randomUUID());
         configService.create(otherTenant,
                 new CreateConfigurationRequest("key.a", "v-other", ConfigType.STRING, null), null);
+        var others = configService.list(otherTenant);
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
 
         var mine = configService.list(tenantId);
-        var others = configService.list(otherTenant);
         assertThat(mine).hasSize(1);
         assertThat(mine.get(0).configValue()).isEqualTo("v-a");
         assertThat(others).hasSize(1);

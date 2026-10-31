@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.billing;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.subscription.billing.application.BillingReconciliationService;
 import com.sanad.platform.subscription.billing.application.BillingWebhookService;
 import com.sanad.platform.subscription.billing.domain.BillingPaymentProvider;
@@ -79,18 +80,27 @@ class R0C13G06SettlementReconciliationPostgresTest {
     @BeforeEach
     void setUp() {
         tenantId = seedTenant();
+        // SecurityContext tenant binding: TenantRlsConnectionHandler applies
+        // SET LOCAL app.tenant_id inside every Spring-managed service
+        // transaction — the same identity the JWT filter binds in production.
+        // Not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         planId = seedPlan();
-        subscriptionId = seedSubscription(tenantId, planId, "PAST_DUE", "PAST_DUE");
-        billingInvoiceId = seedBillingInvoice(
-                tenantId, subscriptionId, "SAR", 10_350L, Duration.ofDays(-5));
-        ProviderBinding binding = seedProviderPayment(
-                tenantId, subscriptionId, billingInvoiceId, 10_350L, "SAR");
+        // FORCE-RLS seed writes (V20261029_1) run inside a transaction-local
+        // GUC scope — fail-closed predicate unchanged, not a bypass.
+        subscriptionId = inTenant(tenantId, () ->
+                seedSubscription(tenantId, planId, "PAST_DUE", "PAST_DUE"));
+        billingInvoiceId = inTenant(tenantId, () -> seedBillingInvoice(
+                tenantId, subscriptionId, "SAR", 10_350L, Duration.ofDays(-5)));
+        ProviderBinding binding = inTenant(tenantId, () ->
+                seedProviderPayment(tenantId, subscriptionId, billingInvoiceId, 10_350L, "SAR"));
         paymentAttemptId = binding.paymentAttemptId();
         providerPaymentRef = binding.providerPaymentRef();
     }
 
     @AfterEach
     void cleanup() {
+        RlsTestSupport.clearSecurityContext();
         for (UUID tenant : tenantIds) {
             try {
                 inTenant(tenant, () -> {
@@ -110,8 +120,14 @@ class R0C13G06SettlementReconciliationPostgresTest {
                 // Disposable CI database remains authoritative.
             }
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // FORCE-RLS tables (V20261029_1): the deletes must run inside the
+            // tenant's transaction-local GUC scope — an unbound DELETE matches
+            // zero rows and would leave FK-blocking orphans.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);
@@ -245,10 +261,15 @@ class R0C13G06SettlementReconciliationPostgresTest {
 
     @Test
     void lateSuccessfulPaymentCannotResurrectTerminalSubscription() {
-        jdbc.update(
-                "UPDATE tenant_subscriptions SET status = 'CANCELLED' "
-                        + "WHERE id = ?",
-                subscriptionId);
+        // FORCE-RLS (V20261029_1): the lifecycle UPDATE needs the owning
+        // tenant's transaction-local GUC — fail-closed predicate unchanged.
+        inTenant(tenantId, () -> {
+            jdbc.update(
+                    "UPDATE tenant_subscriptions SET status = 'CANCELLED' "
+                            + "WHERE id = ?",
+                    subscriptionId);
+            return null;
+        });
 
         sendEvent("evt_terminal_" + compact(UUID.randomUUID()), "payment.succeeded");
 
@@ -261,10 +282,16 @@ class R0C13G06SettlementReconciliationPostgresTest {
 
     @Test
     void historicalSubscriptionPaymentCannotDunnOrRecoverSuccessor() {
-        jdbc.update(
-                "UPDATE tenant_subscriptions SET status = 'CANCELLED' WHERE id = ?",
-                subscriptionId);
-        UUID successor = seedSubscription(tenantId, planId, "ACTIVE", "CURRENT");
+        // FORCE-RLS (V20261029_1): terminal-state UPDATE and the successor
+        // seed both need the owning tenant's GUC scope — not a bypass.
+        inTenant(tenantId, () -> {
+            jdbc.update(
+                    "UPDATE tenant_subscriptions SET status = 'CANCELLED' WHERE id = ?",
+                    subscriptionId);
+            return null;
+        });
+        UUID successor = inTenant(tenantId, () ->
+                seedSubscription(tenantId, planId, "ACTIVE", "CURRENT"));
 
         sendEvent("evt_historical_" + compact(UUID.randomUUID()), "payment.succeeded");
 
@@ -282,8 +309,10 @@ class R0C13G06SettlementReconciliationPostgresTest {
 
     @Test
     void financeFailureRollsBackWebhookProjectionAndCanRetrySafely() {
-        UUID conflictingBillingInvoice = seedBillingInvoice(
-                tenantId, subscriptionId, "SAR", 5_000L, Duration.ofDays(10));
+        // FORCE-RLS (V20261029_1): the conflicting invoice seed is bound to
+        // its owning tenant's transaction-local GUC — not a bypass.
+        UUID conflictingBillingInvoice = inTenant(tenantId, () -> seedBillingInvoice(
+                tenantId, subscriptionId, "SAR", 5_000L, Duration.ofDays(10)));
         UUID dummyFinanceInvoice = UUID.randomUUID();
         String targetExternalReference = "SCP_INVOICE:" + billingInvoiceId;
 
@@ -597,17 +626,20 @@ class R0C13G06SettlementReconciliationPostgresTest {
                 externalReference, Timestamp.from(now), Timestamp.from(now));
     }
 
+    // billing_invoices / tenant_subscriptions are FORCE RLS (V20261029_1):
+    // verification reads ride the tenant's transaction-local GUC scope —
+    // fail-closed predicate unchanged, not a bypass.
     private Map<String, Object> billingInvoiceState(UUID invoiceId) {
-        return jdbc.queryForMap(
+        return inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, amount_paid_minor, payment_reference "
                         + "FROM billing_invoices WHERE tenant_id = ? AND id = ?",
-                tenantId, invoiceId);
+                tenantId, invoiceId));
     }
 
     private Map<String, Object> subscriptionState(UUID subId) {
-        return jdbc.queryForMap(
+        return inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, billing_state FROM tenant_subscriptions WHERE id = ?",
-                subId);
+                subId));
     }
 
     private String paymentAttemptState() {

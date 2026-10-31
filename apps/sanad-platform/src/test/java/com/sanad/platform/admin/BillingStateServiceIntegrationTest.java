@@ -19,6 +19,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -88,15 +89,23 @@ class BillingStateServiceIntegrationTest {
                 planId, planCode, now, now);
 
         // Subscription with billing_state=CURRENT
-        jdbc.update("INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
-                        + " credit_balance_minor, started_at, current_period_start, current_period_end, "
-                        + " cancel_at_period_end, billing_state, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
-                subscriptionId, tenantId, planId, now,
-                Timestamp.from(Instant.now()),
-                Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
-                now, now);
+        // tenant_subscriptions is FORCE RLS (V20261029_1): the seed rides the
+        // same transaction-local GUC scope as the users insert above —
+        // fail-closed predicate unchanged, not a bypass.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
+                            + " credit_balance_minor, started_at, current_period_start, current_period_end, "
+                            + " cancel_at_period_end, billing_state, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
+                    subscriptionId, tenantId, planId, now,
+                    Timestamp.from(Instant.now()),
+                    Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
+                    now, now);
+        });
     }
 
     @Test
@@ -113,9 +122,9 @@ class BillingStateServiceIntegrationTest {
         String newState = billingStateService.evaluateAndTransition(tenantId);
         assertThat(newState).isEqualTo("PAST_DUE");
         // Verify the column was persisted
-        String persisted = jdbc.queryForObject(
+        String persisted = inTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT billing_state FROM tenant_subscriptions WHERE tenant_id = ?",
-                String.class, tenantId);
+                String.class, tenantId));
         assertThat(persisted).isEqualTo("PAST_DUE");
     }
 
@@ -133,15 +142,20 @@ class BillingStateServiceIntegrationTest {
         // Transition to SUSPENDED first
         insertOverdueInvoice(Instant.now().minus(10, ChronoUnit.DAYS));
         billingStateService.evaluateAndTransition(tenantId);
-        String afterSuspend = jdbc.queryForObject(
+        String afterSuspend = inTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT billing_state FROM tenant_subscriptions WHERE tenant_id = ?",
-                String.class, tenantId);
+                String.class, tenantId));
         assertThat(afterSuspend).isEqualTo("SUSPENDED");
 
         // Mark the invoice PAID — should recover to CURRENT
-        jdbc.update("UPDATE billing_invoices SET status = 'PAID', amount_paid_minor = total_minor, "
-                        + "paid_at = ?, updated_at = ? WHERE tenant_id = ?",
-                Timestamp.from(Instant.now()), Timestamp.from(Instant.now()), tenantId);
+        // billing_invoices is FORCE RLS (V20261029_1): bind the owning tenant's
+        // transaction-local GUC — fail-closed predicate unchanged, not a bypass.
+        inTenant(tenantId, () -> {
+            jdbc.update("UPDATE billing_invoices SET status = 'PAID', amount_paid_minor = total_minor, "
+                            + "paid_at = ?, updated_at = ? WHERE tenant_id = ?",
+                    Timestamp.from(Instant.now()), Timestamp.from(Instant.now()), tenantId);
+            return null;
+        });
 
         String recovered = billingStateService.evaluateAndTransition(tenantId);
         assertThat(recovered).isEqualTo("CURRENT");
@@ -149,14 +163,20 @@ class BillingStateServiceIntegrationTest {
 
     @Test
     void evaluateAndTransition_preservesCancelledState() {
-        jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'CANCELLED' WHERE tenant_id = ?", tenantId);
+        inTenant(tenantId, () -> {
+            jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'CANCELLED' WHERE tenant_id = ?", tenantId);
+            return null;
+        });
         String result = billingStateService.evaluateAndTransition(tenantId);
         assertThat(result).isEqualTo("CANCELLED");
     }
 
     @Test
     void evaluateAndTransition_preservesTrialingState() {
-        jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'TRIALING' WHERE tenant_id = ?", tenantId);
+        inTenant(tenantId, () -> {
+            jdbc.update("UPDATE tenant_subscriptions SET billing_state = 'TRIALING' WHERE tenant_id = ?", tenantId);
+            return null;
+        });
         String result = billingStateService.evaluateAndTransition(tenantId);
         assertThat(result).isEqualTo("TRIALING");
     }
@@ -176,13 +196,18 @@ class BillingStateServiceIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Tenant B', ?, 'ACTIVE', ?, ?)",
                 tenantB, "bs-b-" + tenantB.toString().substring(0, 8), now, now);
-        jdbc.update("INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
-                        + " credit_balance_minor, started_at, current_period_start, current_period_end, "
-                        + " cancel_at_period_end, billing_state, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
-                subscriptionB, tenantB, planId, now, now,
-                Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)), now, now);
+        // Tenant B's subscription is seeded under tenant B's own FORCE-RLS
+        // scope (V20261029_1) — fail-closed predicate unchanged, not a bypass.
+        inTenant(tenantB, () -> {
+            jdbc.update("INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
+                            + " credit_balance_minor, started_at, current_period_start, current_period_end, "
+                            + " cancel_at_period_end, billing_state, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
+                    subscriptionB, tenantB, planId, now, now,
+                    Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)), now, now);
+            return null;
+        });
 
         insertOverdueInvoiceFor(tenantId, subscriptionId, Instant.now().minus(5, ChronoUnit.DAYS));
         insertOverdueInvoiceFor(tenantB, subscriptionB, Instant.now().minus(5, ChronoUnit.DAYS));
@@ -193,16 +218,16 @@ class BillingStateServiceIntegrationTest {
             assertThat(count).isGreaterThanOrEqualTo(1);
 
             // Tenant A's SQL failure rolls back only A.
-            assertThat(jdbc.queryForObject(
+            assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                     "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionId)).isEqualTo("CURRENT");
+                    String.class, subscriptionId))).isEqualTo("CURRENT");
             // Tenant B still commits in its own REQUIRES_NEW transaction.
-            assertThat(jdbc.queryForObject(
+            assertThat(inTenant(tenantB, () -> jdbc.queryForObject(
                     "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionB)).isEqualTo("PAST_DUE");
-            assertThat(jdbc.queryForObject(
+                    String.class, subscriptionB))).isEqualTo("PAST_DUE");
+            assertThat(inTenant(tenantB, () -> jdbc.queryForObject(
                     "SELECT status FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionB)).isEqualTo("PAST_DUE");
+                    String.class, subscriptionB))).isEqualTo("PAST_DUE");
         } finally {
             removeBillingFailureTrigger(trigger);
         }
@@ -212,9 +237,9 @@ class BillingStateServiceIntegrationTest {
     void markInvoicePaid_commitsPaymentBeforeIndependentBillingRecovery() {
         UUID invoiceId = insertOverdueInvoice(Instant.now().minus(10, ChronoUnit.DAYS));
         billingStateService.evaluateAndTransition(tenantId);
-        assertThat(jdbc.queryForObject(
+        assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                String.class, subscriptionId)).isEqualTo("SUSPENDED");
+                String.class, subscriptionId))).isEqualTo("SUSPENDED");
 
         String trigger = installBillingFailureTrigger(tenantId);
         try {
@@ -225,15 +250,15 @@ class BillingStateServiceIntegrationTest {
                     new MarkInvoicePaidRequest("tx-isolation-proof", "payment transaction isolation"),
                     null);
 
-            assertThat(jdbc.queryForObject(
+            assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                     "SELECT status FROM billing_invoices WHERE id = ?",
-                    String.class, invoiceId)).isEqualTo("PAID");
-            assertThat(jdbc.queryForObject(
+                    String.class, invoiceId))).isEqualTo("PAID");
+            assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                     "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionId)).isEqualTo("SUSPENDED");
-            assertThat(jdbc.queryForObject(
+                    String.class, subscriptionId))).isEqualTo("SUSPENDED");
+            assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                     "SELECT status FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionId)).isEqualTo("SUSPENDED");
+                    String.class, subscriptionId))).isEqualTo("SUSPENDED");
         } finally {
             removeBillingFailureTrigger(trigger);
         }
@@ -246,16 +271,36 @@ class BillingStateServiceIntegrationTest {
     private UUID insertOverdueInvoiceFor(UUID invoiceTenantId, UUID invoiceSubscriptionId, Instant dueAt) {
         UUID invoiceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO billing_invoices "
-                        + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
-                        + " subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
-                        + " period_start, period_end, due_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'OPEN', 'SAR', 10000, 0, 1500, 11500, 0, ?, ?, ?, ?, ?)",
-                invoiceId, invoiceTenantId, invoiceSubscriptionId,
-                "INV-TEST-" + invoiceId.toString().substring(0, 8),
-                now, Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
-                Timestamp.from(dueAt), now, now);
-        return invoiceId;
+        // billing_invoices is FORCE RLS (V20261029_1): the seed binds the
+        // owning tenant's transaction-local GUC — fail-closed predicate
+        // unchanged, not a bypass.
+        return inTenant(invoiceTenantId, () -> {
+            jdbc.update("INSERT INTO billing_invoices "
+                            + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
+                            + " subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
+                            + " period_start, period_end, due_at, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'OPEN', 'SAR', 10000, 0, 1500, 11500, 0, ?, ?, ?, ?, ?)",
+                    invoiceId, invoiceTenantId, invoiceSubscriptionId,
+                    "INV-TEST-" + invoiceId.toString().substring(0, 8),
+                    now, Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
+                    Timestamp.from(dueAt), now, now);
+            return invoiceId;
+        });
+    }
+
+    /**
+     * FORCE-RLS (V20261029_1) verification scope: raw fixture access to
+     * tenant_subscriptions / billing_invoices runs inside a transaction-local
+     * GUC bound to the owning tenant — fail-closed predicate unchanged, not a
+     * bypass. Production dunning calls bind their own trusted scope.
+     */
+    private <T> T inTenant(UUID tenant, Supplier<T> action) {
+        return tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenant.toString());
+            return action.get();
+        });
     }
 
     private String installBillingFailureTrigger(UUID failingTenantId) {

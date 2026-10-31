@@ -133,6 +133,11 @@ class AiSecurityNegativeTest {
     @Test
     void crossTenant_agentReadReturnsNotFound() throws Exception {
         // Create agent in tenantA
+        // V20261029_1 FORCE-RLS: the seed INSERT INTO ai_agents must run with
+        // the owning tenant's GUC — setUp left this shared test transaction
+        // bound to tenantB (fail-closed predicate unchanged, not a bypass).
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
         var agent = AiAgent.create(
                 tenantA, "SEC-XT-1", "Test", "Test",
                 AiAgent.Provider.DETERMINISTIC, null, null, null, null, null, userA);
@@ -146,6 +151,11 @@ class AiSecurityNegativeTest {
 
     @Test
     void crossTenant_agentListDoesNotLeak() throws Exception {
+        // V20261029_1 FORCE-RLS: seed under the owning tenant's GUC (setUp
+        // left this shared test transaction bound to tenantB) — fail-closed
+        // predicate unchanged, not a bypass.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
         agentService.create(AiAgent.create(
                 tenantA, "SEC-LEAK-1", "A", "Test",
                 AiAgent.Provider.DETERMINISTIC, null, null, null, null, null, userA));

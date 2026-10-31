@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.TenantGucDataSource;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -44,6 +45,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class CrashAfterCommitRecoveryPostgresTest {
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource gucDs;
     private static CrmIntegrationStore store;
     private static CreateFollowUpActivityCommandAdapter realAdapter;
     private static final ObjectMapper mapper = new ObjectMapper();
@@ -64,11 +66,17 @@ class CrashAfterCommitRecoveryPostgresTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        // FORCE-RLS tenant binding (V20261029_1): every connection this fixture
+        // hands out carries the session-scoped app.tenant_id GUC — the same
+        // identity the application binds per authenticated request. Not a
+        // bypass: the fail-closed policy predicate stays authoritative. The
+        // default tenant is bound per generated tenant in seedConfirmedRequest.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        jdbc = new JdbcTemplate(ds);
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         store = new CrmIntegrationStore(jdbc, mapper);
-        JdbcActivityRepository activityRepo = new JdbcActivityRepository(new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(ds));
+        JdbcActivityRepository activityRepo = new JdbcActivityRepository(new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(gucDs));
         ActivityUseCases activityUseCases = new ActivityUseCases(activityRepo, null);
         realAdapter = new CreateFollowUpActivityCommandAdapter(activityUseCases, jdbc, store);
     }
@@ -76,6 +84,9 @@ class CrashAfterCommitRecoveryPostgresTest {
     @BeforeEach
     void seedConfirmedRequest() throws Exception {
         tenantId = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(tenantId);
         actorId = UUID.randomUUID();
         requestId = UUID.randomUUID();
         decisionId = UUID.randomUUID();

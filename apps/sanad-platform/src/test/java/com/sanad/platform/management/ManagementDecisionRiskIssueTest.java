@@ -1,5 +1,6 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.EscalationService;
 import com.sanad.platform.management.application.ExecutiveDecisionService;
 import com.sanad.platform.management.application.IssueService;
@@ -9,6 +10,7 @@ import com.sanad.platform.management.domain.ExecutiveDecision;
 import com.sanad.platform.management.domain.Issue;
 import com.sanad.platform.management.domain.Risk;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,6 +127,17 @@ class ManagementDecisionRiskIssueTest {
                         UUID.randomUUID(), tenantId, roleId, capId, now);
             }
         });
+
+        // executive_decisions / risks / issues / escalations are FORCE RLS
+        // (V20261029_1): direct service calls in the test thread need the tenant
+        // GUC, which TenantRlsConnectionHandler applies transaction-locally from
+        // the SecurityContext. Fail-closed predicate unchanged — not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth() {

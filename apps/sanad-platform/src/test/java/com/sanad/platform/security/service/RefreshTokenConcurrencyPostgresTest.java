@@ -182,7 +182,15 @@ class RefreshTokenConcurrencyPostgresTest {
                 "UPDATE refresh_tokens SET replaced_by_id = NULL WHERE tenant_id = ?",
                 tenantId);
         jdbcTemplate.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
-        jdbcTemplate.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
+        // V20261029_1: tenant_subscriptions is FORCE RLS — the cleanup DELETE
+        // must run inside the tenant's transaction-local GUC scope or it
+        // silently matches zero rows and leaves FK-blocking residue.
+        tx.executeWithoutResult(txStatus -> {
+            jdbcTemplate.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbcTemplate.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
+        });
         if (planId != null) {
             jdbcTemplate.update("DELETE FROM saas_plans WHERE id = ?", planId);
         }
@@ -213,15 +221,24 @@ class RefreshTokenConcurrencyPostgresTest {
                         VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
                         """,
                 planId, "login-" + tenantId.toString().substring(0, 8));
-        jdbc.update("""
-                        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
-                                                          billing_cycle, seat_quantity, credit_balance_minor,
-                                                          started_at, current_period_start, current_period_end,
-                                                          cancel_at_period_end, billing_state, created_at, updated_at)
-                        VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
-                                NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
-                        """,
-                UUID.randomUUID(), tenantId, planId);
+        // V20261029_1: tenant_subscriptions is FORCE RLS fail-closed — bind the
+        // fixture tenant transaction-locally for this seed (same contract as the
+        // bindTenantContext+tx user save). Not a bypass: the policy predicate is
+        // unchanged. refresh_tokens itself is T2-deferred (no RLS) — untouched.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
+                                                      billing_cycle, seat_quantity, credit_balance_minor,
+                                                      started_at, current_period_start, current_period_end,
+                                                      cancel_at_period_end, billing_state, created_at, updated_at)
+                    VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
+                            NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
+                    """,
+                    UUID.randomUUID(), tenantId, planId);
+        });
     }
 
     /**
