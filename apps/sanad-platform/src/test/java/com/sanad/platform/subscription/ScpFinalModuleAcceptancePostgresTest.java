@@ -508,7 +508,7 @@ class ScpFinalModuleAcceptancePostgresTest {
         // the same total the pre-RLS unbounded query returned. The injection
         // attempt still falls back to the whitelisted default column; the
         // fail-closed predicate stays authoritative (not a bypass).
-        int platformTotal =
+        long platformTotal =
                 TenantGucDataSource.readAsTenant(tenantId, () -> gridService.search(
                                 null, null, null, null, false, 0, 20,
                                 "1; DROP TABLE tenants;--", "DESC")).totalElements()
