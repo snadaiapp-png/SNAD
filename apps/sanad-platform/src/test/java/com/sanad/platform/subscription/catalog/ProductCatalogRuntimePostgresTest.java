@@ -13,6 +13,7 @@ import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -79,6 +80,9 @@ class ProductCatalogRuntimePostgresTest {
 
     private static JdbcTemplate jdbc;
 
+    /** FORCE-RLS GUC-binding wrapper (batch B) — same instance jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     private ProductRepository productRepository;
     private ProductCatalogService catalogService;
     private PriceService priceService;
@@ -122,9 +126,17 @@ class ProductCatalogRuntimePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated request.
+        // Not a bypass: the fail-closed policy predicate stays authoritative.
+        // The default tenant is bound once generated in newTenant() below;
+        // helpers that re-scope explicitly (set_config / cross-tenant reads)
+        // still win over the session value.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
 
         productRepository = new ProductRepository(jdbc);
         catalogService = new ProductCatalogService(productRepository);
@@ -182,6 +194,10 @@ class ProductCatalogRuntimePostgresTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'SA', 'SAR', NOW(), NOW())
                         """,
                 id, "Tenant " + id, "t-" + id.toString().substring(0, 8));
+        // Bind every subsequent connection handed to this fixture to the
+        // freshly generated tenant (session scope; PG-29's sequential
+        // secondTenant switch re-binds on its own newTenant() call).
+        gucDs.setDefaultTenant(id);
         return id;
     }
 
