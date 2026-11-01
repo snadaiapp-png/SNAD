@@ -281,7 +281,7 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: SANAD P0 RLS closure (Issue #1462, T2 batch 2) adds a
     // forward-only migration at the sequence tail (V20261031_1).
     private static final String D6_T2_BATCH2_RLS_VERSION = "20261031.1";
-    private static final String LATEST_MIGRATION_VERSION = D6_T2_BATCH2_RLS_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = "20261101.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -587,6 +587,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
+                        MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -835,6 +836,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_OWNED_BUSINESS_DATA_FAIL_CLOSED_RLS_VERSION),
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
+                        MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

@@ -20,8 +20,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
-          echo '${{ github.event.pull_request.head.sha }}' > evidence/source-sha.txt
+          mkdir -p /tmp/pr1458-evidence
+          echo '${{ github.event.pull_request.head.sha }}' > /tmp/pr1458-evidence/source-sha.txt
           sudo systemctl start postgresql
           sudo -u postgres createdb pr1458_auth_contract
           correction=false
@@ -29,9 +29,9 @@ jobs:
             correction=true
           fi
           sudo -u postgres psql -X -d pr1458_auth_contract -v apply_correction="$correction" \
-            -f tests/security/pr1458_auth_index_acl.sql 2>&1 | tee evidence/postgres-direct.log
+            -f tests/security/pr1458_auth_index_acl.sql 2>&1 | tee /tmp/pr1458-evidence/postgres-direct.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: auth-index-owner-separation-${{ github.event.pull_request.head.sha }}
-          path: evidence/
+          path: /tmp/pr1458-evidence/

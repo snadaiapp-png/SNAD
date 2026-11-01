@@ -42,3 +42,12 @@ P0_SECURITY_HOLD=ACTIVE
 G1_CERTIFICATION=HOLD
 PAYMENTS=OFF
 PRODUCTION_RELEASE=NO-GO
+
+## Forward correction implementation (awaiting CI)
+RED reproduction: bdf240e0, run 41321842226, job 124893537215, psql exit 3 at pre-auth SELECT: permission denied for table auth_token_tenant_index. Distinct migration owner and restricted runtime role are explicitly asserted.
+
+V20261101_1 adds runtime SELECT/INSERT/UPDATE/DELETE for the invoker trigger and resolver, denies PUBLIC and optional Supabase API roles, pins the function to pg_catalog/pg_temp, and rejects changes to token hash/tenant/user identity while allowing status/revocation transitions. No historical migration changes; no new role, SECURITY DEFINER, BYPASSRLS or token-table RLS weakening. Latest-version assertions advance to 20261101.1 while retaining all intermediate versions.
+
+The D6 test no longer catches the central mandatory PostgreSQL availability exception and turns it into a skip. Owner-separation CI uploads to a dedicated temporary directory. Initial RED artifact 13089324460 included pre-existing repository evidence because its first upload directory overlapped evidence/; it is not a production-data export.
+
+Implementation is not yet verified. Full-chain fresh/upgrade, split-owner direct tests, full Maven and security review remain required. No G1 readiness/closure claim.

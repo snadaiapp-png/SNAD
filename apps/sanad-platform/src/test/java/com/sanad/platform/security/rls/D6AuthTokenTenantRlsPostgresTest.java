@@ -73,13 +73,8 @@ class D6AuthTokenTenantRlsPostgresTest {
 
     @BeforeAll
     static void requirePostgreSqlDirect() {
-        boolean available;
-        try {
-            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
-                    "D6AuthTokenTenantRlsPostgresTest");
-        } catch (Throwable ignored) {
-            available = false;
-        }
+        boolean available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+                "D6AuthTokenTenantRlsPostgresTest");
         Assumptions.assumeTrue(available, "PostgreSQL Direct required");
         MigrationTestSchemaSupport.ensureDatabase(BASE_URL, USER, PASSWORD);
     }

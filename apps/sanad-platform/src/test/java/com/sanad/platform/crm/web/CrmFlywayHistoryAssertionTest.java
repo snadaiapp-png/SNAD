@@ -344,6 +344,7 @@ class CrmFlywayHistoryAssertionTest {
             // login_tenant_index ACL closure, owner-bypass FORCE bind for five
             // legacy-shaped CRM tables (PostgreSQL Direct evidence).
             , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
+            , "20261101.1"   // auth-token index ACL and immutable identity
     );
 
 
