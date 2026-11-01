@@ -350,6 +350,9 @@ class CrmFlywayHistoryAssertionTest {
             // GRANT for `sanad` on refresh_tokens/password_reset_tokens; CI harness
             // lines 11-12 masked it out-of-band. Forward-only GRANTs, no weakening.
             , "20261102.1"   // auth-token restricted runtime ACL (Phase 4 rehearsal finding)
+            // SANAD P0 G1 unified remediation (Issue #1462, six-table matrix): the T2 batch 2
+            // tables carried no `sanad` ACL either — restricted runtime grants, no weakening.
+            , "20261102.2"   // T2 batch 2 restricted runtime ACL (six-table matrix finding)
     );
 
 
