@@ -126,7 +126,9 @@ class R0C13G02SchemaPostgresTest {
             // V20261031_1 (SANAD P0 RLS closure, Issue #1462, T2 batch 2) heads the chain with
             // fail-closed FORCE RLS on provisioning_jobs/provisioning_job_steps/subscription_commands,
             // login_tenant_index ACL closure, and the five legacy-shaped CRM tables.
-            assertThat(rs.getString(1)).isEqualTo("20261101.1");
+            // V20261102_1 (P0 G1 Phase 4) closes with the restricted runtime ACL for the
+            // FORCE-RLS'd auth token tables.
+            assertThat(rs.getString(1)).isEqualTo("20261102.1");
         }
     }
 
