@@ -47,7 +47,7 @@ class CrmIdempotencyContractTest {
         IdempotencyService.Replay first = service.begin(tenantA, principalA, endpoint, key, fingerprint);
         assertTrue(first instanceof IdempotencyService.Replay.ReplayMiss, "first call must be a miss");
         UUID operationId = ((IdempotencyService.Replay.ReplayMiss) first).operationId();
-        service.complete(operationId, 201, "{\"id\":\"abc\",\"version\":0}", null, "application/json");
+        service.complete(tenantA, operationId, 201, "{\"id\":\"abc\",\"version\":0}", null, "application/json");
 
         // Second call with the same key + payload must replay the cached response.
         IdempotencyService.Replay second = service.begin(tenantA, principalA, endpoint, key, fingerprint);
@@ -66,7 +66,7 @@ class CrmIdempotencyContractTest {
         String fingerprint2 = IdempotencyService.fingerprint("POST", "/api/v2/crm/accounts", "{\"displayName\":\"Other\"}");
 
         IdempotencyService.Replay first = service.begin(tenantA, principalA, endpoint, key, fingerprint1);
-        service.complete(((IdempotencyService.Replay.ReplayMiss) first).operationId(), 201, "{}", null, "application/json");
+        service.complete(tenantA, ((IdempotencyService.Replay.ReplayMiss) first).operationId(), 201, "{}", null, "application/json");
 
         // Same key, different payload → 409 conflict.
         CrmContractException ex = assertThrows(CrmContractException.class,
@@ -82,7 +82,7 @@ class CrmIdempotencyContractTest {
         String fingerprint = IdempotencyService.fingerprint("POST", endpoint, "{}");
 
         IdempotencyService.Replay first = service.begin(tenantA, principalA, endpoint, key, fingerprint);
-        service.complete(((IdempotencyService.Replay.ReplayMiss) first).operationId(), 200,
+        service.complete(tenantA, ((IdempotencyService.Replay.ReplayMiss) first).operationId(), 200,
                 "{\"lead\":{\"id\":\"...\",\"status\":\"CONVERTED\"},\"idempotent\":false}",
                 null, "application/json");
 
@@ -148,7 +148,7 @@ class CrmIdempotencyContractTest {
         // First attempt fails before commit.
         IdempotencyService.Replay first = service.begin(tenantA, principalA, endpoint, key, fp);
         UUID operationId = ((IdempotencyService.Replay.ReplayMiss) first).operationId();
-        service.fail(operationId);
+        service.fail(tenantA, operationId);
 
         // Retry with the same key must succeed as a fresh miss.
         IdempotencyService.Replay retry = service.begin(tenantA, principalA, endpoint, key, fp);

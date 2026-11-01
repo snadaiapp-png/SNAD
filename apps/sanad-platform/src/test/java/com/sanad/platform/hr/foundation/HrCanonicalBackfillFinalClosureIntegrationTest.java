@@ -235,6 +235,9 @@ class HrCanonicalBackfillFinalClosureIntegrationTest {
 
     private UUID seedOrganization(UUID tenantId, String name) throws Exception {
         UUID id = UUID.randomUUID();
+        // organizations is FORCE RLS (V20261029_1): bind the tenant GUC BEFORE
+        // the insert (same session-scoped pattern as seedLegalEntity).
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) " +
                         "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
@@ -280,6 +283,9 @@ class HrCanonicalBackfillFinalClosureIntegrationTest {
     }
 
     private void seedUser(UUID tenantId, UUID userId) throws Exception {
+        // users is FORCE RLS (V20261011_3): bind the tenant GUC before the insert
+        // instead of relying on leftover session context from a previous seed call.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO users " +
                         "(id, tenant_id, email, display_name, status, created_at, updated_at, must_change_password, session_version, platform_admin) " +

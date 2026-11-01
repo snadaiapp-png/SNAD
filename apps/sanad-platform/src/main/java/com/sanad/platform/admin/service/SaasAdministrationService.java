@@ -290,17 +290,46 @@ public class SaasAdministrationService {
     @Transactional
     public PlanResponse updatePlan(UUID planId, UpdatePlanRequest request, Authentication authentication) {
         PlanResponse before = getPlan(planId);
-        long highestSeatUsage = scalarLong(
-                "SELECT COALESCE(MAX(seat_quantity), 0) FROM tenant_subscriptions "
-                        + "WHERE plan_id = ? AND status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')",
-                planId);
-        long highestOrganizationUsage = scalarLong(
-                "SELECT COALESCE(MAX(organization_count), 0) FROM ("
-                        + "SELECT s.tenant_id, COUNT(o.id) AS organization_count FROM tenant_subscriptions s "
-                        + "LEFT JOIN organizations o ON o.tenant_id = s.tenant_id AND o.status <> 'ARCHIVED' "
-                        + "WHERE s.plan_id = ? AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED') "
-                        + "GROUP BY s.tenant_id) usage",
-                planId);
+        // tenant_subscriptions / organizations are FORCE RLS (V20261029_1):
+        // the plan-limit guard aggregates across ALL subscriber tenants, which
+        // a single ambient GUC cannot see. Enumerate the platform tenant
+        // directory (non-RLS) and fold the per-tenant maximums through the
+        // trusted scoped path — fail-closed RLS stays fully enforced.
+        long highestSeatUsage = 0;
+        long highestOrganizationUsage = 0;
+        List<UUID> subscriberTenantIds = jdbcTemplate.queryForList(
+                "SELECT id FROM tenants ORDER BY id", UUID.class);
+        for (UUID subscriberTenantId : subscriberTenantIds) {
+            if (tenantRlsContext != null) {
+                tenantRlsContext.applyForCurrentTransaction(subscriberTenantId);
+            }
+            Long seatUsage = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(MAX(seat_quantity), 0) FROM tenant_subscriptions "
+                            + "WHERE plan_id = ? AND status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')",
+                    Long.class, planId);
+            if (seatUsage != null && seatUsage > highestSeatUsage) {
+                highestSeatUsage = seatUsage;
+            }
+            Long organizationUsage = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(o.id) FROM tenant_subscriptions s "
+                            + "LEFT JOIN organizations o ON o.tenant_id = s.tenant_id AND o.status <> 'ARCHIVED' "
+                            + "WHERE s.plan_id = ? AND s.tenant_id = ? "
+                            + "  AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')",
+                    Long.class, planId, subscriberTenantId);
+            if (organizationUsage != null && organizationUsage > highestOrganizationUsage) {
+                highestOrganizationUsage = organizationUsage;
+            }
+        }
+        if (tenantRlsContext != null && authentication != null
+                && authentication.getDetails() instanceof Map<?, ?> details
+                && details.get("tenant_id") != null) {
+            // Restore the actor's own tenant scope for the remainder of the
+            // control-plane transaction (saas_plans reads are not RLS-bound,
+            // but later tenant-scoped writes in the same request must target
+            // the actor's tenant, not the last enumerated subscriber).
+            tenantRlsContext.applyForCurrentTransaction(
+                    UUID.fromString(details.get("tenant_id").toString()));
+        }
         if (request.maxUsers() < highestSeatUsage || request.maxOrganizations() < highestOrganizationUsage) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Plan limits cannot be reduced below current subscriber usage");
@@ -389,6 +418,16 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         ensureTenant(request.tenantId());
+        // Control-plane subscription birth writes/reads the TARGET tenant's
+        // FORCE-RLS rows (tenant_subscriptions, billing_invoices,
+        // subscription_* tables — V20261029_1) while the actor's SecurityContext
+        // carries the control-plane tenant. Re-scope the transaction to the
+        // target tenant through the trusted path: the id is validated by
+        // ensureTenant (platform tenant directory, non-RLS) and guarded
+        // upstream by ControlPlaneAccessGuard.
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(request.tenantId());
+        }
         // R0C-10 MODEL_B creation guard (replaces the legacy all-history
         // COUNT(*)-per-tenant guard). Decisions, in order:
         //   1. effective subscription exists -> CONFLICT (unchanged contract);

@@ -1,5 +1,6 @@
 package com.sanad.platform.website;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.website.application.*;
 import com.sanad.platform.website.api.WebsiteDtos.*;
@@ -66,6 +67,11 @@ class WebsiteModuleIntegrationTest {
                 + "RESTART IDENTITY CASCADE");
 
         tenantId = UUID.randomUUID();
+        // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every Spring-managed service transaction — fail-closed predicate
+        // unchanged, the same identity JwtAuthenticationFilter binds; not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
@@ -74,6 +80,7 @@ class WebsiteModuleIntegrationTest {
 
     @org.junit.jupiter.api.AfterEach
     void clearBaseDomain() {
+        RlsTestSupport.clearSecurityContext();
         System.clearProperty("sanad.tenancy.domains.base-domain");
     }
 
@@ -210,11 +217,19 @@ class WebsiteModuleIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'T2', ?, 'ACTIVE', ?, ?)",
                 tenant2, "wp2-" + tenant2.toString().substring(0, 8), now, now);
-        var website2 = websiteService.create(tenant2, new CreateWebsiteRequest("Site2", "dup-host2", "ar"), null);
-        assertThatThrownBy(() -> domainService.registerCustomDomain(tenant2, website2.id(),
-                new CreateDomainRequest("unique.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
+        // Second tenant's seed writes need the GUC bound to THEIR identity
+        // (V20261029_1 FORCE-RLS, fail-closed predicate unchanged, not a bypass);
+        // the duplicate-hostname CONFLICT still comes from the unique constraint.
+        RlsTestSupport.setSecurityContext(tenant2, UUID.randomUUID());
+        try {
+            var website2 = websiteService.create(tenant2, new CreateWebsiteRequest("Site2", "dup-host2", "ar"), null);
+            assertThatThrownBy(() -> domainService.registerCustomDomain(tenant2, website2.id(),
+                    new CreateDomainRequest("unique.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
+        } finally {
+            RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+        }
     }
 
     @Test

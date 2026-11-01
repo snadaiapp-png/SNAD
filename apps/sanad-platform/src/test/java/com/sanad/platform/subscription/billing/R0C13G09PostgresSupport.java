@@ -72,8 +72,15 @@ abstract class R0C13G09PostgresSupport {
                 // Disposable PostgreSQL Direct database remains authoritative.
             }
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // billing_invoices / tenant_subscriptions are FORCE RLS (V20261029_1):
+            // their deletes must run inside the transaction-local GUC scope —
+            // a raw owner DELETE would silently match zero rows and break the
+            // subsequent tenants delete via FK.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);
@@ -86,17 +93,19 @@ abstract class R0C13G09PostgresSupport {
     }
 
     protected void assertLocalBillingRemainsUnpaid() {
-        Map<String, Object> invoice = jdbc.queryForMap(
+        // billing_invoices / tenant_subscriptions are FORCE RLS (V20261029_1):
+        // read them inside the tenant's transaction-local GUC scope.
+        Map<String, Object> invoice = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, amount_paid_minor FROM billing_invoices "
                         + "WHERE tenant_id = ? AND id = ?",
-                tenantId, billingInvoiceId);
+                tenantId, billingInvoiceId));
         org.assertj.core.api.Assertions.assertThat(invoice.get("status")).isEqualTo("OPEN");
         org.assertj.core.api.Assertions.assertThat(
                 ((Number) invoice.get("amount_paid_minor")).longValue()).isZero();
 
-        Map<String, Object> subscription = jdbc.queryForMap(
+        Map<String, Object> subscription = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT status, billing_state FROM tenant_subscriptions WHERE id = ?",
-                subscriptionId);
+                subscriptionId));
         org.assertj.core.api.Assertions.assertThat(subscription.get("status")).isEqualTo("PAST_DUE");
         org.assertj.core.api.Assertions.assertThat(subscription.get("billing_state")).isEqualTo("PAST_DUE");
 
@@ -168,17 +177,22 @@ abstract class R0C13G09PostgresSupport {
     private UUID seedSubscription(UUID tenant, UUID plan, String status, String billingState) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update(
-                "INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, status, billing_state, billing_cycle, "
-                        + "seat_quantity, credit_balance_minor, started_at, current_period_start, "
-                        + "current_period_end, cancel_at_period_end, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, 'MONTHLY', 1, 0, ?, ?, ?, FALSE, ?, ?)",
-                id, tenant, plan, status, billingState,
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now.plus(Duration.ofDays(1))),
-                Timestamp.from(now), Timestamp.from(now));
+        // tenant_subscriptions is FORCE RLS (V20261029_1): the seed insert runs
+        // inside a transaction-local app.tenant_id context — fail-closed otherwise.
+        inTenant(tenant, () -> {
+            jdbc.update(
+                    "INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, status, billing_state, billing_cycle, "
+                            + "seat_quantity, credit_balance_minor, started_at, current_period_start, "
+                            + "current_period_end, cancel_at_period_end, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, ?, 'MONTHLY', 1, 0, ?, ?, ?, FALSE, ?, ?)",
+                    id, tenant, plan, status, billingState,
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now.plus(Duration.ofDays(1))),
+                    Timestamp.from(now), Timestamp.from(now));
+            return null;
+        });
         return id;
     }
 
@@ -187,19 +201,24 @@ abstract class R0C13G09PostgresSupport {
             long totalMinor, Duration dueOffset) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update(
-                "INSERT INTO billing_invoices "
-                        + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
-                        + "subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
-                        + "description, period_start, period_end, due_at, paid_at, payment_reference, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, ?, 0, "
-                        + "'R13 G09 failure injection', ?, ?, ?, NULL, NULL, ?, ?)",
-                id, tenant, subscription, "BILL-G09-" + compact(id), currency,
-                totalMinor, totalMinor,
-                Timestamp.from(now.minus(Duration.ofDays(30))),
-                Timestamp.from(now),
-                Timestamp.from(now.plus(dueOffset)),
-                Timestamp.from(now), Timestamp.from(now));
+        // billing_invoices is FORCE RLS (V20261029_1): same contract as the
+        // subscription seed above.
+        inTenant(tenant, () -> {
+            jdbc.update(
+                    "INSERT INTO billing_invoices "
+                            + "(id, tenant_id, subscription_id, invoice_number, status, currency_code, "
+                            + "subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
+                            + "description, period_start, period_end, due_at, paid_at, payment_reference, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, ?, 0, "
+                            + "'R13 G09 failure injection', ?, ?, ?, NULL, NULL, ?, ?)",
+                    id, tenant, subscription, "BILL-G09-" + compact(id), currency,
+                    totalMinor, totalMinor,
+                    Timestamp.from(now.minus(Duration.ofDays(30))),
+                    Timestamp.from(now),
+                    Timestamp.from(now.plus(dueOffset)),
+                    Timestamp.from(now), Timestamp.from(now));
+            return null;
+        });
         return id;
     }
 

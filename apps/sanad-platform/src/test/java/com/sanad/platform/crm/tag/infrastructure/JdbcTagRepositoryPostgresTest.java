@@ -39,7 +39,7 @@ class JdbcTagRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void create_persistsAndTrimsName() {
-        TagRecord saved = inTransaction(() -> tags.create(tenantId, actorId,
+        TagRecord saved = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("  VIP  ", "#gold")));
 
         assertThat(saved.id()).isNotNull();
@@ -47,27 +47,27 @@ class JdbcTagRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         assertThat(saved.name()).isEqualTo("VIP");
         assertThat(saved.color()).isEqualTo("#gold");
 
-        assertThat(tags.findById(tenantId, saved.id())).isEqualTo(saved);
+        assertThat(inTenantTransaction(tenantId, () -> tags.findById(tenantId, saved.id()))).isEqualTo(saved);
     }
 
     @Test
     void findAll_supportsSearchFilter() {
-        inTransaction(() -> tags.create(tenantId, actorId, new CreateTagCommand("VIP", null)));
-        inTransaction(() -> tags.create(tenantId, actorId, new CreateTagCommand("Cold Lead", null)));
+        inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId, new CreateTagCommand("VIP", null)));
+        inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId, new CreateTagCommand("Cold Lead", null)));
 
-        var filtered = tags.findAll(tenantId, 50, "vip");
+        var filtered = inTenantTransaction(tenantId, () -> tags.findAll(tenantId, 50, "vip"));
         assertThat(filtered).hasSize(1);
         assertThat(filtered.get(0).name()).isEqualTo("VIP");
 
-        assertThat(tags.findAll(tenantId, 50, null)).hasSize(2);
+        assertThat(inTenantTransaction(tenantId, () -> tags.findAll(tenantId, 50, null))).hasSize(2);
     }
 
     @Test
     void update_bumpsVersionAndAppliesChanges() {
-        TagRecord created = inTransaction(() -> tags.create(tenantId, actorId,
+        TagRecord created = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("VIP", "#gold")));
 
-        TagRecord updated = inTransaction(() -> tags.update(tenantId, actorId, created.id(),
+        TagRecord updated = inTenantTransaction(tenantId, () -> tags.update(tenantId, actorId, created.id(),
                 new UpdateTagCommand("Platinum", "#silver"), 0));
 
         assertThat(updated.version()).isEqualTo(1);
@@ -77,12 +77,12 @@ class JdbcTagRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void update_withStaleVersionThrowsConcurrencyConflict() {
-        TagRecord created = inTransaction(() -> tags.create(tenantId, actorId,
+        TagRecord created = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("VIP", null)));
-        inTransaction(() -> tags.update(tenantId, actorId, created.id(),
+        inTenantTransaction(tenantId, () -> tags.update(tenantId, actorId, created.id(),
                 new UpdateTagCommand("Platinum", null), 0)); // v1
 
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 tags.update(tenantId, actorId, created.id(),
                         new UpdateTagCommand("Bronze", null), 0)))
                 .isInstanceOf(CrmContractException.class)
@@ -92,53 +92,56 @@ class JdbcTagRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void assign_isIdempotentForSameTagAndSubject() {
-        UUID tagId = inTransaction(() -> tags.create(tenantId, actorId,
+        UUID tagId = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("VIP", null))).id();
         UUID subjectId = UUID.randomUUID();
 
-        TagAssignmentRecord first = inTransaction(() ->
+        TagAssignmentRecord first = inTenantTransaction(tenantId, () ->
                 tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
-        TagAssignmentRecord second = inTransaction(() ->
+        TagAssignmentRecord second = inTenantTransaction(tenantId, () ->
                 tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
 
         // the unique constraint (tenant, tag, subject_type, subject_id) makes the 2nd a no-op
         assertThat(second.id()).isEqualTo(first.id());
-        assertThat(tags.findAssignmentsBySubject(tenantId, "ACCOUNT", subjectId)).hasSize(1);
+        assertThat(inTenantTransaction(tenantId, () ->
+                tags.findAssignmentsBySubject(tenantId, "ACCOUNT", subjectId))).hasSize(1);
     }
 
     @Test
     void unassign_isIdempotentAndDoesNotFailWhenAbsent() {
-        UUID tagId = inTransaction(() -> tags.create(tenantId, actorId,
+        UUID tagId = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("VIP", null))).id();
         UUID subjectId = UUID.randomUUID();
 
-        inTransaction(() -> tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
-        inTransaction(() -> tags.unassign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
+        inTenantTransaction(tenantId, () -> tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
+        inTenantTransaction(tenantId, () -> tags.unassign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
         // second unassign of a now-absent assignment must not throw
-        inTransaction(() -> tags.unassign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
+        inTenantTransaction(tenantId, () -> tags.unassign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
 
-        assertThat(tags.findAssignmentsBySubject(tenantId, "ACCOUNT", subjectId)).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () ->
+                tags.findAssignmentsBySubject(tenantId, "ACCOUNT", subjectId))).isEmpty();
     }
 
     @Test
     void delete_removesTagAndItsAssignments() {
-        UUID tagId = inTransaction(() -> tags.create(tenantId, actorId,
+        UUID tagId = inTenantTransaction(tenantId, () -> tags.create(tenantId, actorId,
                 new CreateTagCommand("VIP", null))).id();
         UUID subjectId = UUID.randomUUID();
-        inTransaction(() -> tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
+        inTenantTransaction(tenantId, () -> tags.assign(tenantId, actorId, tagId, "ACCOUNT", subjectId));
 
-        inTransaction(() -> tags.delete(tenantId, actorId, tagId));
+        inTenantTransaction(tenantId, () -> tags.delete(tenantId, actorId, tagId));
 
         assertThatThrownBy(() -> tags.findById(tenantId, tagId))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
                         .isEqualTo(CrmErrorCode.CRM_TAG_NOT_FOUND));
-        assertThat(tags.findAssignmentsByTag(tenantId, tagId, 50)).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () ->
+                tags.findAssignmentsByTag(tenantId, tagId, 50))).isEmpty();
     }
 
     @Test
     void delete_whenMissingThrowsNotFound() {
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 tags.delete(tenantId, actorId, UUID.randomUUID())))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())

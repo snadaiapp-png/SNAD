@@ -13,6 +13,7 @@ import com.sanad.platform.subscription.plan.PlanVersionRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -132,8 +133,13 @@ class MultiPlanAnchorAuthorityPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        com.sanad.platform.test.TenantGucDataSource ds =
+                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
 
         SubscriptionItemRepository itemRepository = new SubscriptionItemRepository(jdbc);
@@ -159,6 +165,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         productAddOn = UUID.randomUUID();
         productMetered = UUID.randomUUID();
         subscription = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
 
         seedTenant(tenant, "SA");
         seedTenant(otherTenant, "SA");
@@ -311,6 +318,21 @@ class MultiPlanAnchorAuthorityPostgresTest {
         return jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, pending_plan_id FROM tenant_subscriptions WHERE id = ?",
                 subscriptionId);
+    }
+
+    /**
+     * FORCE-RLS (V20261029_1) makes a single bound connection see only its own
+     * tenant's rows, so platform-wide classification counts are summed per
+     * tenant — the same total the pre-RLS unbounded query returned. The
+     * fail-closed predicate stays authoritative (not a bypass).
+     */
+    private long classificationCount(UUID[] tenants, String sql) {
+        long total = 0L;
+        for (UUID tenant : tenants) {
+            Long part = TenantGucDataSource.readAsTenant(tenant, () -> jdbc.queryForObject(sql, Long.class));
+            total += part == null ? 0L : part;
+        }
+        return total;
     }
 
     // ---------------------------------------------------------------
@@ -514,6 +536,9 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @Test
     @DisplayName("PG-17: legacy IMMEDIATE plan change converges the anchor and PRESERVES secondary plans")
     void pg17_immediateLegacyChangePreservesSecondaryPlans() {
+        // The whole legacy-engine battery runs under the owning tenant's
+        // legitimate RLS scope (session GUC) — assertions unchanged.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -528,11 +553,14 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isZero();
         assertThat(activeItemCountForPlan(createdId, planB)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+        });
     }
 
     @Test
     @DisplayName("PG-19: renewal applying a pending plan change PRESERVES secondary plans")
     void pg19_renewalAppliesPendingAndPreservesSecondaryPlans() {
+        // Legacy-engine renewal path under the owning tenant's RLS scope.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -549,6 +577,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isZero();
         assertThat(activeItemCountForPlan(createdId, planB)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+        });
     }
 
     // ---------------------------------------------------------------
@@ -653,6 +682,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @DisplayName("PG-16: tenant B cannot add items to tenant A's subscription; tenant A ops never touch tenant B rows")
     void pg16_tenantIsolation() {
         seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        UUID[] tenantBItemBox = new UUID[1];
 
         // The addItem tenant guard rejects a foreign tenant scope.
         assertThatThrownBy(() -> itemService.addItem(subscription, "PLAN",
@@ -662,22 +692,30 @@ class MultiPlanAnchorAuthorityPostgresTest {
 
         // A tenant-B subscription with its own items must stay byte-identical
         // through any tenant-A operation (add secondary, change plan).
+        // Seeded and verified under tenant-B's legitimate RLS scope.
         UUID tenantBSub = UUID.randomUUID();
-        seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 2);
-        UUID tenantBItem = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
-        Map<String, Object> before = jdbc.queryForMap(
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(otherTenant, () -> {
+            seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 2);
+            tenantBItemBox[0] = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        });
+        UUID tenantBItem = tenantBItemBox[0];
+        Map<String, Object> before = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
-                tenantBItem);
-        Map<String, Object> anchorsBefore = anchors(tenantBSub);
+                tenantBItem));
+        Map<String, Object> anchorsBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> anchors(tenantBSub));
 
         itemService.addItem(subscription, "PLAN", null, null, planX, versionX, 1, 50000L, "SAR");
         changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
 
-        Map<String, Object> after = jdbc.queryForMap(
+        Map<String, Object> after = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
-                tenantBItem);
+                tenantBItem));
         assertThat(after).isEqualTo(before);
-        assertThat(anchors(tenantBSub)).isEqualTo(anchorsBefore);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> anchors(tenantBSub))).isEqualTo(anchorsBefore);
     }
 
     // ---------------------------------------------------------------
@@ -688,6 +726,8 @@ class MultiPlanAnchorAuthorityPostgresTest {
     @Test
     @DisplayName("PG-18: NEXT_CYCLE scheduling preserves secondary plans and the current composition")
     void pg18_nextCycleSchedulingPreservesSecondaryPlans() {
+        // Legacy-engine scheduling path under the owning tenant's RLS scope.
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(legacyTenant, () -> {
         legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
         UUID createdId = jdbc.queryForObject(
                 "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
@@ -703,6 +743,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planB)).isZero();
+        });
     }
 
     // ---------------------------------------------------------------
@@ -720,8 +761,12 @@ class MultiPlanAnchorAuthorityPostgresTest {
         UUID tenantNoAnchor = UUID.randomUUID();
         UUID subNoAnchor = UUID.randomUUID();
         seedTenant(tenantNoAnchor, "SA");
-        seedSubscription(subNoAnchor, tenantNoAnchor, planA, versionA, "ACTIVE", 1);
-        seedPlanItem(subNoAnchor, tenantNoAnchor, planX, versionX, 50000L, NOW.minusSeconds(3600));
+        // Second-tenant rows are seeded under the owning tenant's RLS scope
+        // (V20261029_1 FORCE-RLS; fail-closed predicate unchanged).
+        TenantGucDataSource.runAsTenant(tenantNoAnchor, () -> {
+            seedSubscription(subNoAnchor, tenantNoAnchor, planA, versionA, "ACTIVE", 1);
+            seedPlanItem(subNoAnchor, tenantNoAnchor, planX, versionX, 50000L, NOW.minusSeconds(3600));
+        });
 
         // Historical divergence 2: anchored item exists but its pinned version
         // differs from the anchor version column. (uk_plan_versions_one_active
@@ -729,24 +774,31 @@ class MultiPlanAnchorAuthorityPostgresTest {
         UUID tenantVersion = UUID.randomUUID();
         UUID subVersion = UUID.randomUUID();
         seedTenant(tenantVersion, "SA");
-        seedSubscription(subVersion, tenantVersion, planA, versionA, "ACTIVE", 1);
+        TenantGucDataSource.runAsTenant(tenantVersion,
+                () -> seedSubscription(subVersion, tenantVersion, planA, versionA, "ACTIVE", 1));
         UUID versionA2 = UUID.randomUUID();
         seedPlanVersion(versionA2, planA, 2, "RETIRED", 31000L);
-        seedPlanItem(subVersion, tenantVersion, planA, versionA2, 30000L, NOW.minusSeconds(3600));
+        TenantGucDataSource.runAsTenant(tenantVersion,
+                () -> seedPlanItem(subVersion, tenantVersion, planA, versionA2, 30000L, NOW.minusSeconds(3600)));
+
+        // FORCE-RLS (V20261029_1): one bound connection sees only its own
+        // tenant, so each platform-wide classification count is summed per
+        // tenant — the same totals the pre-RLS unbounded queries returned.
+        UUID[] allTenants = {tenant, otherTenant, legacyTenant, tenantNoAnchor, tenantVersion};
 
         // MISSING_ANCHORED_PLAN_ITEM (was MISSING_ACTIVE_PLAN_ITEM).
-        Long missingAnchored = jdbc.queryForObject("""
+        long missingAnchored = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         WHERE NOT EXISTS (
                             SELECT 1 FROM subscription_items i
                             WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
                               AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
-                        """, Long.class);
+                        """);
         assertThat(missingAnchored).isEqualTo(1L); // subNoAnchor only
 
         // ANCHOR_PLAN_ID_MISMATCH: active PLAN items exist but none matches
         // the anchor plan (the anchor points to a plan not active on the sub).
-        Long anchorPlanMismatch = jdbc.queryForObject("""
+        long anchorPlanMismatch = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         WHERE EXISTS (
                             SELECT 1 FROM subscription_items i
@@ -755,67 +807,69 @@ class MultiPlanAnchorAuthorityPostgresTest {
                             SELECT 1 FROM subscription_items i
                             WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
                               AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
-                        """, Long.class);
+                        """);
         assertThat(anchorPlanMismatch).isEqualTo(1L); // subNoAnchor only
 
         // ANCHOR_PLAN_VERSION_MISMATCH: the anchored item's pinned version
         // differs from the anchor version column.
-        Long anchorVersionMismatch = jdbc.queryForObject("""
+        long anchorVersionMismatch = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         JOIN subscription_items i ON i.subscription_id = s.id
                             AND i.item_type = 'PLAN' AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id
                         WHERE i.plan_version_id IS DISTINCT FROM s.plan_version_id
-                        """, Long.class);
+                        """);
         assertThat(anchorVersionMismatch).isEqualTo(1L); // subVersion only
 
         // DUPLICATE_ACTIVE_SAME_PLAN: same-plan duplicates — the unique index
         // makes this structurally impossible; the classification exists.
-        Long duplicates = jdbc.queryForObject("""
+        long duplicates = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM (
                             SELECT i.subscription_id, i.plan_id FROM subscription_items i
                             WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
                             GROUP BY i.subscription_id, i.plan_id HAVING COUNT(*) > 1) d
-                        """, Long.class);
+                        """);
         assertThat(duplicates).isZero();
 
         // PLAN_VERSION_PLAN_MISMATCH: an item pins a version of a DIFFERENT plan.
-        Long versionPlanMismatch = jdbc.queryForObject("""
+        long versionPlanMismatch = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM subscription_items i
                         JOIN plan_versions pv ON pv.id = i.plan_version_id
                         WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
                           AND i.plan_id IS DISTINCT FROM pv.plan_id
-                        """, Long.class);
+                        """);
         assertThat(versionPlanMismatch).isZero();
 
         // ORPHAN_PLAN_VERSION: an item pins a version row that does not exist
         // (FK-enforced zero; classification kept for completeness).
-        Long orphanVersions = jdbc.queryForObject("""
+        long orphanVersions = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM subscription_items i
                         WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
                           AND i.plan_version_id IS NOT NULL
                           AND NOT EXISTS (SELECT 1 FROM plan_versions pv WHERE pv.id = i.plan_version_id)
-                        """, Long.class);
+                        """);
         assertThat(orphanVersions).isZero();
 
         // MULTIPLE distinct ACTIVE PLAN items are VALID, not an error: the
         // healthy subscription carries 2 distinct plans and is NOT classified
         // by any defect category above.
-        Long validSecondarySubs = jdbc.queryForObject("""
+        long validSecondarySubs = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM (
                             SELECT s.id FROM tenant_subscriptions s
                             JOIN subscription_items i ON i.subscription_id = s.id
                                 AND i.item_type = 'PLAN' AND i.status = 'ACTIVE'
                             GROUP BY s.id HAVING COUNT(DISTINCT i.plan_id) > 1) m
-                        """, Long.class);
+                        """);
         // Only the healthy multi-plan subscription (A + X). The divergent
         // rows carry a single active plan each — their defect is the anchor
         // relationship, never the item count.
         assertThat(validSecondarySubs).isEqualTo(1L);
 
         // REPORT_ONLY: the historical divergent rows are classified, NOT repaired.
-        assertThat(jdbc.queryForObject(
-                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?", UUID.class, subVersion))
+        // Verified under the owning tenants' RLS scopes (V20261029_1).
+        assertThat(TenantGucDataSource.readAsTenant(tenantVersion, () -> jdbc.queryForObject(
+                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?", UUID.class, subVersion)))
                 .isEqualTo(versionA); // anchor column untouched
-        assertThat(activeItemCountForPlan(subNoAnchor, planX)).isEqualTo(1L); // no repair attempted
+        assertThat(TenantGucDataSource.readAsTenant(tenantNoAnchor,
+                () -> activeItemCountForPlan(subNoAnchor, planX))).isEqualTo(1L); // no repair attempted
     }
 }

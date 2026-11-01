@@ -1,9 +1,11 @@
 package com.sanad.platform.erp;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.erp.api.ErpDtos.*;
 import com.sanad.platform.erp.application.*;
 import com.sanad.platform.erp.domain.ErpDomain;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,9 +46,21 @@ class ErpModuleIntegrationTest {
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        // V20261029_1 FORCE-RLS: erp_items/erp_suppliers/erp_warehouses are
+        // fail-closed without a tenant GUC — bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every Spring-managed service transaction (the same identity
+        // JwtAuthenticationFilter binds in production); fail-closed predicate
+        // unchanged, not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "erp-" + tenantId.toString().substring(0, 8), now, now);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test

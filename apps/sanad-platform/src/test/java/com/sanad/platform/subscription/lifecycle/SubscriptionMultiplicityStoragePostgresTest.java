@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.lifecycle;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,6 +56,9 @@ class SubscriptionMultiplicityStoragePostgresTest {
 
     private JdbcTemplate jdbc;
 
+    /** FORCE-RLS GUC-binding wrapper (V20261029_1) — the DataSource jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     @BeforeAll
     static void requirePostgreSql() {
         boolean available;
@@ -89,9 +93,15 @@ class SubscriptionMultiplicityStoragePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound in newTenant() below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
     }
 
     // ---------------------------------------------------------------
@@ -216,13 +226,13 @@ class SubscriptionMultiplicityStoragePostgresTest {
     void db08_tenantIsolation() {
         UUID tenantA = newTenant();
         UUID tenantB = newTenant();
-        insertSubscription(tenantA, "ACTIVE");
+        TenantGucDataSource.runAsTenant(tenantA, () -> insertSubscription(tenantA, "ACTIVE"));
         insertSubscription(tenantB, "ACTIVE");
         insertSubscription(tenantB, "EXPIRED");
 
-        assertThat(effectiveCount(tenantA)).isEqualTo(1L);
+        assertThat(TenantGucDataSource.readAsTenant(tenantA, () -> effectiveCount(tenantA))).isEqualTo(1L);
         assertThat(effectiveCount(tenantB)).isEqualTo(1L);
-        assertThat(historyCount(tenantA)).isEqualTo(1L);
+        assertThat(TenantGucDataSource.readAsTenant(tenantA, () -> historyCount(tenantA))).isEqualTo(1L);
         assertThat(historyCount(tenantB)).isEqualTo(2L);
     }
 
@@ -271,20 +281,28 @@ class SubscriptionMultiplicityStoragePostgresTest {
     // ---------------------------------------------------------------
 
     @Test
-    @DisplayName("DB-10: tenant_subscriptions RLS state is unchanged by the migration (no weakening, no addition)")
+    @DisplayName("DB-10: tenant_subscriptions RLS state matches the V20261029_1 fail-closed contract (ENABLE + FORCE + one TO PUBLIC tenant predicate)")
     void db10_rlsStateUntouched() {
         Boolean relRowSecurity = jdbc.queryForObject(
                 "SELECT relrowsecurity FROM pg_class "
                         + "WHERE relname = 'tenant_subscriptions' "
                         + "AND relnamespace = 'public'::regnamespace", Boolean.class);
-        // Pre-existing repository state: tenant_subscriptions is NOT RLS-enforced
-        // (SCP core isolates at the application layer). The migration must not
-        // have changed that in either direction.
-        assertThat(relRowSecurity).isFalse();
+        // Superseded premise: this guard previously asserted the pre-branch
+        // state (RLS disabled, zero policies). V20261029_1 INTENTIONALLY moved
+        // tenant_subscriptions into the fail-closed FORCE-RLS contract, so the
+        // guard now asserts the new intended end-state — isolation on, owner
+        // forced, exactly the one fail-closed TO PUBLIC tenant predicate —
+        // so neither the isolation nor the policy can silently regress.
+        assertThat(relRowSecurity).isTrue();
+        Boolean relForceRowSecurity = jdbc.queryForObject(
+                "SELECT relforcerowsecurity FROM pg_class "
+                        + "WHERE relname = 'tenant_subscriptions' "
+                        + "AND relnamespace = 'public'::regnamespace", Boolean.class);
+        assertThat(relForceRowSecurity).isTrue();
 
         Long policies = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_policies WHERE tablename = 'tenant_subscriptions'", Long.class);
-        assertThat(policies).isZero();
+        assertThat(policies).isEqualTo(1L);
     }
 
     // ---------------------------------------------------------------
@@ -299,6 +317,10 @@ class SubscriptionMultiplicityStoragePostgresTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'SA', 'SAR', NOW(), NOW())
                         """,
                 id, "Tenant " + id, "t-" + id.toString().substring(0, 8));
+        // Bind every subsequent connection handed to this fixture to the
+        // freshly generated tenant (session scope); a later newTenant() call
+        // re-binds, and cross-tenant seeds/reads re-scope explicitly.
+        gucDs.setDefaultTenant(id);
         return id;
     }
 

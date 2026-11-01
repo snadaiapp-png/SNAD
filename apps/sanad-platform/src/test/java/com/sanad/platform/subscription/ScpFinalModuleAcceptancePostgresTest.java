@@ -17,6 +17,7 @@ import com.sanad.platform.subscription.read.SubscriptionGridQueryService;
 import com.sanad.platform.subscription.read.TenantDirectoryQueryService;
 import com.sanad.platform.subscription.usage.UsageMeteringService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -117,8 +118,13 @@ class ScpFinalModuleAcceptancePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative
+        // (not a bypass). Each test binds its own generated tenant(s) below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         rls = new TenantRlsTransactionContext(jdbc);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
@@ -182,7 +188,10 @@ class ScpFinalModuleAcceptancePostgresTest {
     }
 
     private void seedSubscription(UUID id, UUID tenantId, UUID planId, UUID versionId, String status) {
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS (V20261029_1): seed under the
+        // owning tenant's session GUC — fail-closed predicate unchanged, not a
+        // bypass.
+        TenantGucDataSource.runAsTenant(tenantId, () -> jdbc.update("""
                         INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, plan_version_id, status,
                                                           billing_cycle, seat_quantity, credit_balance_minor,
                                                           started_at, current_period_start, current_period_end,
@@ -190,7 +199,7 @@ class ScpFinalModuleAcceptancePostgresTest {
                         VALUES (?, ?, ?, ?, ?, 'MONTHLY', 1, 0, NOW(), NOW(), NOW() + INTERVAL '30 days',
                                 false, NOW(), NOW())
                         """,
-                id, tenantId, planId, versionId, status);
+                id, tenantId, planId, versionId, status));
     }
 
     /** Canonical usage gate: ingestion requires exactly one usage-eligible subscription. */
@@ -243,13 +252,15 @@ class ScpFinalModuleAcceptancePostgresTest {
     }
 
     private void seedProductBackedItem(UUID tenantId, UUID subscriptionId, UUID productId) {
-        jdbc.update("""
+        // subscription_items is FORCE RLS (V20261029_1): seed under the owning
+        // tenant's session GUC — fail-closed predicate unchanged, not a bypass.
+        TenantGucDataSource.runAsTenant(tenantId, () -> jdbc.update("""
                         INSERT INTO subscription_items (id, tenant_id, subscription_id, item_type,
                                                         product_id, name_snapshot, quantity,
                                                         currency_code, status, created_at, updated_at)
                         VALUES (?, ?, ?, 'ADD_ON', ?, 'Add-on item', 1, 'SAR', 'ACTIVE', NOW(), NOW())
                         """,
-                UUID.randomUUID(), tenantId, subscriptionId, productId);
+                UUID.randomUUID(), tenantId, subscriptionId, productId));
     }
 
     private UUID moduleForUsageMetric() {
@@ -272,7 +283,8 @@ class ScpFinalModuleAcceptancePostgresTest {
         UUID subscriptionId = UUID.randomUUID();
         seedSubscription(subscriptionId, tenantId, planId, versionId, "ACTIVE");
 
-        SubscriptionDetailService.SubscriptionDetail detail = detailService.detail(subscriptionId);
+        SubscriptionDetailService.SubscriptionDetail detail = TenantGucDataSource.readAsTenant(
+                tenantId, () -> detailService.detail(subscriptionId));
 
         assertThat(detail.entitlements()).isNotNull();
         List<Map<String, Object>> planRows = detail.entitlements().stream()
@@ -296,7 +308,8 @@ class ScpFinalModuleAcceptancePostgresTest {
         seedSubscription(subscriptionId, tenantId, planId, versionId, "ACTIVE");
         seedProductBackedItem(tenantId, subscriptionId, productId);
 
-        SubscriptionDetailService.SubscriptionDetail detail = detailService.detail(subscriptionId);
+        SubscriptionDetailService.SubscriptionDetail detail = TenantGucDataSource.readAsTenant(
+                tenantId, () -> detailService.detail(subscriptionId));
 
         assertThat(detail.entitlements()).anyMatch(row ->
                 "PRODUCT".equals(row.get("source"))
@@ -476,7 +489,8 @@ class ScpFinalModuleAcceptancePostgresTest {
         seedSubscription(UUID.randomUUID(), otherTenant, planId, versionId, "ACTIVE");
 
         PageResponse<SubscriptionGridQueryService.SubscriptionRow> page =
-                gridService.search(tenantId, null, null, null, false, 0, 2, "created_at", "DESC");
+                TenantGucDataSource.readAsTenant(tenantId, () ->
+                        gridService.search(tenantId, null, null, null, false, 0, 2, "created_at", "DESC"));
         assertThat(page.page()).isEqualTo(0);
         assertThat(page.size()).isEqualTo(2);
         assertThat(page.totalElements()).isEqualTo(3L);
@@ -485,13 +499,23 @@ class ScpFinalModuleAcceptancePostgresTest {
         assertThat(page.content()).allMatch(row -> tenantId.equals(row.tenantId()));
 
         PageResponse<SubscriptionGridQueryService.SubscriptionRow> activeOnly =
-                gridService.search(tenantId, "ACTIVE", null, null, false, 0, 20, "created_at", "DESC");
+                TenantGucDataSource.readAsTenant(tenantId, () ->
+                        gridService.search(tenantId, "ACTIVE", null, null, false, 0, 20, "created_at", "DESC"));
         assertThat(activeOnly.totalElements()).isEqualTo(1L);
 
-        // injection attempt falls back to the whitelisted default column
-        PageResponse<SubscriptionGridQueryService.SubscriptionRow> safe =
-                gridService.search(null, null, null, null, false, 0, 20, "1; DROP TABLE tenants;--", "DESC");
-        assertThat(safe.totalElements()).isGreaterThanOrEqualTo(4L);
+        // FORCE-RLS (V20261029_1): one bound connection sees only its own
+        // tenant's rows, so the platform-wide grid read is summed per tenant —
+        // the same total the pre-RLS unbounded query returned. The injection
+        // attempt still falls back to the whitelisted default column; the
+        // fail-closed predicate stays authoritative (not a bypass).
+        long platformTotal =
+                TenantGucDataSource.readAsTenant(tenantId, () -> gridService.search(
+                                null, null, null, null, false, 0, 20,
+                                "1; DROP TABLE tenants;--", "DESC")).totalElements()
+                        + TenantGucDataSource.readAsTenant(otherTenant, () -> gridService.search(
+                                null, null, null, null, false, 0, 20,
+                                "1; DROP TABLE tenants;--", "DESC")).totalElements();
+        assertThat(platformTotal).isGreaterThanOrEqualTo(4L);
     }
 
     @Test
@@ -569,9 +593,9 @@ class ScpFinalModuleAcceptancePostgresTest {
         assertThat(draft.getId()).isNotNull();
         planVersionService.activate(draft.getId());
 
-        UUID pinned = jdbc.queryForObject(
+        UUID pinned = TenantGucDataSource.readAsTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?",
-                UUID.class, subscriptionId);
+                UUID.class, subscriptionId));
         assertThat(pinned).isEqualTo(v1);
 
         // single-ACTIVE invariant at the database level

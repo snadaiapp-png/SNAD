@@ -50,7 +50,8 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
 
     @Test
     void findProfile_returnsEnterpriseColumns() {
-        CustomerMasterProfile profile = customerMaster.findProfile(tenantId, accountId);
+        CustomerMasterProfile profile = inTenantTransaction(tenantId, () ->
+                customerMaster.findProfile(tenantId, accountId));
 
         assertThat(profile.accountId()).isEqualTo(accountId);
         assertThat(profile.version()).isZero();
@@ -62,10 +63,11 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
 
     @Test
     void updateProfile_bumpsVersionAndRecomputesDataQuality() {
-        CustomerMasterProfile before = customerMaster.findProfile(tenantId, accountId);
+        CustomerMasterProfile before = inTenantTransaction(tenantId, () ->
+                customerMaster.findProfile(tenantId, accountId));
         int qualityBefore = before.dataQualityScore();
 
-        CustomerMasterProfile updated = inTransaction(() -> customerMaster.updateProfile(
+        CustomerMasterProfile updated = inTenantTransaction(tenantId, () -> customerMaster.updateProfile(
                 tenantId, actorId, accountId,
                 new UpdateCustomerMasterCommand("Globex Legal LLC", "Globex Trading",
                         "REG-12345", "TAX-999", "INFORMATION_TECHNOLOGY",
@@ -83,14 +85,15 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
 
     @Test
     void updateProfile_withStaleVersionThrowsConcurrencyConflict() {
-        CustomerMasterProfile before = customerMaster.findProfile(tenantId, accountId);
-        inTransaction(() -> customerMaster.updateProfile(tenantId, actorId, accountId,
+        CustomerMasterProfile before = inTenantTransaction(tenantId, () ->
+                customerMaster.findProfile(tenantId, accountId));
+        inTenantTransaction(tenantId, () -> customerMaster.updateProfile(tenantId, actorId, accountId,
                 new UpdateCustomerMasterCommand("v1 Legal", null, null, null, null,
                         null, null, null, null, null, null, null, null, null),
                 before.version())); // -> v1
 
         // reuse the stale v0 expectedVersion
-        assertThatThrownBy(() -> inTransaction(() -> customerMaster.updateProfile(
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () -> customerMaster.updateProfile(
                 tenantId, actorId, accountId,
                 new UpdateCustomerMasterCommand("stale", null, null, null, null,
                         null, null, null, null, null, null, null, null, null),
@@ -102,16 +105,16 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
 
     @Test
     void addAddress_demotesExistingPrimaryWhenNewIsPrimary() {
-        AccountAddress first = inTransaction(() -> customerMaster.addAddress(tenantId, actorId,
+        AccountAddress first = inTenantTransaction(tenantId, () -> customerMaster.addAddress(tenantId, actorId,
                 accountId, new CreateAddressCommand("REGISTERED", "HQ", "1 Main St",
                         null, "Riyadh", null, "11564", "SA", true)));
-        AccountAddress second = inTransaction(() -> customerMaster.addAddress(tenantId, actorId,
+        AccountAddress second = inTenantTransaction(tenantId, () -> customerMaster.addAddress(tenantId, actorId,
                 accountId, new CreateAddressCommand("BILLING", "Billing", "2 Other St",
                         null, "Jeddah", null, "21477", "SA", true)));
 
         assertThat(first.primaryAddress()).isTrue();
         // promoting the second must demote the first
-        var refreshed = customerMaster.listAddresses(tenantId, accountId);
+        var refreshed = inTenantTransaction(tenantId, () -> customerMaster.listAddresses(tenantId, accountId));
         var firstRefreshed = refreshed.stream().filter(a -> a.id().equals(first.id())).findFirst().orElseThrow();
         assertThat(firstRefreshed.primaryAddress()).isFalse();
         assertThat(second.primaryAddress()).isTrue();
@@ -119,7 +122,7 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
 
     @Test
     void addIdentifier_persistsIdentifier() {
-        AccountIdentifier saved = inTransaction(() -> customerMaster.addIdentifier(tenantId, actorId,
+        AccountIdentifier saved = inTenantTransaction(tenantId, () -> customerMaster.addIdentifier(tenantId, actorId,
                 accountId, new CreateIdentifierCommand("VAT", "300000000000003",
                         "SA", true, false)));
 
@@ -127,7 +130,7 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
         assertThat(saved.identifierValue()).isEqualTo("300000000000003");
         assertThat(saved.primaryIdentifier()).isTrue();
 
-        var identifiers = customerMaster.listIdentifiers(tenantId, accountId);
+        var identifiers = inTenantTransaction(tenantId, () -> customerMaster.listIdentifiers(tenantId, accountId));
         assertThat(identifiers).hasSize(1);
     }
 
@@ -137,23 +140,25 @@ class JdbcCustomerMasterRepositoryPostgresTest extends CrmRepositoryPostgresTest
      */
     private UUID seedEnterpriseAccount(UUID tenant, UUID actor, String displayName,
                                        String normalizedName, String legalName, String registrationNumber) {
-        UUID id = UUID.randomUUID();
-        Timestamp now = Timestamp.from(Instant.now());
-        jdbc().update("""
-                INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
-                    account_type, lifecycle_status, created_by, updated_by, created_at, updated_at,
-                    legal_name, registration_number, data_quality_score)
-                VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
-                    :actorId, :actorId, :now, :now, :legalName, :regNo, 0)
-                """, new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("tenantId", tenant)
-                .addValue("name", displayName)
-                .addValue("normalized", normalizedName)
-                .addValue("actorId", actor)
-                .addValue("now", now)
-                .addValue("legalName", legalName)
-                .addValue("regNo", registrationNumber));
-        return id;
+        return inTenantTransaction(tenant, () -> {
+            UUID id = UUID.randomUUID();
+            Timestamp now = Timestamp.from(Instant.now());
+            jdbc().update("""
+                    INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
+                        account_type, lifecycle_status, created_by, updated_by, created_at, updated_at,
+                        legal_name, registration_number, data_quality_score)
+                    VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
+                        :actorId, :actorId, :now, :now, :legalName, :regNo, 0)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", id)
+                    .addValue("tenantId", tenant)
+                    .addValue("name", displayName)
+                    .addValue("normalized", normalizedName)
+                    .addValue("actorId", actor)
+                    .addValue("now", now)
+                    .addValue("legalName", legalName)
+                    .addValue("regNo", registrationNumber));
+            return id;
+        });
     }
 }

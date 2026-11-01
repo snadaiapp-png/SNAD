@@ -1,5 +1,6 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.FinanceManagementIntegrationService;
 import com.sanad.platform.security.authorization.RequireCapability;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,10 +10,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,11 +28,14 @@ class FinanceManagementIntegrationTest {
 
     @Autowired private FinanceManagementIntegrationService financeIntegrationService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
+    private TransactionTemplate tx;
 
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
+        tx = new TransactionTemplate(transactionManager);
         tenantId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Finance Mgmt Test', ?, 'ACTIVE', ?, ?)",
@@ -37,7 +44,7 @@ class FinanceManagementIntegrationTest {
 
     @Test
     void overview_emptyTenant_returnsZeroMetrics() {
-        var overview = financeIntegrationService.getOverview(tenantId);
+        var overview = readOverviewScoped(tenantId);
 
         assertThat(overview.get("totalInvoices")).isEqualTo(0);
         assertThat(overview.get("totalPayments")).isEqualTo(0);
@@ -52,7 +59,7 @@ class FinanceManagementIntegrationTest {
         insertInvoice("INV-2", "PAID", "250.00", "250.00");
         insertInvoice("INV-3", "OVERDUE", "75.00", "25.00");
 
-        var overview = financeIntegrationService.getOverview(tenantId);
+        var overview = readOverviewScoped(tenantId);
 
         assertThat(overview.get("totalInvoices")).isEqualTo(3);
         assertThat((BigDecimal) overview.get("invoiceTotalValue")).isEqualByComparingTo("425.00");
@@ -65,7 +72,7 @@ class FinanceManagementIntegrationTest {
         insertPayment(invoiceId, "PAY-1", "COMPLETED", "200.00");
         insertPayment(invoiceId, "PAY-2", "PENDING", "50.00");
 
-        var overview = financeIntegrationService.getOverview(tenantId);
+        var overview = readOverviewScoped(tenantId);
 
         assertThat(overview.get("totalPayments")).isEqualTo(2);
         assertThat((BigDecimal) overview.get("collectedRevenue")).isEqualByComparingTo("200.00");
@@ -81,7 +88,7 @@ class FinanceManagementIntegrationTest {
                 otherTenant, "fmo-" + otherTenant.toString().substring(0, 8), now, now);
         insertInvoiceForTenant(otherTenant, "OTHER-1", "ISSUED", "9000.00", "0.00");
 
-        var overview = financeIntegrationService.getOverview(tenantId);
+        var overview = readOverviewScoped(tenantId);
 
         assertThat(overview.get("totalInvoices")).isEqualTo(1);
         assertThat((BigDecimal) overview.get("invoiceTotalValue")).isEqualByComparingTo("900.00");
@@ -103,14 +110,39 @@ class FinanceManagementIntegrationTest {
     private UUID insertInvoiceForTenant(UUID tenant, String number, String status, String total, String paid) {
         UUID id = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO finance_invoices (id,tenant_id,invoice_number,customer_type,issue_date,currency,subtotal,tax_amount,total_amount,paid_amount,status,version,created_at,updated_at) VALUES (?, ?, ?, 'MANUAL', CURRENT_DATE, 'SAR', ?, 0, ?, ?, ?, 0, ?, ?)",
-                id, tenant, number, new BigDecimal(total), new BigDecimal(total), new BigDecimal(paid), status, now, now);
+        // V20261029_1: finance_invoices is FORCE RLS fail-closed — bind the
+        // owning tenant transaction-locally for this seed (covers both the
+        // primary and the cross-tenant fixture). Not a bypass.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenant.toString());
+            jdbc.update("INSERT INTO finance_invoices (id,tenant_id,invoice_number,customer_type,issue_date,currency,subtotal,tax_amount,total_amount,paid_amount,status,version,created_at,updated_at) VALUES (?, ?, ?, 'MANUAL', CURRENT_DATE, 'SAR', ?, 0, ?, ?, ?, 0, ?, ?)",
+                    id, tenant, number, new BigDecimal(total), new BigDecimal(total), new BigDecimal(paid), status, now, now);
+        });
         return id;
     }
 
     private void insertPayment(UUID invoiceId, String number, String status, String amount) {
         var now = Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO finance_payments (id,tenant_id,payment_number,payment_date,payment_method,amount,currency,invoice_id,status,version,created_at,updated_at) VALUES (?, ?, ?, CURRENT_DATE, 'CASH', ?, 'SAR', ?, ?, 0, ?, ?)",
-                UUID.randomUUID(), tenantId, number, new BigDecimal(amount), invoiceId, status, now, now);
+        // V20261029_1: finance_payments is FORCE RLS fail-closed — same
+        // transaction-local GUC binding as the invoice seed. Not a bypass.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO finance_payments (id,tenant_id,payment_number,payment_date,payment_method,amount,currency,invoice_id,status,version,created_at,updated_at) VALUES (?, ?, ?, CURRENT_DATE, 'CASH', ?, 'SAR', ?, ?, 0, ?, ?)",
+                    UUID.randomUUID(), tenantId, number, new BigDecimal(amount), invoiceId, status, now, now);
+        });
+    }
+
+    /** getOverview reads FORCE-RLS finance tables (V20261029_1) inside its own
+     *  @Transactional boundary — bind the fixture tenant's request context so
+     *  TenantRlsConnectionHandler applies SET LOCAL app.tenant_id. Not a bypass. */
+    private Map<String, Object> readOverviewScoped(UUID tenant) {
+        RlsTestSupport.setSecurityContext(tenant, tenant);
+        try {
+            return financeIntegrationService.getOverview(tenant);
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
     }
 }

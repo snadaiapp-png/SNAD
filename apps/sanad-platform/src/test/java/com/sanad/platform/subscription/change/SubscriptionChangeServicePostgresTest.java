@@ -5,6 +5,7 @@ import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -90,8 +91,13 @@ class SubscriptionChangeServicePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative
+        // (not a bypass).
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         service = new SubscriptionChangeService(
                 jdbc, new SubscriptionItemRepository(jdbc),
@@ -103,6 +109,10 @@ class SubscriptionChangeServicePostgresTest {
         versionAId = UUID.randomUUID();
         versionBId = UUID.randomUUID();
         subscriptionId = UUID.randomUUID();
+
+        // FORCE-RLS (V20261029_1): bind the fixture to the owning tenant —
+        // fail-closed predicate unchanged, not a bypass.
+        ds.setDefaultTenant(tenantId);
 
         seedTenant(tenantId, "SA");
         seedPlan(planAId, "R0C2R-A");
@@ -218,11 +228,15 @@ class SubscriptionChangeServicePostgresTest {
         UUID tenantNoCountry = UUID.randomUUID();
         UUID subNoCountry = UUID.randomUUID();
         seedTenant(tenantNoCountry, null);
-        seedSubscription(subNoCountry, tenantNoCountry, planAId, "ACTIVE");
-        seedPlanItem(subNoCountry, tenantNoCountry, planAId, versionAId, 30000L, "SAR");
+        // Second-tenant rows are seeded and previewed under the owning
+        // tenant's RLS scope (V20261029_1 FORCE-RLS; predicate unchanged).
+        TenantGucDataSource.runAsTenant(tenantNoCountry,
+                () -> seedSubscription(subNoCountry, tenantNoCountry, planAId, "ACTIVE"));
+        TenantGucDataSource.runAsTenant(tenantNoCountry,
+                () -> seedPlanItem(subNoCountry, tenantNoCountry, planAId, versionAId, 30000L, "SAR"));
 
-        SubscriptionChangeService.ChangePreview preview =
-                service.preview(subNoCountry, versionBId, "AE", NOW);
+        SubscriptionChangeService.ChangePreview preview = TenantGucDataSource.readAsTenant(tenantNoCountry,
+                () -> service.preview(subNoCountry, versionBId, "AE", NOW));
 
         // GLOBAL price 70000 — again ignoring the client-supplied "AE".
         assertThat(preview.targetMonthlyMinor()).isEqualTo(70000L);

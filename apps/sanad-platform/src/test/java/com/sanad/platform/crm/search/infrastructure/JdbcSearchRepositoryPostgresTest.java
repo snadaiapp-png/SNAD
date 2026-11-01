@@ -75,23 +75,25 @@ class JdbcSearchRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     }
 
     private void seedLead(UUID tenant, UUID actor, String displayName, String companyName) {
-        UUID leadId = UUID.randomUUID();
-        Timestamp now = Timestamp.from(Instant.now());
-        jdbc().update("""
-                INSERT INTO crm_leads (id, tenant_id, version, display_name, normalized_name,
-                    company_name, email, normalized_email, status, score,
-                    created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, :company, :email, :normalizedEmail,
-                    'NEW', NULL, :actorId, :actorId, :now, :now)
-                """, new MapSqlParameterSource()
-                .addValue("id", leadId)
-                .addValue("tenantId", tenant)
-                .addValue("name", displayName)
-                .addValue("normalized", displayName.toLowerCase().replace(' ', '-'))
-                .addValue("company", companyName)
-                .addValue("email", "lead@" + companyName.toLowerCase().replace(' ', '-') + ".test")
-                .addValue("normalizedEmail", "lead@" + companyName.toLowerCase().replace(' ', '-') + ".test")
-                .addValue("actorId", actor)
-                .addValue("now", now));
+        inTenantTransaction(tenant, () -> {
+            UUID leadId = UUID.randomUUID();
+            Timestamp now = Timestamp.from(Instant.now());
+            jdbc().update("""
+                    INSERT INTO crm_leads (id, tenant_id, version, display_name, normalized_name,
+                        company_name, email, normalized_email, status, score,
+                        created_by, updated_by, created_at, updated_at)
+                    VALUES (:id, :tenantId, 0, :name, :normalized, :company, :email, :normalizedEmail,
+                        'NEW', NULL, :actorId, :actorId, :now, :now)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", leadId)
+                    .addValue("tenantId", tenant)
+                    .addValue("name", displayName)
+                    .addValue("normalized", displayName.toLowerCase().replace(' ', '-'))
+                    .addValue("company", companyName)
+                    .addValue("email", "lead@" + companyName.toLowerCase().replace(' ', '-') + ".test")
+                    .addValue("normalizedEmail", "lead@" + companyName.toLowerCase().replace(' ', '-') + ".test")
+                    .addValue("actorId", actor)
+                    .addValue("now", now));
+        });
     }
 }

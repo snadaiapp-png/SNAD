@@ -74,7 +74,8 @@ class JdbcReportsRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         // seed an account in this tenant; the report must only ever see this tenant's rows
         seedAccount(tenantId, UUID.randomUUID(), "Scoped Account", "scoped-account");
 
-        SalesPipelineReport report = reports.getSalesPipelineReport(tenantId);
+        SalesPipelineReport report = inTenantTransaction(tenantId, () ->
+                reports.getSalesPipelineReport(tenantId));
         // no opportunities seeded yet → still zero totals, but the call must not blow up
         // and must not leak other tenants' data
         assertThat(report.totalOpportunities()).isZero();

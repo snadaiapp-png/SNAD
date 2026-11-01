@@ -187,23 +187,41 @@ class IntegratedBusinessProcessesE2ETest {
     }
 
     private long count(String sql, Object... arguments) {
-        Long value = jdbc.queryForObject(sql, Long.class, arguments);
-        return value == null ? 0L : value;
+        // V20261029_1: bp_* runtime tables are FORCE RLS fail-closed — every
+        // verification read in this class targets TENANT_A, so bind its GUC
+        // transaction-locally (a raw autocommit read would see zero rows).
+        // Not a bypass: the fail-closed predicate is unchanged.
+        return tx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, TENANT_A.toString());
+            Long value = jdbc.queryForObject(sql, Long.class, arguments);
+            return value == null ? 0L : value;
+        });
     }
 
     private void cleanupTenant(UUID tenantId) {
         jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_analytics_snapshots WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_workflow_approvals WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_payment_events WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_ledger_entries WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_inventory_movements WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_process_steps WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_process_runs WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM bp_inventory_balances WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
+        // V20261029_1: bp_* and roles/role_capabilities/user_role_assignments
+        // are FORCE RLS — the cleanup DELETEs must run inside the tenant's
+        // transaction-local GUC scope or they silently match zero rows and
+        // leave idempotency-blocking residue. Not a bypass.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("DELETE FROM bp_analytics_snapshots WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_workflow_approvals WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_payment_events WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_ledger_entries WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_inventory_movements WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_process_steps WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_process_runs WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM bp_inventory_balances WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
+            jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
+        });
         // public.users is FORCE RLS (V20261011_3). This test class is NOT @Transactional,
         // so HikariCP returns a different physical connection per jdbc.update() call.
         // Wrap set_config + DELETE FROM users in ONE tx.executeWithoutResult block so
@@ -244,24 +262,43 @@ class IntegratedBusinessProcessesE2ETest {
 
     private void seedRole(UUID id, UUID tenantId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'BP_ADMIN','Business Process Administrator','REM-P1-007 final closure role','ACTIVE',?,?)",
-                id, tenantId, ts, ts);
+        // roles is FORCE RLS (V20261029_1): bind the tenant GUC in the SAME
+        // transaction as the identity-plane insert.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'BP_ADMIN','Business Process Administrator','REM-P1-007 final closure role','ACTIVE',?,?)",
+                    id, tenantId, ts, ts);
+        });
     }
 
     private void seedRoleAssignment(UUID tenantId, UUID roleId, UUID userId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
-                UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        // user_role_assignments is FORCE RLS (V20261029_1): same-transaction GUC.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?)",
+                    UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
+        });
     }
 
     private void grantBusinessProcessCapabilities(UUID tenantId, UUID roleId, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        List<UUID> capabilityIds = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%'", UUID.class);
-        assertThat(capabilityIds).hasSize(2);
-        for (UUID capabilityId : capabilityIds) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
-                    UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
-        }
+        // role_capabilities is FORCE RLS (V20261029_1): same-transaction GUC.
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            List<UUID> capabilityIds = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%'", UUID.class);
+            assertThat(capabilityIds).hasSize(2);
+            for (UUID capabilityId : capabilityIds) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)",
+                        UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
+            }
+        });
     }
 }

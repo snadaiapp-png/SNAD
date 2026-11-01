@@ -192,40 +192,72 @@ class SaasAdministrationLegacyConvergencePostgresTest {
     }
 
     private UUID createSubscription(UUID tenantId, UUID planId, Integer trialDays) {
-        return transactions.execute(status -> legacy.createSubscription(
-                new CreateSubscriptionRequest(tenantId, planId, "MONTHLY", 2, trialDays), null).id());
+        return transactions.execute(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+            return legacy.createSubscription(
+                    new CreateSubscriptionRequest(tenantId, planId, "MONTHLY", 2, trialDays), null).id();
+        });
     }
 
+    // All IMMEDIATE-change call sites in this class act on `tenant`-owned
+    // subscriptions; the isolation test drives tenant B through reads only.
     private void changePlanImmediate(UUID subscriptionId, UUID targetPlanId) {
-        transactions.executeWithoutResult(status -> legacy.changePlan(subscriptionId,
+        inTenantScope(tenant, () -> legacy.changePlan(subscriptionId,
                 new ChangeSubscriptionPlanRequest(targetPlanId, "MONTHLY", "IMMEDIATE",
                         "convergence test"), null));
     }
 
-    private Map<String, Object> activePlanItem(UUID subscriptionId) {
-        return jdbc.queryForMap(
+    // ---------------------------------------------------------------
+    // Tenant-scope plumbing (fail-closed RLS contract)
+    //
+    // V20261029_1/V20261029_2 protect tenant_subscriptions, subscription_items,
+    // subscription_commands, subscription_change_events and billing_invoices
+    // with ENABLE+FORCE RLS and an empty-GUC fail-closed predicate. This test
+    // wires the production services against a raw JdbcTemplate (no tenant
+    // connection layer), so every transaction and verification read must bind
+    // app.tenant_id itself — mirroring what TenantRlsConnectionHandler does
+    // for real request traffic in production.
+    // ---------------------------------------------------------------
+
+    /** Runs {@code body} inside a transaction with app.tenant_id bound (transaction-local). */
+    private <T> T inTenantScope(UUID tenantScope, java.util.function.Supplier<T> body) {
+        return transactions.execute(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantScope + "', true)");
+            return body.get();
+        });
+    }
+
+    private void inTenantScope(UUID tenantScope, Runnable body) {
+        transactions.executeWithoutResult(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantScope + "', true)");
+            body.run();
+        });
+    }
+
+    private Map<String, Object> activePlanItem(UUID tenantScope, UUID subscriptionId) {
+        return inTenantScope(tenantScope, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, quantity, unit_amount_minor, currency_code "
                         + "FROM subscription_items WHERE subscription_id = ? "
                         + "AND item_type = 'PLAN' AND status = 'ACTIVE'",
-                subscriptionId);
+                subscriptionId));
     }
 
-    private long activePlanItemCount(UUID subscriptionId) {
-        Long count = jdbc.queryForObject(
+    private long activePlanItemCount(UUID tenantScope, UUID subscriptionId) {
+        Long count = inTenantScope(tenantScope, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_items WHERE subscription_id = ? "
                         + "AND item_type = 'PLAN' AND status = 'ACTIVE'",
-                Long.class, subscriptionId);
+                Long.class, subscriptionId));
         return count == null ? 0L : count;
     }
 
-    private Map<String, Object> anchors(UUID subscriptionId) {
-        return jdbc.queryForMap(
+    private Map<String, Object> anchors(UUID tenantScope, UUID subscriptionId) {
+        return inTenantScope(tenantScope, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, pending_plan_id FROM tenant_subscriptions WHERE id = ?",
-                subscriptionId);
+                subscriptionId));
     }
 
-    private long count(String sql, Object... args) {
-        Long value = jdbc.queryForObject(sql, Long.class, args);
+    private long count(UUID tenantScope, String sql, Object... args) {
+        Long value = inTenantScope(tenantScope, () -> jdbc.queryForObject(sql, Long.class, args));
         return value == null ? 0L : value;
     }
 
@@ -236,7 +268,7 @@ class SaasAdministrationLegacyConvergencePostgresTest {
     @Test
     @DisplayName("non-trial create succeeds null-safely and births the canonical composition")
     void nonTrialCreateSucceedsWithCanonicalComposition() {
-        var response = transactions.execute(status -> legacy.createSubscription(
+        var response = inTenantScope(tenant, () -> legacy.createSubscription(
                 new CreateSubscriptionRequest(tenant, planA, "MONTHLY", 2, 0), null));
 
         // Legacy wire response unchanged in shape and semantics.
@@ -247,21 +279,21 @@ class SaasAdministrationLegacyConvergencePostgresTest {
         assertThat(response.seatQuantity()).isEqualTo(2);
 
         // Canonical composition: version anchor + exactly one ACTIVE PLAN item.
-        assertThat(activePlanItemCount(response.id())).isEqualTo(1L);
-        Map<String, Object> item = activePlanItem(response.id());
+        assertThat(activePlanItemCount(tenant, response.id())).isEqualTo(1L);
+        Map<String, Object> item = activePlanItem(tenant, response.id());
         assertThat(item.get("plan_id")).isEqualTo(planA);
         assertThat(item.get("plan_version_id")).isEqualTo(versionA);
         assertThat(item.get("unit_amount_minor")).isEqualTo(30000L);
         assertThat(item.get("currency_code")).isEqualTo("SAR");
-        assertThat(anchors(response.id()).get("plan_version_id")).isEqualTo(versionA);
+        assertThat(anchors(tenant, response.id()).get("plan_version_id")).isEqualTo(versionA);
 
         // Legacy billing semantics preserved: initial recurring invoice issued
         // (30000 * 2 seats), one change event, one audit, one entitlement event.
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?",
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?",
                 response.id())).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
                 + "AND subtotal_minor = 60000", response.id())).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                 + "AND action = 'SUBSCRIPTION.CREATED'", response.id())).isEqualTo(1L);
         verify(audit, times(1)).success(any(), eq(tenant), eq("SUBSCRIPTION.CREATE"),
                 eq("TENANT_SUBSCRIPTION"), eq(response.id().toString()), any(), any(), any());
@@ -273,19 +305,19 @@ class SaasAdministrationLegacyConvergencePostgresTest {
     @Test
     @DisplayName("trial create still works and also births the canonical composition")
     void trialCreateBirthsCanonicalComposition() {
-        var response = transactions.execute(status -> legacy.createSubscription(
+        var response = inTenantScope(tenant, () -> legacy.createSubscription(
                 new CreateSubscriptionRequest(tenant, planA, "MONTHLY", 2, 14), null));
 
         assertThat(response.status()).isEqualTo("TRIALING");
         assertThat(response.trialEndsAt()).isNotNull();
 
-        assertThat(activePlanItemCount(response.id())).isEqualTo(1L);
-        Map<String, Object> item = activePlanItem(response.id());
+        assertThat(activePlanItemCount(tenant, response.id())).isEqualTo(1L);
+        Map<String, Object> item = activePlanItem(tenant, response.id());
         assertThat(item.get("plan_version_id")).isEqualTo(versionA);
-        assertThat(anchors(response.id()).get("plan_version_id")).isEqualTo(versionA);
+        assertThat(anchors(tenant, response.id()).get("plan_version_id")).isEqualTo(versionA);
 
         // Trial behavior unchanged: no initial invoice, entitlement + audit fired.
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?",
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ?",
                 response.id())).isZero();
         assertThat(publishedEvents.stream()
                 .filter(e -> e instanceof SubscriptionEntitlementListener.SubscriptionActivatedEvent)
@@ -297,15 +329,14 @@ class SaasAdministrationLegacyConvergencePostgresTest {
     @Test
     @DisplayName("create fails closed when the plan has no ACTIVE version — zero partial rows")
     void createFailsClosedWithoutActivePlanVersion() {
-        assertThatThrownBy(() -> transactions.executeWithoutResult(
-                        status -> legacy.createSubscription(
+        assertThatThrownBy(() -> inTenantScope(tenant, () -> legacy.createSubscription(
                                 new CreateSubscriptionRequest(tenant, planDraftOnly, "MONTHLY", 2, 14), null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no ACTIVE version");
 
-        assertThat(count("SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?", tenant)).isZero();
-        assertThat(count("SELECT COUNT(*) FROM subscription_items WHERE tenant_id = ?", tenant)).isZero();
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = ?", tenant)).isZero();
+        assertThat(count(tenant, "SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?", tenant)).isZero();
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_items WHERE tenant_id = ?", tenant)).isZero();
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE tenant_id = ?", tenant)).isZero();
     }
 
     // ---------------------------------------------------------------
@@ -321,30 +352,30 @@ class SaasAdministrationLegacyConvergencePostgresTest {
 
         // Canonical composition: old item cancelled, exactly one ACTIVE PLAN
         // item on plan B / version B at the legacy price.
-        assertThat(activePlanItemCount(subscriptionId)).isEqualTo(1L);
-        Map<String, Object> item = activePlanItem(subscriptionId);
+        assertThat(activePlanItemCount(tenant, subscriptionId)).isEqualTo(1L);
+        Map<String, Object> item = activePlanItem(tenant, subscriptionId);
         assertThat(item.get("plan_id")).isEqualTo(planB);
         assertThat(item.get("plan_version_id")).isEqualTo(versionB);
         assertThat(item.get("unit_amount_minor")).isEqualTo(90000L);
-        assertThat(count("SELECT COUNT(*) FROM subscription_items WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_items WHERE subscription_id = ? "
                 + "AND item_type = 'PLAN' AND status = 'CANCELLED'", subscriptionId)).isEqualTo(1L);
 
         // Anchors converged; pending cleared.
-        Map<String, Object> anchorRow = anchors(subscriptionId);
+        Map<String, Object> anchorRow = anchors(tenant, subscriptionId);
         assertThat(anchorRow.get("plan_id")).isEqualTo(planB);
         assertThat(anchorRow.get("plan_version_id")).isEqualTo(versionB);
         assertThat(anchorRow.get("pending_plan_id")).isNull();
 
         // Command ledger written by the canonical authority.
-        assertThat(count("SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ? "
                 + "AND command = 'PLAN_CHANGE'", subscriptionId)).isEqualTo(1L);
 
         // Legacy billing/audit/event semantics preserved: prorated upgrade
         // invoice issued, PLAN.CHANGE.APPLIED event, single audit, single
         // entitlement event for the change.
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
                 + "AND description = 'Prorated immediate plan upgrade'", subscriptionId)).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                 + "AND action = 'PLAN.CHANGE.APPLIED'", subscriptionId)).isEqualTo(1L);
         verify(audit, times(1)).success(any(), eq(tenant), eq("SUBSCRIPTION.PLAN.CHANGE"),
                 eq("TENANT_SUBSCRIPTION"), eq(subscriptionId.toString()), any(), any(), any());
@@ -362,33 +393,39 @@ class SaasAdministrationLegacyConvergencePostgresTest {
     void legacyRenewalAppliesPendingPlanConvergence() {
         UUID subscriptionId = createSubscription(tenant, planA, 14);
 
-        transactions.executeWithoutResult(status -> legacy.changePlan(subscriptionId,
-                new ChangeSubscriptionPlanRequest(planB, "MONTHLY", "NEXT_CYCLE", "scheduled"), null));
+        transactions.executeWithoutResult(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            legacy.changePlan(subscriptionId,
+                    new ChangeSubscriptionPlanRequest(planB, "MONTHLY", "NEXT_CYCLE", "scheduled"), null);
+        });
         // Scheduling itself must not move the composition.
-        assertThat(activePlanItemCount(subscriptionId)).isEqualTo(1L);
-        assertThat(activePlanItem(subscriptionId).get("plan_id")).isEqualTo(planA);
-        assertThat(anchors(subscriptionId).get("pending_plan_id")).isEqualTo(planB);
+        assertThat(activePlanItemCount(tenant, subscriptionId)).isEqualTo(1L);
+        assertThat(activePlanItem(tenant, subscriptionId).get("plan_id")).isEqualTo(planA);
+        assertThat(anchors(tenant, subscriptionId).get("pending_plan_id")).isEqualTo(planB);
 
-        transactions.executeWithoutResult(status -> legacy.renewSubscription(subscriptionId, null));
+        transactions.executeWithoutResult(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            legacy.renewSubscription(subscriptionId, null);
+        });
 
         // Renewal applied the pending plan via the canonical authority.
-        assertThat(activePlanItemCount(subscriptionId)).isEqualTo(1L);
-        Map<String, Object> item = activePlanItem(subscriptionId);
+        assertThat(activePlanItemCount(tenant, subscriptionId)).isEqualTo(1L);
+        Map<String, Object> item = activePlanItem(tenant, subscriptionId);
         assertThat(item.get("plan_id")).isEqualTo(planB);
         assertThat(item.get("plan_version_id")).isEqualTo(versionB);
-        Map<String, Object> anchorRow = anchors(subscriptionId);
+        Map<String, Object> anchorRow = anchors(tenant, subscriptionId);
         assertThat(anchorRow.get("plan_id")).isEqualTo(planB);
         assertThat(anchorRow.get("plan_version_id")).isEqualTo(versionB);
         assertThat(anchorRow.get("pending_plan_id")).isNull();
 
         // Command ledger + legacy events + renewal invoice + entitlement counts.
-        assertThat(count("SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ? "
                 + "AND command = 'PLAN_CHANGE'", subscriptionId)).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                 + "AND action = 'PLAN.CHANGE.SCHEDULED'", subscriptionId)).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                 + "AND action = 'SUBSCRIPTION.RENEWED'", subscriptionId)).isEqualTo(1L);
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
+        assertThat(count(tenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
                 + "AND description = 'Subscription renewal'", subscriptionId)).isEqualTo(1L);
         // One entitlement event at schedule time (legacy behavior), none extra at renewal.
         assertThat(publishedEvents.stream()
@@ -408,12 +445,12 @@ class SaasAdministrationLegacyConvergencePostgresTest {
 
         changePlanImmediate(subscriptionA, planB);
 
-        assertThat(activePlanItemCount(subscriptionB)).isEqualTo(1L);
-        assertThat(activePlanItem(subscriptionB).get("plan_id")).isEqualTo(planA);
-        assertThat(anchors(subscriptionB).get("plan_id")).isEqualTo(planA);
-        assertThat(count("SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ?",
+        assertThat(activePlanItemCount(otherTenant, subscriptionB)).isEqualTo(1L);
+        assertThat(activePlanItem(otherTenant, subscriptionB).get("plan_id")).isEqualTo(planA);
+        assertThat(anchors(otherTenant, subscriptionB).get("plan_id")).isEqualTo(planA);
+        assertThat(count(otherTenant, "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ?",
                 subscriptionB)).isZero();
-        assertThat(count("SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
+        assertThat(count(otherTenant, "SELECT COUNT(*) FROM billing_invoices WHERE subscription_id = ? "
                 + "AND description = 'Prorated immediate plan upgrade'", subscriptionB)).isZero();
     }
 
@@ -427,7 +464,7 @@ class SaasAdministrationLegacyConvergencePostgresTest {
         UUID subscriptionId = createSubscription(tenant, planA, 14);
         changePlanImmediate(subscriptionId, planB);
 
-        var result = detail.detail(subscriptionId);
+        var result = inTenantScope(tenant, () -> detail.detail(subscriptionId));
 
         List<Map<String, Object>> changes = result.changes();
         assertThat(changes).isNotEmpty();
@@ -451,12 +488,12 @@ class SaasAdministrationLegacyConvergencePostgresTest {
                 jdbc, new SubscriptionItemRepository(jdbc),
                 new PriceResolver(new PriceRepository(jdbc)));
 
-        transactions.executeWithoutResult(status ->
+        inTenantScope(tenant, () ->
                 canonical.execute(subscriptionId, versionB, "SA", "scp change", null, null));
 
-        assertThat(activePlanItemCount(subscriptionId)).isEqualTo(1L);
-        assertThat(activePlanItem(subscriptionId).get("plan_version_id")).isEqualTo(versionB);
-        assertThat(anchors(subscriptionId).get("plan_id")).isEqualTo(planB);
-        assertThat(anchors(subscriptionId).get("plan_version_id")).isEqualTo(versionB);
+        assertThat(activePlanItemCount(tenant, subscriptionId)).isEqualTo(1L);
+        assertThat(activePlanItem(tenant, subscriptionId).get("plan_version_id")).isEqualTo(versionB);
+        assertThat(anchors(tenant, subscriptionId).get("plan_id")).isEqualTo(planB);
+        assertThat(anchors(tenant, subscriptionId).get("plan_version_id")).isEqualTo(versionB);
     }
 }

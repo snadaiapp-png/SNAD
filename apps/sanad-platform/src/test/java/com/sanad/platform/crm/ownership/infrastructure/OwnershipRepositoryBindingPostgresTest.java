@@ -36,6 +36,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.TenantGucDataSource;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -51,6 +52,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class OwnershipRepositoryBindingPostgresTest {
 
     private static NamedParameterJdbcTemplate jdbc;
+    private static TenantGucDataSource tenantDs;
     private static TransactionTemplate transactions;
     private static JdbcSalesTeamRepository teams;
     private static JdbcTeamMembershipRepository teamMemberships;
@@ -85,8 +87,13 @@ class OwnershipRepositoryBindingPostgresTest {
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        jdbc = new NamedParameterJdbcTemplate(dataSource);
-        transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        // FORCE-RLS tenant binding (V20261031_1): session-scoped app.tenant_id
+        // GUC on every physical connection — the same identity the application
+        // binds per request. Test support only; the fail-closed predicate
+        // stays authoritative.
+        tenantDs = new TenantGucDataSource(dataSource, null);
+        jdbc = new NamedParameterJdbcTemplate(tenantDs);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(tenantDs));
 
         teams = new JdbcSalesTeamRepository(jdbc);
         teamMemberships = new JdbcTeamMembershipRepository(jdbc);
@@ -101,6 +108,7 @@ class OwnershipRepositoryBindingPostgresTest {
     void createTenant() {
         tenantId = UUID.randomUUID();
         actorId = UUID.randomUUID();
+        tenantDs.setDefaultTenant(tenantId);
         jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (:id, :name, :subdomain, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)

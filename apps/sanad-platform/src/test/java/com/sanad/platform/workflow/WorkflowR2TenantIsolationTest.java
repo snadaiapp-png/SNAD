@@ -89,8 +89,13 @@ class WorkflowR2TenantIsolationTest {
         tx = new TransactionTemplate(transactionManager);
         notifications = new WorkflowNotificationService(jdbc,
                 new com.fasterxml.jackson.databind.ObjectMapper());
+        // FORCE RLS (V20261029_1): the dispatcher's standalone pass self-scopes
+        // app.tenant_id per tenant (WorkflowDeadlineEnforcementWorker convention).
         dispatcher = new WorkflowNotificationDispatcher(jdbc,
-                new WorkflowChannelRegistry(List.of(new InAppNotificationProvider(jdbc))), true);
+                new WorkflowChannelRegistry(List.of(new InAppNotificationProvider(jdbc))),
+                transactionManager,
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc),
+                true);
         webhookEndpoints = new WorkflowWebhookEndpointService(jdbc);
         queryService = new WorkflowAnalyticsQueryService(jdbc);
     }
@@ -117,60 +122,93 @@ class WorkflowR2TenantIsolationTest {
         return new TenantFixture(tenant, user);
     }
 
+    /** Runs a FORCE-RLS seed write inside a transaction-local app.tenant_id
+     * context (workflow_user_notifications / workflow_customer_feedback /
+     * workflow_webhook_endpoints are FORCE RLS — V20261029_1). */
+    private void seedInTenant(UUID tenantId, Runnable write) {
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            write.run();
+        });
+    }
+
+    /** Result-bearing tenant-scoped read (FORCE RLS - V20261029_1). */
+    private <T> T readInTenant(UUID tenantId, java.util.function.Supplier<T> body) {
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return body.get();
+        });
+    }
+
+    /** Void tenant-scoped block (FORCE RLS - V20261029_1). */
+    private void scopedRun(UUID tenantId, Runnable body) {
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            body.run();
+        });
+    }
+
     // ===== 1. IN_APP feed: service-level (tenant, recipient) predicates =====
 
     @Test
     void notificationFeedDeniesCrossTenantRecipientReads() {
         TenantFixture a = seedTenant("feed-a");
         TenantFixture b = seedTenant("feed-b");
-        // tenant A feed rows for recipient Ua (unread)
-        jdbc.update("""
+        // tenant A feed rows for recipient Ua (unread) — FORCE RLS scoped seed
+        seedInTenant(a.tenant(), () -> {
+            jdbc.update("""
                 INSERT INTO workflow_user_notifications (
                     id, tenant_id, recipient_user_id, event_type, title, priority,
                     dedup_key, created_at)
                 VALUES (?, ?, ?, 'TASK_ASSIGNED', 'A feed row 1', 'NORMAL', ?, NOW())
                 """, UUID.randomUUID(), a.tenant(), a.user(),
                 "iso-feed:" + UUID.randomUUID());
-        jdbc.update("""
+            jdbc.update("""
                 INSERT INTO workflow_user_notifications (
                     id, tenant_id, recipient_user_id, event_type, title, priority,
                     dedup_key, created_at)
                 VALUES (?, ?, ?, 'TASK_ASSIGNED', 'A feed row 2', 'NORMAL', ?, NOW())
                 """, UUID.randomUUID(), a.tenant(), a.user(),
                 "iso-feed:" + UUID.randomUUID());
+        });
 
         // the exact service-level feed predicate of
         // WorkflowNotificationController.myNotifications:
         //   WHERE tenant_id = ? AND recipient_user_id = ?
-        // queried as tenant B + user Ub — must see NOTHING of tenant A's feed.
-        List<Map<String, Object>> foreignFeed = jdbc.queryForList("""
+        // queried as tenant B + user Ub under B's RLS scope — must see
+        // NOTHING of tenant A's feed.
+        scopedRun(b.tenant(), () -> {
+            List<Map<String, Object>> foreignFeed = jdbc.queryForList("""
                 SELECT id, event_type, title
                   FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ?
                  ORDER BY created_at DESC
                 """, b.tenant(), b.user());
-        assertThat(foreignFeed).isEmpty();
+            assertThat(foreignFeed).isEmpty();
 
-        // the exact unread-count predicate of
-        // WorkflowNotificationController.unreadCount as tenant B — 0.
-        Long foreignUnread = jdbc.queryForObject("""
+            // the exact unread-count predicate of
+            // WorkflowNotificationController.unreadCount as tenant B — 0.
+            Long foreignUnread = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND read_at IS NULL
                 """, Long.class, b.tenant(), b.user());
-        assertThat(foreignUnread).isZero();
+            assertThat(foreignUnread).isZero();
+        });
 
         // positive control: the owning principal still sees exactly its rows
         // (the seed is real and the predicates are discriminating, not empty).
-        Long ownFeed = jdbc.queryForObject("""
+        scopedRun(a.tenant(), () -> {
+            Long ownFeed = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ?
                 """, Long.class, a.tenant(), a.user());
-        assertThat(ownFeed).isEqualTo(2L);
-        Long ownUnread = jdbc.queryForObject("""
+            assertThat(ownFeed).isEqualTo(2L);
+            Long ownUnread = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND read_at IS NULL
                 """, Long.class, a.tenant(), a.user());
-        assertThat(ownUnread).isEqualTo(2L);
+            assertThat(ownUnread).isEqualTo(2L);
+        });
     }
 
     // ===== 2. dispatch: intents never merge across tenants =====
@@ -183,75 +221,91 @@ class WorkflowR2TenantIsolationTest {
         // identity is (tenant_id, deduplication_key), so the two intents must
         // stay distinct — never merge across tenants.
         String sharedDedupKey = "iso-dispatch:shared-key-1";
-        UUID intentA = notifications.enqueue(a.tenant(),
+        // FORCE RLS (V20261029_1): each intent is enqueued under its own
+        // tenant's transaction-local scope.
+        UUID intentA = readInTenant(a.tenant(), () -> notifications.enqueue(a.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
                         "TASK_ASSIGNED", null, null, null, a.user(), null, null,
                         "IN_APP", sharedDedupKey, "Tenant A notification", "body A",
-                        null, null, "NORMAL", null, null, null, null, Map.of()));
-        UUID intentB = notifications.enqueue(b.tenant(),
+                        null, null, "NORMAL", null, null, null, null, Map.of())));
+        UUID intentB = readInTenant(b.tenant(), () -> notifications.enqueue(b.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
                         "TASK_ASSIGNED", null, null, null, b.user(), null, null,
                         "IN_APP", sharedDedupKey, "Tenant B notification", "body B",
-                        null, null, "NORMAL", null, null, null, null, Map.of()));
+                        null, null, "NORMAL", null, null, null, null, Map.of())));
         // distinct durable intents per tenant under the identical key
         assertThat(intentA).isNotEqualTo(intentB);
-        Integer aIntents = jdbc.queryForObject("""
+        scopedRun(a.tenant(), () -> {
+            Integer aIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                  WHERE tenant_id = ? AND deduplication_key = ?
                 """, Integer.class, a.tenant(), sharedDedupKey);
-        Integer bIntents = jdbc.queryForObject("""
+            assertThat(aIntents).isEqualTo(1);
+        });
+        scopedRun(b.tenant(), () -> {
+            Integer bIntents = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_notification_intents
                  WHERE tenant_id = ? AND deduplication_key = ?
                 """, Integer.class, b.tenant(), sharedDedupKey);
-        assertThat(aIntents).isEqualTo(1);
-        assertThat(bIntents).isEqualTo(1);
+            assertThat(bIntents).isEqualTo(1);
+        });
 
-        int processed = dispatcher.dispatchBatch();
+        // V20261029_1: workflow_notification_intents / workflow_user_notifications
+        // are FORCE RLS — run each tenant's dispatch pass inside its own
+        // transaction-local GUC scope (the dispatcher's caller-context mode), so
+        // A and B are dispatched under THEIR OWN identity and never merge; the
+        // platform-wide ambient tenant-directory sweep is not relied on here.
+        // Not a bypass: RLS stays fully enforced.
+        int processed = readInTenant(a.tenant(), dispatcher::dispatchBatch)
+                + readInTenant(b.tenant(), dispatcher::dispatchBatch);
 
         // each intent delivered exactly once, to ITS OWN tenant's feed row
-        Integer aFeed = jdbc.queryForObject("""
+        scopedRun(a.tenant(), () -> {
+            Integer aFeed = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
                 """, Integer.class, a.tenant(), a.user(), intentA);
-        Integer bFeed = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM workflow_user_notifications
-                 WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
-                """, Integer.class, b.tenant(), b.user(), intentB);
-        assertThat(aFeed).isEqualTo(1);
-        assertThat(bFeed).isEqualTo(1);
-        // no cross-tenant delivery: A's recipient never sees B's content
-        Integer crossIntoA = jdbc.queryForObject("""
+            assertThat(aFeed).isEqualTo(1);
+            // no cross-tenant delivery: A's recipient never sees B's content
+            Integer crossIntoA = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM workflow_user_notifications
                  WHERE tenant_id = ? AND (recipient_user_id = ? OR intent_id = ?)
                 """, Integer.class, a.tenant(), b.user(), intentB);
-        Integer crossIntoB = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM workflow_user_notifications
-                 WHERE tenant_id = ? AND (recipient_user_id = ? OR intent_id = ?)
-                """, Integer.class, b.tenant(), a.user(), intentA);
-        assertThat(crossIntoA).isZero();
-        assertThat(crossIntoB).isZero();
-        // content stays with its own tenant (no merge of titles/bodies)
-        Map<String, Object> aRow = jdbc.queryForMap("""
+            assertThat(crossIntoA).isZero();
+            Map<String, Object> aRow = jdbc.queryForMap("""
                 SELECT title, body FROM workflow_user_notifications
                  WHERE tenant_id = ? AND intent_id = ?
                 """, a.tenant(), intentA);
-        Map<String, Object> bRow = jdbc.queryForMap("""
+            assertThat(aRow.get("title")).isEqualTo("Tenant A notification");
+        });
+        scopedRun(b.tenant(), () -> {
+            Integer bFeed = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM workflow_user_notifications
+                 WHERE tenant_id = ? AND recipient_user_id = ? AND intent_id = ?
+                """, Integer.class, b.tenant(), b.user(), intentB);
+            assertThat(bFeed).isEqualTo(1);
+            Integer crossIntoB = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM workflow_user_notifications
+                 WHERE tenant_id = ? AND (recipient_user_id = ? OR intent_id = ?)
+                """, Integer.class, b.tenant(), a.user(), intentA);
+            assertThat(crossIntoB).isZero();
+            Map<String, Object> bRow = jdbc.queryForMap("""
                 SELECT title, body FROM workflow_user_notifications
                  WHERE tenant_id = ? AND intent_id = ?
                 """, b.tenant(), intentB);
-        assertThat(aRow.get("title")).isEqualTo("Tenant A notification");
-        assertThat(bRow.get("title")).isEqualTo("Tenant B notification");
+            assertThat(bRow.get("title")).isEqualTo("Tenant B notification");
+        });
         // both intents terminated DELIVERED (processed covers both; other
         // intents from the shared DB are possible, so assert states not count)
         assertThat(processed).isGreaterThanOrEqualTo(2);
-        String statusA = jdbc.queryForObject("""
+        String statusA = readInTenant(a.tenant(), () -> jdbc.queryForObject("""
                 SELECT delivery_status FROM workflow_notification_intents
                  WHERE tenant_id = ? AND id = ?
-                """, String.class, a.tenant(), intentA);
-        String statusB = jdbc.queryForObject("""
+                """, String.class, a.tenant(), intentA));
+        String statusB = readInTenant(b.tenant(), () -> jdbc.queryForObject("""
                 SELECT delivery_status FROM workflow_notification_intents
                  WHERE tenant_id = ? AND id = ?
-                """, String.class, b.tenant(), intentB);
+                """, String.class, b.tenant(), intentB));
         assertThat(statusA).isEqualTo("DELIVERED");
         assertThat(statusB).isEqualTo("DELIVERED");
     }
@@ -262,21 +316,28 @@ class WorkflowR2TenantIsolationTest {
     void webhookEndpointResolutionDeniesCrossTenantTargeting() {
         TenantFixture a = seedTenant("hook-a");
         TenantFixture b = seedTenant("hook-b");
-        WorkflowWebhookEndpointService.CreatedEndpoint created =
-                webhookEndpoints.create(a.tenant(), "iso-hook-a",
+        // Direct service invocation under an explicit transaction-local
+        // app.tenant_id scope — the raw DriverManagerDataSource test harness
+        // has no TenantRlsConnectionHandler, so the FORCE-RLS GUC
+        // (workflow_webhook_endpoints — V20261029_1) is established here.
+        WorkflowWebhookEndpointService.CreatedEndpoint created = readInTenant(a.tenant(),
+                () -> webhookEndpoints.create(a.tenant(), "iso-hook-a",
                         "https://example.invalid/iso-hook", "R2-K fixture",
-                        List.of("INSTANCE_COMPLETED"), a.user());
+                        List.of("INSTANCE_COMPLETED"), a.user()));
 
-        // tenant B resolves endpoints for the same event type -> nothing
-        List<Map<String, Object>> foreign = webhookEndpoints.activeEndpointsFor(
-                b.tenant(), "INSTANCE_COMPLETED");
+        // tenant B resolves endpoints for the same event type under B's own
+        // RLS scope -> nothing.
+        List<Map<String, Object>> foreign = readInTenant(b.tenant(),
+                () -> webhookEndpoints.activeEndpointsFor(b.tenant(), "INSTANCE_COMPLETED"));
+        List<Map<String, Object>> bList = readInTenant(b.tenant(),
+                () -> webhookEndpoints.list(b.tenant()));
         assertThat(foreign).isEmpty();
         // tenant B's registry listing is empty (no leak through list either)
-        assertThat(webhookEndpoints.list(b.tenant())).isEmpty();
+        assertThat(bList).isEmpty();
 
         // tenant A still resolves exactly its own endpoint
-        List<Map<String, Object>> own = webhookEndpoints.activeEndpointsFor(
-                a.tenant(), "INSTANCE_COMPLETED");
+        List<Map<String, Object>> own = readInTenant(a.tenant(),
+                () -> webhookEndpoints.activeEndpointsFor(a.tenant(), "INSTANCE_COMPLETED"));
         assertThat(own).hasSize(1);
         assertThat(((UUID) own.get(0).get("id"))).isEqualTo(created.id());
         // and the resolution carries no plain secret (SHA-256 hash only)
@@ -291,50 +352,59 @@ class WorkflowR2TenantIsolationTest {
     void feedbackAndAnalyticsDenyCrossTenantReads() {
         TenantFixture a = seedTenant("fbx-a");
         TenantFixture b = seedTenant("fbx-b");
-        jdbc.update("""
+        seedInTenant(a.tenant(), () -> jdbc.update("""
                 INSERT INTO workflow_customer_feedback (
                     id, tenant_id, source_module, source_entity_type,
                     source_entity_id, rating, comment, submitted_by_type, created_at)
                 VALUES (?, ?, 'CRM', 'account', ?, 5, 'iso feedback', 'USER', NOW())
-                """, UUID.randomUUID(), a.tenant(), UUID.randomUUID());
+                """, UUID.randomUUID(), a.tenant(), UUID.randomUUID()));
 
         // WorkflowCustomerFeedbackController.list tenant-scoped SELECT,
-        // issued as tenant B -> must return nothing.
-        List<Map<String, Object>> foreignFeedback = jdbc.queryForList("""
+        // issued as tenant B under B's own RLS scope -> must return nothing.
+        scopedRun(b.tenant(), () -> {
+            List<Map<String, Object>> foreignFeedback = jdbc.queryForList("""
                 SELECT id, workflow_instance_id, source_entity_type,
                        source_entity_id, rating, comment, submitted_by_type,
                        created_at
                   FROM workflow_customer_feedback
                  WHERE tenant_id = ?
                 """, b.tenant());
-        assertThat(foreignFeedback).isEmpty();
-        // positive control: tenant A sees exactly its one row
-        List<Map<String, Object>> ownFeedback = jdbc.queryForList("""
+            assertThat(foreignFeedback).isEmpty();
+        });
+        // positive control: tenant A sees exactly its one row (under A's scope)
+        scopedRun(a.tenant(), () -> {
+            List<Map<String, Object>> ownFeedback = jdbc.queryForList("""
                 SELECT id, workflow_instance_id, source_entity_type,
                        source_entity_id, rating, comment, submitted_by_type,
                        created_at
                   FROM workflow_customer_feedback
                  WHERE tenant_id = ?
                 """, a.tenant());
-        assertThat(ownFeedback).hasSize(1);
+            assertThat(ownFeedback).hasSize(1);
+        });
 
         // minimal analytics process fact seeded directly for tenant A
+        // (workflow_analytics_process_facts is FORCE RLS — V20261029_1)
         UUID factInstance = UUID.randomUUID();
-        jdbc.update("""
+        seedInTenant(a.tenant(), () -> jdbc.update("""
                 INSERT INTO workflow_analytics_process_facts (
                     id, tenant_id, workflow_instance_id, status, started_at,
                     sla_breach_count, timeout_count, reassignment_count)
                 VALUES (?, ?, ?, 'RUNNING', ?, 0, 0, 0)
                 """, UUID.randomUUID(), a.tenant(), factInstance,
-                Timestamp.from(Instant.now().minusSeconds(60)));
+                Timestamp.from(Instant.now().minusSeconds(60))));
 
-        Map<String, Object> foreignDashboard = queryService.serviceDashboard(
-                b.tenant(), Instant.now().minusSeconds(86400), Instant.now());
-        assertThat(((Number) foreignDashboard.get("total_instances")).longValue())
-                .isZero();
-        Map<String, Object> ownDashboard = queryService.serviceDashboard(
-                a.tenant(), Instant.now().minusSeconds(86400), Instant.now());
-        assertThat(((Number) ownDashboard.get("total_instances")).longValue())
-                .isEqualTo(1L);
+        scopedRun(b.tenant(), () -> {
+            Map<String, Object> foreignDashboard = queryService.serviceDashboard(
+                    b.tenant(), Instant.now().minusSeconds(86400), Instant.now());
+            assertThat(((Number) foreignDashboard.get("total_instances")).longValue())
+                    .isZero();
+        });
+        scopedRun(a.tenant(), () -> {
+            Map<String, Object> ownDashboard = queryService.serviceDashboard(
+                    a.tenant(), Instant.now().minusSeconds(86400), Instant.now());
+            assertThat(((Number) ownDashboard.get("total_instances")).longValue())
+                    .isEqualTo(1L);
+        });
     }
 }

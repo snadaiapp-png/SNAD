@@ -117,7 +117,9 @@ final class CrmOwnershipHttpSupport {
         IdempotencyService.Replay replay = idempotency.begin(
                 context.tenantId(), context.userId(), endpoint, key.trim(),
                 IdempotencyService.fingerprint(method, path, canonical));
-        return new Guard(trace(request), replay);
+        // Guard carries the tenant id so complete/fail can re-apply the FORCE
+        // RLS scope (V20261029_1) for their own transaction.
+        return new Guard(trace(request), replay, context.tenantId());
     }
 
     <T> ResponseEntity<OwnershipResponse<T>> replay(Guard guard, Class<T> bodyType) {
@@ -159,14 +161,14 @@ final class CrmOwnershipHttpSupport {
                 data, guard.trace(), status, entityType, entityId, version);
         IdempotencyService.Replay.ReplayMiss miss = guard.miss();
         idempotency.complete(
-                miss.operationId(), status.value(), json(response.getBody()),
+                guard.tenantId(), miss.operationId(), status.value(), json(response.getBody()),
                 json(response.getHeaders()), MediaType.APPLICATION_JSON_VALUE);
         return response;
     }
 
     void fail(Guard guard) {
         if (guard != null && guard.replay() instanceof IdempotencyService.Replay.ReplayMiss miss) {
-            idempotency.fail(miss.operationId());
+            idempotency.fail(guard.tenantId(), miss.operationId());
         }
     }
 
@@ -244,7 +246,7 @@ final class CrmOwnershipHttpSupport {
         }
     }
 
-    record Guard(RequestTrace trace, IdempotencyService.Replay replay) {
+    record Guard(RequestTrace trace, IdempotencyService.Replay replay, UUID tenantId) {
         boolean isReplay() {
             return replay instanceof IdempotencyService.Replay.ReplayHit;
         }

@@ -13,6 +13,7 @@ import com.sanad.platform.subscription.plan.PlanVersionRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -120,8 +121,13 @@ class AnchoredPlanSeatQuantityPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        com.sanad.platform.test.TenantGucDataSource ds =
+                new com.sanad.platform.test.TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -145,6 +151,7 @@ class AnchoredPlanSeatQuantityPostgresTest {
         versionB = UUID.randomUUID();
         versionX = UUID.randomUUID();
         versionY = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
 
         seedTenant(tenant, "SA");
         seedTenant(otherTenant, "SA");
@@ -304,6 +311,21 @@ class AnchoredPlanSeatQuantityPostgresTest {
                 "SELECT credit_balance_minor FROM tenant_subscriptions WHERE id = ?",
                 Long.class, subscriptionId);
         return value == null ? -1L : value;
+    }
+
+    /**
+     * FORCE-RLS (V20261029_1) makes a single bound connection see only its own
+     * tenant's rows, so platform-wide classification counts are summed per
+     * tenant — the same total the pre-RLS unbounded query returned. The
+     * fail-closed predicate stays authoritative (not a bypass).
+     */
+    private long classificationCount(UUID[] tenants, String sql) {
+        long total = 0L;
+        for (UUID tenant : tenants) {
+            Long part = TenantGucDataSource.readAsTenant(tenant, () -> jdbc.queryForObject(sql, Long.class));
+            total += part == null ? 0L : part;
+        }
+        return total;
     }
 
     /** Historical proration formula (R0C-6 must NOT change it): HALF_UP over
@@ -706,14 +728,22 @@ class AnchoredPlanSeatQuantityPostgresTest {
         // Tenant-A scenario: anchor + secondary.
         UUID sub = seedDivergenceScenario();
 
-        // Tenant-B subscription with its own anchored mirror.
+        // Tenant-B subscription with its own anchored mirror. Seeded and
+        // verified under tenant-B's legitimate RLS scope (session GUC), so
+        // the isolation assertions below stay fail-closed for tenant A.
         UUID tenantBSub = UUID.randomUUID();
-        seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 3);
-        UUID tenantBItem = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 3, PRICE_A);
-        Map<String, Object> bItemBefore = itemRow(tenantBItem);
-        Map<String, Object> bSubBefore = jdbc.queryForMap(
+        UUID[] tenantBItemBox = new UUID[1];
+        com.sanad.platform.test.TenantGucDataSource.runAsTenant(otherTenant, () -> {
+            seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 3);
+            tenantBItemBox[0] = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 3, PRICE_A);
+        });
+        UUID tenantBItem = tenantBItemBox[0];
+        Map<String, Object> bItemBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> itemRow(tenantBItem));
+        Map<String, Object> bSubBefore = com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, seat_quantity, credit_balance_minor, status "
-                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub);
+                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub));
 
         // Cross-tenant quantity mutation through the tenant-scoped item API
         // is DENIED (CROSS_TENANT_ITEM_QUANTITY_MUTATION = DENIED).
@@ -724,17 +754,20 @@ class AnchoredPlanSeatQuantityPostgresTest {
 
         // Any tenant-A seat mutation leaves tenant-B rows byte-identical.
         changeSeats(sub, 8);
-        assertThat(itemRow(tenantBItem)).isEqualTo(bItemBefore);
-        assertThat(jdbc.queryForMap(
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> itemRow(tenantBItem))).isEqualTo(bItemBefore);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> jdbc.queryForMap(
                 "SELECT plan_id, plan_version_id, seat_quantity, credit_balance_minor, status "
-                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub))
+                        + "FROM tenant_subscriptions WHERE id = ?", tenantBSub)))
                 .isEqualTo(bSubBefore);
 
         // The seat engine itself is an executive-operator capability path
         // (EXECUTIVE_MANAGE) — platform operators act cross-tenant by design;
         // there is no tenant-scoped seat mutation surface to abuse.
         assertThat(seatQuantity(sub)).isEqualTo(8);
-        assertThat(seatQuantity(tenantBSub)).isEqualTo(3);
+        assertThat(com.sanad.platform.test.TenantGucDataSource.readAsTenant(
+                otherTenant, () -> seatQuantity(tenantBSub))).isEqualTo(3);
     }
 
     // ---------------------------------------------------------------
@@ -912,21 +945,30 @@ class AnchoredPlanSeatQuantityPostgresTest {
         UUID tenantDrift = UUID.randomUUID();
         seedTenant(tenantDrift, "SA");
         UUID drifted = UUID.randomUUID();
-        seedSubscription(drifted, tenantDrift, planA, versionA, "ACTIVE", 5);
-        seedPlanItem(drifted, tenantDrift, planA, versionA, 3, PRICE_A);
+        // Second-tenant rows are seeded under the owning tenant's RLS scope
+        // (V20261029_1 FORCE-RLS; fail-closed predicate unchanged).
+        TenantGucDataSource.runAsTenant(tenantDrift, () -> {
+            seedSubscription(drifted, tenantDrift, planA, versionA, "ACTIVE", 5);
+            seedPlanItem(drifted, tenantDrift, planA, versionA, 3, PRICE_A);
+        });
 
         // ANCHOR_QUANTITY_MISMATCH: anchored ACTIVE PLAN item quantity <>
         // tenant seat quantity (anchored item only — never secondary plans).
-        Long mismatches = jdbc.queryForObject("""
+        // FORCE-RLS (V20261029_1): one bound connection sees only its own
+        // tenant, so the platform-wide count is summed per tenant — the same
+        // total the pre-RLS unbounded query returned.
+        UUID[] allTenants = {tenant, otherTenant, tenantDrift};
+        long mismatches = classificationCount(allTenants, """
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         JOIN subscription_items i ON i.subscription_id = s.id
                             AND i.item_type = 'PLAN' AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id
                         WHERE i.quantity <> s.seat_quantity
-                        """, Long.class);
+                        """);
         assertThat(mismatches).isEqualTo(1L); // drifted only
 
         // REPORT_ONLY: the scan does not repair — the drift persists.
-        assertThat(activePlanItemQuantity(drifted, planA)).isEqualTo(3);
+        assertThat(TenantGucDataSource.readAsTenant(tenantDrift,
+                () -> activePlanItemQuantity(drifted, planA))).isEqualTo(3);
         // The newly written state stays converged (new-write mismatch = 0).
         assertThat(activePlanItemQuantity(healthy, planA))
                 .isEqualTo(seatQuantity(healthy)).isEqualTo(8);

@@ -9,6 +9,7 @@ import com.sanad.platform.module.registry.ModuleRepository;
 import com.sanad.platform.module.registry.PlanModuleEntitlementRepository;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -53,6 +54,8 @@ class EntitlementProvisioningIsolationPostgresTest {
 
     private static String isolatedUrl;
     private JdbcTemplate jdbc;
+    /** FORCE-RLS GUC-binding wrapper (V20261029_1) — the DataSource jdbc runs on. */
+    private TenantGucDataSource gucDs;
     private PlatformAuditService audit;
     private List<Object> publishedEvents;
     private UUID planA;
@@ -98,9 +101,14 @@ class EntitlementProvisioningIsolationPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): session-scoped app.tenant_id
+        // GUC on every physical connection — same identity the application
+        // binds per request; the fail-closed predicate stays authoritative.
+        // The default tenant is bound per generated tenant in newTenant() below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         audit = Mockito.mock(PlatformAuditService.class);
         publishedEvents = new java.util.ArrayList<>();
 
@@ -193,7 +201,7 @@ class EntitlementProvisioningIsolationPostgresTest {
     void qi04_crossTenantProvisioningIsolation() {
         UUID tenantA = newTenant();
         UUID tenantB = newTenant();
-        UUID sA = insertSubscription(tenantA, planA, "ACTIVE");
+        UUID sA = TenantGucDataSource.readAsTenant(tenantA, () -> insertSubscription(tenantA, planA, "ACTIVE"));
         UUID sB = insertSubscription(tenantB, planB, "PENDING_ACTIVATION");
 
         ProvisioningJobRunner runner = runner();
@@ -203,7 +211,8 @@ class EntitlementProvisioningIsolationPostgresTest {
         assertThat(outcome.status()).isEqualTo("SUCCEEDED");
         assertThat(field(sB, "status")).isEqualTo("ACTIVE");
         // Tenant A completely untouched.
-        assertThat(field(sA, "status")).isEqualTo("ACTIVE");
+        assertThat(TenantGucDataSource.readAsTenant(tenantA,
+                () -> field(sA, "status"))).isEqualTo("ACTIVE");
         assertThat(ledgerCount(sA)).isZero();
         Long aJobs = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM provisioning_jobs WHERE tenant_id = ?", Long.class, tenantA);
@@ -381,6 +390,9 @@ class EntitlementProvisioningIsolationPostgresTest {
 
     private UUID newTenant() {
         UUID id = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): re-bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucDs.setDefaultTenant(id);
         jdbc.update("""
                         INSERT INTO tenants (id, name, subdomain, status, country_code, currency_code,
                                              created_at, updated_at)

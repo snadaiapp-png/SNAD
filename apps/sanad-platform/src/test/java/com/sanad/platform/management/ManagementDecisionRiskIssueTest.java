@@ -1,5 +1,6 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.EscalationService;
 import com.sanad.platform.management.application.ExecutiveDecisionService;
 import com.sanad.platform.management.application.IssueService;
@@ -9,6 +10,7 @@ import com.sanad.platform.management.domain.ExecutiveDecision;
 import com.sanad.platform.management.domain.Issue;
 import com.sanad.platform.management.domain.Risk;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,22 +104,40 @@ class ManagementDecisionRiskIssueTest {
                     approverId, tenantId, "appr-" + approverId.toString().substring(0, 8) + "@test", now, now);
         });
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1): bind the tenant
+        // GUC in the SAME transaction as the identity-plane inserts.
         var roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                roleId, tenantId, now, now);
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                    roleId, tenantId, now, now);
 
-        // Grant ALL management capabilities
-        var caps = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_DECISIONS.%' "
-                + "OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%' "
-                + "OR code LIKE 'EXECUTIVE_MANAGEMENT.%'");
-        for (var cap : caps) {
-            var capId = (UUID) cap.get("id");
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                    + "VALUES (?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), tenantId, roleId, capId, now);
-        }
+            // Grant ALL management capabilities
+            var caps = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_DECISIONS.%' "
+                    + "OR code LIKE 'RISK.%' OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%' "
+                    + "OR code LIKE 'EXECUTIVE_MANAGEMENT.%'");
+            for (var cap : caps) {
+                var capId = (UUID) cap.get("id");
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)",
+                        UUID.randomUUID(), tenantId, roleId, capId, now);
+            }
+        });
+
+        // executive_decisions / risks / issues / escalations are FORCE RLS
+        // (V20261029_1): direct service calls in the test thread need the tenant
+        // GUC, which TenantRlsConnectionHandler applies transaction-locally from
+        // the SecurityContext. Fail-closed predicate unchanged — not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth() {

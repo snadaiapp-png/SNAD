@@ -1,0 +1,2810 @@
+{
+ "total_tables": 294,
+ "counts": {
+  "PLATFORM-REFERENCE": 23,
+  "RLS-PROTECTED": 173,
+  "T1-TENANT-OWNED": 90,
+  "T2-DEFERRED-CONTRACT": 6,
+  "UNCLASSIFIED": 2
+ },
+ "audit49_classes": {
+  "PLATFORM-REFERENCE": [
+   "access_capabilities",
+   "application_iam_contracts",
+   "applications",
+   "country_currencies",
+   "flyway_schema_history",
+   "hr_compliance_rules",
+   "hr_country_packs",
+   "module_capabilities",
+   "modules",
+   "partners",
+   "plan_module_entitlements",
+   "plan_versions",
+   "platform_audit_logs",
+   "platform_countries",
+   "prices",
+   "product_entitlements",
+   "products",
+   "protected_system_roles",
+   "saas_plan_entitlements",
+   "saas_plans",
+   "system_services",
+   "tenants",
+   "usage_metrics"
+  ],
+  "T1-TENANT-OWNED": [
+   "billing_invoices",
+   "bp_analytics_snapshots",
+   "bp_inventory_balances",
+   "bp_inventory_movements",
+   "bp_ledger_entries",
+   "bp_payment_events",
+   "bp_process_runs",
+   "bp_process_steps",
+   "bp_workflow_approvals",
+   "organization_memberships",
+   "organizations",
+   "subscription_change_events",
+   "subscription_items",
+   "tenant_domains",
+   "tenant_quota",
+   "tenant_subscriptions",
+   "user_role_assignments"
+  ],
+  "T2-DEFERRED-CONTRACT": [
+   "login_tenant_index",
+   "password_reset_tokens",
+   "provisioning_job_steps",
+   "provisioning_jobs",
+   "refresh_tokens",
+   "subscription_commands"
+  ],
+  "UNCLASSIFIED": [
+   "role_capabilities",
+   "roles"
+  ]
+ },
+ "t1_table_array": [
+  "billing_invoices",
+  "bp_analytics_snapshots",
+  "bp_inventory_balances",
+  "bp_inventory_movements",
+  "bp_ledger_entries",
+  "bp_payment_events",
+  "bp_process_runs",
+  "bp_process_steps",
+  "bp_workflow_approvals",
+  "commerce_cart_items",
+  "commerce_carts",
+  "commerce_collection_products",
+  "commerce_collections",
+  "commerce_order_items",
+  "commerce_order_status_history",
+  "commerce_orders",
+  "commerce_prices",
+  "commerce_product_variants",
+  "commerce_products",
+  "commerce_store_domains",
+  "commerce_stores",
+  "crm_account_addresses",
+  "crm_account_identifiers",
+  "crm_account_merge_history",
+  "crm_account_relationships",
+  "crm_account_status_history",
+  "crm_accounts",
+  "crm_activities",
+  "crm_assignments",
+  "crm_audit_logs",
+  "crm_communication_method_history",
+  "crm_communication_methods",
+  "crm_communication_policies",
+  "crm_contact_account_relationships",
+  "crm_contact_lookup_index",
+  "crm_contact_ownership_history",
+  "crm_contact_relationship_history",
+  "crm_contact_relationship_roles",
+  "crm_custom_field_definitions",
+  "crm_custom_field_values",
+  "crm_idempotency_records",
+  "crm_import_errors",
+  "crm_import_files",
+  "crm_import_jobs",
+  "crm_leads",
+  "crm_notes",
+  "crm_opportunities",
+  "crm_opportunity_stage_history",
+  "crm_party_address_history",
+  "crm_party_addresses",
+  "crm_phone_numbers",
+  "crm_pipeline_stages",
+  "crm_pipelines",
+  "crm_reports",
+  "crm_tag_assignments",
+  "crm_tags",
+  "crm_tasks",
+  "crm_timeline_events",
+  "crm_transfers",
+  "erp_goods_receipt_items",
+  "erp_goods_receipts",
+  "erp_inventory_adjustments",
+  "erp_inventory_balances",
+  "erp_inventory_movements",
+  "erp_inventory_reservations",
+  "erp_inventory_transfer_items",
+  "erp_inventory_transfers",
+  "erp_items",
+  "erp_purchase_order_items",
+  "erp_purchase_orders",
+  "erp_purchase_requisition_items",
+  "erp_purchase_requisitions",
+  "erp_suppliers",
+  "erp_warehouses",
+  "governance_configurations",
+  "organization_memberships",
+  "organizations",
+  "subscription_change_events",
+  "subscription_items",
+  "tenant_domains",
+  "tenant_quota",
+  "tenant_subscriptions",
+  "user_role_assignments",
+  "website_domains",
+  "website_navigation",
+  "website_navigation_items",
+  "website_pages",
+  "website_publications",
+  "website_theme_settings",
+  "websites"
+ ],
+ "t1_count": 90,
+ "t1_non_sanad_owner": {},
+ "rows": [
+  {
+   "table": "access_capabilities",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "access_scope_grants",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "ai_agents",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "ai_inference_log",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "analytics_dashboards",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "analytics_data_sources",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "analytics_reports",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "application_iam_contracts",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "applications",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "authorization_change_events",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "billing_invoices",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_analytics_snapshots",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_inventory_balances",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_inventory_movements",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_ledger_entries",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_payment_events",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_process_runs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_process_steps",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "bp_workflow_approvals",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "commerce_cart_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_carts",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_collection_products",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_collections",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_order_finance_links",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_order_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_order_number_sequences",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_order_status_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_orders",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_prices",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_product_variants",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_products",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_store_domains",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "commerce_stores",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "country_currencies",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "crm_account_addresses",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_account_identifiers",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_account_merge_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_account_relationships",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_account_status_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_accounts",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_activities",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_assignments",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_audit_logs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_call_events",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_capacity_plans",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_cases",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_communication_method_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_communication_methods",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_communication_policies",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contact_account_relationships",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contact_lookup_index",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contact_ownership_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contact_relationship_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contact_relationship_roles",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_contacts",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_custom_field_definitions",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_custom_field_values",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_email_logs",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_entity_participants",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_event_outbox",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_idempotency_records",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_import_errors",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_import_files",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_import_jobs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_leads",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_notes",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_opportunities",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_opportunity_stage_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_party_address_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_party_addresses",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_phone_numbers",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_pipeline_stages",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_pipelines",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_reports",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_service_assignments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_shift_assignments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_shift_templates",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_staff_availability",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_staff_skills",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_tag_assignments",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_tags",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_tasks",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_timeline_events",
+   "rls": false,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_transfers",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "crm_workload_assignments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "decision_actions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "decision_participants",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "effective_permission_projection",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_goods_receipt_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_goods_receipts",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_adjustments",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_balances",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_movements",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_reservations",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_transfer_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_inventory_transfers",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_purchase_order_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_purchase_orders",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_purchase_requisition_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_purchase_requisitions",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_suppliers",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "erp_warehouses",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "escalations",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "executive_alerts",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "executive_decisions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "executive_health_snapshots",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "executive_insights",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_accounts",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_invoice_lines",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_invoice_number_sequences",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_invoices",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_journal_entries",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_journal_lines",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "finance_payments",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "flyway_schema_history",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "governance_configurations",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_application_stage_periods",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_applications",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_attendance_events",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_attendance_records",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_audit_delivery",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_audit_ledger",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_candidates",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_compensation_components",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_compensation_packages",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_compliance_decisions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_compliance_override_requests",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_compliance_rules",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "hr_country_packs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "hr_departments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_domain_event_outbox",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employee_assignments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employees",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employment_contract_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employment_contracts",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employment_jurisdiction_periods",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_employment_status_periods",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_g2_idempotency_records",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_hire_conversions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_iam_access_bindings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_idempotency_records",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_interview_feedback",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_interview_participants",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_interviews",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_job_opening_periods",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_job_openings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_job_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_jobs",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_leave_balances",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_leave_ledger_entries",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_leave_policies",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_leave_requests",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_leave_types",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_legacy_employee_mappings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_migration_review_items",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_migration_tenant_state",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_offer_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_offers",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_onboarding_checklist_templates",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_onboarding_checklists",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_onboarding_plans",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_onboarding_tasks",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_onboarding_workflow_transitions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_org_unit_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_org_units",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_payroll_items",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_payroll_runs",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_people",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_performance_goals",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_performance_reviews",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_person_identifiers",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_person_private",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_position_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_positions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_schedule_assignments",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_schedule_versions",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_tenant_policies",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_timesheet_entries",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_timesheets",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "hr_work_schedules",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "issues",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "key_results",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "kpi_definitions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "kpi_measurements",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "kpi_targets",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "legal_entities",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "login_tenant_index",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "management_audit_trail",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "mobile_conflict_log",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "mobile_device_registry",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "mobile_sync_cursor",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "mobile_sync_log",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "module_capabilities",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "modules",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "organization_legal_entities",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "organization_memberships",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "organizations",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "partner_delegation_capabilities",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "partner_delegation_grants",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "partner_membership_capabilities",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "partner_memberships",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "partner_tenant_bindings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "partners",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "password_reset_tokens",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "plan_module_entitlements",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "plan_versions",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "platform_audit_logs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "platform_countries",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "platform_files",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "platform_memberships",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "platform_role_metadata",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "prices",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "product_entitlements",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "products",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "protected_system_roles",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "provisioning_job_steps",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "provisioning_jobs",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "refresh_tokens",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "risks",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "role_capabilities",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "UNCLASSIFIED",
+   "in_audit49": true
+  },
+  {
+   "table": "role_template_bindings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "roles",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "UNCLASSIFIED",
+   "in_audit49": true
+  },
+  {
+   "table": "saas_plan_entitlements",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "saas_plans",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "strategic_initiatives",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "strategic_objectives",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subject_relationships",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_finance_links",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_outbox",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_payment_attempts",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_profiles",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_provider_customers",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_provider_events",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_reconciliation_items",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_billing_reconciliation_runs",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_change_events",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "subscription_commands",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T2-DEFERRED-CONTRACT",
+   "in_audit49": true
+  },
+  {
+   "table": "subscription_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "subscription_operating_units",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_resource_bindings",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "subscription_unit_applications",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "system_services",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "tenant_domains",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "tenant_quota",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "tenant_subscriptions",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "tenants",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "usage_aggregates",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "usage_events",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "usage_metrics",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": false,
+   "class": "PLATFORM-REFERENCE",
+   "in_audit49": true
+  },
+  {
+   "table": "usage_operating_unit_aggregates",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "user_permission_overrides",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "user_role_assignments",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": true
+  },
+  {
+   "table": "users",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_domains",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_navigation",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_navigation_items",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_pages",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_publications",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "website_theme_settings",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "websites",
+   "rls": false,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "T1-TENANT-OWNED",
+   "in_audit49": false
+  },
+  {
+   "table": "work_locations",
+   "rls": true,
+   "force": true,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_analytics_process_facts",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_analytics_step_facts",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_approval_requests",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_attachments",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_branch_tokens",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_business_calendars",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_calendar_holidays",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_customer_feedback",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_definitions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_delegations",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_event_inbox",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_event_outbox",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_execution_attempts",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_external_actions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_external_participants",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_incidents",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_instances",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_journey",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_notification_intents",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_notification_policies",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_portal_access_log",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_portal_otp_challenges",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_responsibility_segments",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_step_instances",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_step_transitions",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_steps",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_timers",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_transition_audit",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_user_notifications",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_webhook_endpoints",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_work_item_candidates",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  },
+  {
+   "table": "workflow_work_items",
+   "rls": true,
+   "force": false,
+   "owner": "sanad",
+   "has_tenant_id": true,
+   "class": "RLS-PROTECTED",
+   "in_audit49": false
+  }
+ ]
+}

@@ -216,11 +216,9 @@ class CrmRlsTenantIsolationPostgresTest {
             conn.commit();
         }
 
-        // Verify it was committed
-        Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?",
-                Long.class, tenantA, "New Account A");
-        assertThat(count).isEqualTo(1L);
+        // Verify it was committed (tenant-scoped read — fail-closed hides
+        // rows from unscoped owner sessions)
+        assertThat(countAccountsScoped(tenantA, "New Account A")).isEqualTo(1L);
     }
 
     @Test
@@ -317,9 +315,7 @@ class CrmRlsTenantIsolationPostgresTest {
             }
             conn.rollback();
         }
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?",
-                Long.class, tenantB, "Protected B Account")).isEqualTo(1L);
+        assertThat(countAccountsScoped(tenantB, "Protected B Account")).isEqualTo(1L);
     }
 
     @Test
@@ -354,9 +350,7 @@ class CrmRlsTenantIsolationPostgresTest {
             }
             conn.rollback();
         }
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?",
-                Long.class, tenantB, "Protected B Delete")).isEqualTo(1L);
+        assertThat(countAccountsScoped(tenantB, "Protected B Delete")).isEqualTo(1L);
     }
 
     @Test
@@ -482,14 +476,65 @@ class CrmRlsTenantIsolationPostgresTest {
                 "SELECT id FROM tenants WHERE subdomain = ?", UUID.class, subdomain);
     }
 
+    /**
+     * Fixture connection bound to a tenant identity.
+     *
+     * <p>Under the fail-closed contract (V20261029_1/V20261029_2), every write
+     * and every read of tenant-owned tables requires the {@code app.tenant_id}
+     * GUC to be bound — including for the table owner (FORCE ROW LEVEL
+     * SECURITY). Fixture seeding therefore opens a dedicated short-lived
+     * connection with the session-scoped GUC set to the seeded tenant. The
+     * connection is never pooled, so no tenant identity leaks across tests.
+     * The isolation assertions themselves still run as the non-owner role
+     * via {@link #rawConnection()} — this helper only fixes the fixture
+     * plane.</p>
+     */
+    private Connection sanadScopedConnection(UUID tenantId) throws SQLException {
+        Connection conn = java.sql.DriverManager.getConnection(
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        conn.createStatement().execute("SET app.tenant_id = '" + tenantId + "'");
+        return conn;
+    }
+
     private void seedAccount(UUID tenantId, String name) {
-        jdbc.update("""
-                INSERT INTO crm_accounts (
-                    id, tenant_id, version, display_name, normalized_name, account_type,
-                    lifecycle_status, created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), tenantId, name, name.toLowerCase(),
-                UUID.randomUUID(), UUID.randomUUID());
+        try (Connection conn = sanadScopedConnection(tenantId)) {
+            try (var ps = conn.prepareStatement("""
+                    INSERT INTO crm_accounts (
+                        id, tenant_id, version, display_name, normalized_name, account_type,
+                        lifecycle_status, created_by, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """)) {
+                ps.setObject(1, UUID.randomUUID());
+                ps.setObject(2, tenantId);
+                ps.setString(3, name);
+                ps.setString(4, name.toLowerCase());
+                ps.setObject(5, UUID.randomUUID());
+                ps.setObject(6, UUID.randomUUID());
+                ps.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Seeding crm_accounts under tenant scope failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Tenant-scoped verification read: counts matching rows while bound to
+     * the tenant identity. Under the fail-closed contract an unscoped owner
+     * read sees zero rows, so verification must carry the tenant context.
+     */
+    private long countAccountsScoped(UUID tenantId, String displayName) throws SQLException {
+        try (Connection conn = sanadScopedConnection(tenantId);
+                var ps = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
+            ps.setObject(1, tenantId);
+            ps.setString(2, displayName);
+            try (var rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        }
     }
 
     private void insertAccount(Connection conn, UUID tenantId, String name) throws SQLException {

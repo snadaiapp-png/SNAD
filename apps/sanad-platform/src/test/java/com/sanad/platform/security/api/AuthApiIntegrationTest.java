@@ -124,19 +124,29 @@ class AuthApiIntegrationTest {
 
         // Grant VIEWER role with USER.READ capability to test user
         // (V14 seeds roles for existing tenants only; test tenants are new)
-        Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
-                .orElseGet(() -> roleRepository.save(new Role(
-                        tenantId, "VIEWER", "Viewer", "Read-only access")));
-        AccessCapability userReadCap = accessCapabilityRepository.findByCode("USER.READ")
-                .orElseGet(() -> accessCapabilityRepository.save(new AccessCapability(
-                        "USER.READ", "Read Users", null)));
-        if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
-                tenantId, viewerRole.getId(), userReadCap.getId())) {
-            roleCapabilityRepository.save(new RoleCapability(
-                    tenantId, viewerRole.getId(), userReadCap.getId()));
+        // V20261029_1: roles / role_capabilities / user_role_assignments are
+        // FORCE RLS — the fixture seeding must run inside a transaction bound
+        // to the fixture tenant, exactly like the user save above.
+        bindTenantContext(tenantId);
+        try {
+            tx.executeWithoutResult(txStatus -> {
+                Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
+                        .orElseGet(() -> roleRepository.save(new Role(
+                                tenantId, "VIEWER", "Viewer", "Read-only access")));
+                AccessCapability userReadCap = accessCapabilityRepository.findByCode("USER.READ")
+                        .orElseGet(() -> accessCapabilityRepository.save(new AccessCapability(
+                                "USER.READ", "Read Users", null)));
+                if (!roleCapabilityRepository.existsByTenantIdAndRoleIdAndCapabilityId(
+                        tenantId, viewerRole.getId(), userReadCap.getId())) {
+                    roleCapabilityRepository.save(new RoleCapability(
+                            tenantId, viewerRole.getId(), userReadCap.getId()));
+                }
+                UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
+                userRoleGrantRepository.save(grant);
+            });
+        } finally {
+            clearTenantContext();
         }
-        UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
-        userRoleGrantRepository.save(grant);
     }
 
     // ------------------------------------------------------------
@@ -610,7 +620,12 @@ class AuthApiIntegrationTest {
                         VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
                         """,
                 planId, "login-" + tenantId.toString().substring(0, 8));
-        jdbc.update("""
+        // tenant_subscriptions is FORCE RLS fail-closed (V20261029_1): the
+        // fixture INSERT must run inside a transaction whose GUC is bound to
+        // the fixture tenant, exactly like the user save in setUp(). A bare
+        // autocommit INSERT is rejected (42501 row-level security violation).
+        withTenantFixtureScope(tenantId, () ->
+                jdbc.update("""
                         INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
                                                           billing_cycle, seat_quantity, credit_balance_minor,
                                                           started_at, current_period_start, current_period_end,
@@ -618,7 +633,7 @@ class AuthApiIntegrationTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
                                 NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
                         """,
-                UUID.randomUUID(), tenantId, planId);
+                        UUID.randomUUID(), tenantId, planId));
     }
 
     /**

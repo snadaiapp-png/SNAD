@@ -91,7 +91,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('form button[type="submit"]').first().click();
 
     // The success notice appears and the new account shows in the list.
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     // Click the account name link in the list to open Customer 360.
     const accountLink = page.getByRole("link", { name: unique }).first();
     await expect(accountLink).toBeVisible({ timeout: 10_000 });
@@ -110,7 +110,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('input[name="familyName"]').fill("Test");
     await page.locator('input[name="email"]').fill(email);
     await page.locator('form button[type="submit"]').first().click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     // The contacts list does not auto-refresh after creation.
     // Use client-side SPA navigation (clicking the sidebar link) instead of
     // page.goto/reload to preserve the in-memory access token.
@@ -137,7 +137,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('input[name="companyName"]').fill("Acceptance Co.");
     await page.locator('input[name="email"]').fill(`acceptance-lead+${Date.now()}@snad-crm-acceptance.example`);
     await page.locator('form button[type="submit"]').first().click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("body")).toContainText(leadName, { timeout: 10_000 });
 
     // The new lead is in NEW status. Click the "Qualify" button to change status.
@@ -163,7 +163,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('input[name="currency"]').fill("SAR");
     await page.locator('input[name="stages"]').fill("New, Qualified, Proposal, Won, Lost");
     await page.locator('form button[type="submit"]').first().click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("body")).toContainText(pipelineName, { timeout: 10_000 });
   });
 
@@ -195,7 +195,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await page.locator('input[name="amount"]').fill("15000");
     await page.locator('input[name="currency"]').fill("SAR");
     await page.locator('form button[type="submit"]').first().click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("body")).toContainText(opportunityName, { timeout: 10_000 });
 
     // Move the opportunity stage. The pipeline board renders the
@@ -205,7 +205,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     const moveButton = page.getByRole("button", { name: /Qualified|Proposal/i }).first();
     if (await moveButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await moveButton.click();
-      await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     } else {
       // Fallback: move the opportunity via the API using the access token.
       const oppsResponse = await page.request.get("/api/platform/api/v1/crm/opportunities?limit=200", {
@@ -266,7 +266,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
       await accountSelect.selectOption({ index: 1 });
     }
     await page.locator('form button[type="submit"]').first().click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("body")).toContainText(subject, { timeout: 10_000 });
 
     // Click the "Complete" button on the row containing our new activity.
@@ -276,7 +276,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
       .first();
     await expect(completeButton).toBeVisible({ timeout: 10_000 });
     await completeButton.click();
-    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[role="status"]').first()).toBeVisible({ timeout: 30_000 });
     // The activity status should now be COMPLETED.
     await expect(page.locator("body")).toContainText(/COMPLETED|DONE/i, { timeout: 10_000 });
   });

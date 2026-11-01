@@ -13,6 +13,7 @@ import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -27,6 +28,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +80,9 @@ class ProductCatalogRuntimePostgresTest {
 
     private static JdbcTemplate jdbc;
 
+    /** FORCE-RLS GUC-binding wrapper (batch B) — same instance jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     private ProductRepository productRepository;
     private ProductCatalogService catalogService;
     private PriceService priceService;
@@ -119,9 +126,17 @@ class ProductCatalogRuntimePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated request.
+        // Not a bypass: the fail-closed policy predicate stays authoritative.
+        // The default tenant is bound once generated in newTenant() below;
+        // helpers that re-scope explicitly (set_config / cross-tenant reads)
+        // still win over the session value.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(isolatedUrl, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
 
         productRepository = new ProductRepository(jdbc);
         catalogService = new ProductCatalogService(productRepository);
@@ -146,6 +161,31 @@ class ProductCatalogRuntimePostgresTest {
         return e;
     }
 
+    /**
+     * D6 FORCE RLS (V20261029_1) makes role_capabilities invisible unless
+     * app.tenant_id is bound, so the tenant-agnostic grant-chain contract is
+     * evaluated per tenant: each tenant is counted under its own session-scoped
+     * GUC on a dedicated connection and the counts are aggregated. The sum is
+     * > 0 iff at least one tenant's seeded matrix carries the grant chain.
+     */
+    private int sumGrantChainCountAcrossTenants(String countSql) {
+        List<UUID> tenants = jdbc.queryForList("SELECT id FROM tenants ORDER BY id", UUID.class);
+        int total = 0;
+        for (UUID tenant : tenants) {
+            Integer count = jdbc.execute((Connection con) -> {
+                try (Statement st = con.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
+                    try (ResultSet rs = st.executeQuery(countSql)) {
+                        rs.next();
+                        return rs.getInt(1);
+                    }
+                }
+            });
+            total += count == null ? 0 : count;
+        }
+        return total;
+    }
+
     private UUID newTenant() {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -154,6 +194,10 @@ class ProductCatalogRuntimePostgresTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'SA', 'SAR', NOW(), NOW())
                         """,
                 id, "Tenant " + id, "t-" + id.toString().substring(0, 8));
+        // Bind every subsequent connection handed to this fixture to the
+        // freshly generated tenant (session scope; PG-29's sequential
+        // secondTenant switch re-binds on its own newTenant() call).
+        gucDs.setDefaultTenant(id);
         return id;
     }
 
@@ -640,7 +684,7 @@ class ProductCatalogRuntimePostgresTest {
                         + "AND status = 'ACTIVE'", Integer.class);
         assertThat(active).as("CATALOG.READ must exist and be ACTIVE").isEqualTo(1);
 
-        Integer grants = jdbc.queryForObject("""
+        Integer grants = sumGrantChainCountAcrossTenants("""
                         SELECT COUNT(*) FROM role_capabilities rc
                         JOIN access_capabilities exec_view ON exec_view.code = 'EXECUTIVE_VIEW'
                         JOIN access_capabilities cat_read ON cat_read.code = 'CATALOG.READ'
@@ -648,7 +692,7 @@ class ProductCatalogRuntimePostgresTest {
                           AND EXISTS (SELECT 1 FROM role_capabilities rc2
                                       WHERE rc2.role_id = rc.role_id
                                         AND rc2.capability_id = exec_view.id)
-                        """, Integer.class);
+                        """);
         assertThat(grants).as("backward-compatible grant chain must exist").isGreaterThan(0);
     }
 
@@ -660,10 +704,10 @@ class ProductCatalogRuntimePostgresTest {
                         + "AND status = 'ACTIVE'", Integer.class);
         assertThat(active).as("CATALOG.MANAGE must exist and be ACTIVE").isEqualTo(1);
 
-        Integer grants = jdbc.queryForObject(
+        Integer grants = sumGrantChainCountAcrossTenants(
                 "SELECT COUNT(*) FROM role_capabilities rc "
                         + "JOIN access_capabilities c ON c.id = rc.capability_id "
-                        + "WHERE c.code = 'CATALOG.MANAGE'", Integer.class);
+                        + "WHERE c.code = 'CATALOG.MANAGE'");
         assertThat(grants).isGreaterThan(0);
     }
 

@@ -106,6 +106,11 @@ class CrmImportWorkerRlsPostgresTest {
 
         UUID tenantId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the import tenant on the fixture's
+        // single connection before seeding tenant-owned rows — the fail-closed
+        // policy predicate stays authoritative (not a bypass). The worker itself
+        // keeps binding via TenantRlsTransactionContext.
+        setTenant(tenantId);
         seedTenant(tenantId);
         seedPipeline(tenantId, actorId);
         seedAccount(tenantId, actorId);
@@ -146,6 +151,11 @@ class CrmImportWorkerRlsPostgresTest {
     }
 
     // ---------- helpers ----------
+
+    /** Binds the session-scoped app.tenant_id GUC on the fixture's single connection. */
+    private void setTenant(UUID tenantId) {
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantId.toString());
+    }
 
     private void seedTenant(UUID tenantId) {
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "

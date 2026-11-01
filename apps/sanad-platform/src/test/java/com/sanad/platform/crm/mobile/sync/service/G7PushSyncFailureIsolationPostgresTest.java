@@ -7,6 +7,7 @@ import com.sanad.platform.crm.mobile.conflict.service.ConflictService;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncRequest;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncResponse;
 import com.sanad.platform.security.rls.TenantRlsDataSource;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -75,9 +76,16 @@ class G7PushSyncFailureIsolationPostgresTest {
                 .load();
         flyway.migrate();
 
-        rawJdbc = new JdbcTemplate(rawDataSource);
+        // FORCE-RLS (V20261029_1): the raw verification/cleanup template must
+        // present the tenant identity — the service path binds its own GUC via
+        // TenantRlsDataSource. Fail-closed predicate unchanged, not a bypass.
+        TenantGucDataSource gucRawDs = new TenantGucDataSource(rawDataSource, null);
+        rawJdbc = new JdbcTemplate(gucRawDs);
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
+        // FORCE-RLS (V20261029_1): bind the fixture to the freshly generated
+        // tenant — fail-closed predicate unchanged, not a bypass.
+        gucRawDs.setDefaultTenant(tenantId);
         Instant now = Instant.now();
         rawJdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",
                 tenantId,

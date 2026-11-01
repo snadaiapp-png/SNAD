@@ -57,7 +57,9 @@ public final class CrmIdempotencyHttpSupport {
         String fingerprint = IdempotencyService.fingerprint(method, path, canonicalBody);
         IdempotencyService.Replay replay = idempotency.begin(
                 tenantId, principalId, endpoint, idempotencyKey.trim(), fingerprint);
-        return new Guard(requestId(request), replay);
+        // Guard carries the tenant id so complete/fail can re-apply the FORCE
+        // RLS scope (V20261029_1) for their own transaction.
+        return new Guard(requestId(request), replay, tenantId);
     }
 
     public <T> ResponseEntity<SingleResponse<T>> replay(Guard guard, Class<T> bodyType) {
@@ -126,13 +128,14 @@ public final class CrmIdempotencyHttpSupport {
 
     public void fail(Guard guard) {
         if (guard.replay() instanceof IdempotencyService.Replay.ReplayMiss miss) {
-            idempotency.fail(miss.operationId());
+            idempotency.fail(guard.tenantId(), miss.operationId());
         }
     }
 
     private void persist(Guard guard, HttpStatus status, Object body, HttpHeaders headers) {
         IdempotencyService.Replay.ReplayMiss miss = guard.miss();
         idempotency.complete(
+                guard.tenantId(),
                 miss.operationId(),
                 status.value(),
                 writeJson(body),
@@ -218,7 +221,7 @@ public final class CrmIdempotencyHttpSupport {
         return null;
     }
 
-    public record Guard(UUID requestId, IdempotencyService.Replay replay) {
+    public record Guard(UUID requestId, IdempotencyService.Replay replay, UUID tenantId) {
         public boolean isReplay() {
             return replay instanceof IdempotencyService.Replay.ReplayHit;
         }

@@ -10,6 +10,7 @@ import com.sanad.platform.module.registry.ModuleEntity;
 import com.sanad.platform.module.registry.ModuleRepository;
 import com.sanad.platform.module.registry.PlanModuleEntitlementRepository;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -56,6 +57,10 @@ class EffectiveConvergencePostgresTest {
 
     private static String isolatedUrl;
     private JdbcTemplate jdbc;
+
+    /** FORCE-RLS GUC-binding wrapper (V20261029_1) — the DataSource jdbc runs on. */
+    private static TenantGucDataSource gucDs;
+
     private TransactionTemplate transactions;
     private BillingStateService billing;
     private PlatformAuditService billingAudit;
@@ -101,11 +106,17 @@ class EffectiveConvergencePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound in newTenant() below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        gucDs = new TenantGucDataSource(rawDs, null);
+        jdbc = new JdbcTemplate(gucDs);
         transactions = new TransactionTemplate(
-                new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(gucDs));
 
         billingAudit = Mockito.mock(PlatformAuditService.class);
         publishedEvents = new java.util.ArrayList<>();
@@ -179,11 +190,23 @@ class EffectiveConvergencePostgresTest {
         UUID liveTenant = newTenant();
         insertSubscription(liveTenant, plan, "ACTIVE", "CURRENT");
 
-        List<UUID> scanned = jdbc.queryForList(
-                "SELECT DISTINCT tenant_id FROM tenant_subscriptions "
-                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
-                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
-                UUID.class);
+        // FORCE-RLS (V20261029_1): a bound connection only sees its own
+        // tenant's rows, so this platform-wide scan projection is assembled
+        // as the union of per-tenant results — the pre-RLS scope preserved,
+        // not weakened; the fail-closed predicate stays authoritative.
+        List<UUID> scanned = new java.util.ArrayList<>();
+        scanned.addAll(TenantGucDataSource.readAsTenant(staleTenant, () ->
+                jdbc.queryForList(
+                        "SELECT DISTINCT tenant_id FROM tenant_subscriptions "
+                                + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
+                                + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
+                        UUID.class)));
+        scanned.addAll(TenantGucDataSource.readAsTenant(liveTenant, () ->
+                jdbc.queryForList(
+                        "SELECT DISTINCT tenant_id FROM tenant_subscriptions "
+                                + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
+                                + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
+                        UUID.class)));
 
         assertThat(scanned).contains(liveTenant);
         assertThat(scanned).doesNotContain(staleTenant);
@@ -280,6 +303,10 @@ class EffectiveConvergencePostgresTest {
                         VALUES (?, ?, ?, 'ACTIVE', 'SA', 'SAR', NOW(), NOW())
                         """,
                 id, "Tenant " + id, "t-" + id.toString().substring(0, 8));
+        // Bind every subsequent connection handed to this fixture to the
+        // freshly generated tenant (session scope); a later newTenant() call
+        // re-binds, and cross-tenant seeds/reads re-scope explicitly.
+        gucDs.setDefaultTenant(id);
         return id;
     }
 

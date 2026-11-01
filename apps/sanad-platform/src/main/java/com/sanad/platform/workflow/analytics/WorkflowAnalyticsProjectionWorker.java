@@ -26,16 +26,43 @@ public class WorkflowAnalyticsProjectionWorker {
     private static final int MAX_TENANTS_PER_TICK = 200;
     private static final int BATCH_SIZE = 100;
 
+    private static final String AMBIENT_TX_REQUIRED_MSG =
+            "runProjectionPass must run inside a Spring-managed transaction "
+            + "(SET LOCAL app.tenant_id is only meaningful within a transaction boundary).";
+
     private final JdbcTemplate jdbc;
     private final WorkflowAnalyticsProjectionService projectionService;
+    private final org.springframework.transaction.support.TransactionTemplate scoped;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
     private final boolean enabled;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public WorkflowAnalyticsProjectionWorker(
             JdbcTemplate jdbc,
             WorkflowAnalyticsProjectionService projectionService,
+            org.springframework.transaction.PlatformTransactionManager transactionManager,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
             @Value("${sanad.workflow.analytics.projection.enabled:true}") boolean enabled) {
         this.jdbc = jdbc;
         this.projectionService = projectionService;
+        this.tenantRlsContext = tenantRlsContext;
+        org.springframework.transaction.support.TransactionTemplate template =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.scoped = template;
+        this.enabled = enabled;
+    }
+
+    /** Backward-compatible harness constructor: in-transaction ambient mode only. */
+    public WorkflowAnalyticsProjectionWorker(
+            JdbcTemplate jdbc,
+            WorkflowAnalyticsProjectionService projectionService,
+            boolean enabled) {
+        this.jdbc = jdbc;
+        this.projectionService = projectionService;
+        this.tenantRlsContext = null;
+        this.scoped = null;
         this.enabled = enabled;
     }
 
@@ -52,20 +79,75 @@ public class WorkflowAnalyticsProjectionWorker {
         }
     }
 
-    /** One bounded projection pass (invokable directly in tests). */
-    @Transactional
+    /**
+     * One bounded projection pass (invokable directly in tests).
+     *
+     * <p>FORCE-RLS execution modes (V20261029_1): workflow_instances /
+     * workflow_analytics_process_facts are fail-closed tenant tables and this
+     * worker runs on a scheduled thread WITHOUT a SecurityContext tenant — a
+     * single unscoped query would silently see zero rows. Mirroring
+     * WorkflowDeadlineEnforcementWorker: called OUTSIDE any transaction the
+     * pass enumerates the platform tenant directory (non-RLS) and projects
+     * each tenant inside a REQUIRES_NEW transaction-local app.tenant_id
+     * scope; called INSIDE a caller-managed transaction (tests, control
+     * flows) it re-scopes app.tenant_id per tenant within that transaction
+     * (is_local last-wins, strictly sequential). RLS stays fully enforced in
+     * both modes.</p>
+     */
     public int runProjectionPass() {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isActualTransactionActive()) {
+            return runProjectionPassInTransaction();
+        }
+        if (scoped == null || tenantRlsContext == null) {
+            throw new IllegalStateException(AMBIENT_TX_REQUIRED_MSG);
+        }
         int projected = 0;
         List<UUID> tenants = jdbc.queryForList(
                 "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT ?",
                 UUID.class, MAX_TENANTS_PER_TICK);
         for (UUID tenantId : tenants) {
             try {
+                Integer n = scoped.execute(status -> {
+                    tenantRlsContext.applyForCurrentTransaction(tenantId);
+                    return projectStaleForTenant(tenantId);
+                });
+                projected += n == null ? 0 : n;
+            } catch (Exception e) {
+                log.error("Analytics projection failed for tenant {}: {}",
+                        tenantId, e.getMessage());
+            }
+        }
+        return projected;
+    }
+
+    /** Ambient-transaction variant: sequential per-tenant re-scoping, one tx. */
+    private int runProjectionPassInTransaction() {
+        if (tenantRlsContext == null) {
+            throw new IllegalStateException(
+                "TenantRlsTransactionContext is required to scope the per-tenant "
+                + "projection pass under fail-closed FORCE RLS (V20261029_1).");
+        }
+        // Re-scoping per tenant (last-wins) must not leak into the caller's
+        // ambient scope: save it first, restore it after the loop.
+        String callerScope = jdbc.queryForObject(
+                "SELECT current_setting('app.tenant_id', true)", String.class);
+        int projected = 0;
+        List<UUID> tenants = jdbc.queryForList(
+                "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT ?",
+                UUID.class, MAX_TENANTS_PER_TICK);
+        for (UUID tenantId : tenants) {
+            try {
+                tenantRlsContext.applyForCurrentTransaction(tenantId);
                 projected += projectStaleForTenant(tenantId);
             } catch (Exception e) {
                 log.error("Analytics projection failed for tenant {}: {}",
                         tenantId, e.getMessage());
             }
+        }
+        if (callerScope != null) {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, callerScope);
         }
         return projected;
     }

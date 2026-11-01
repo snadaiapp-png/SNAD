@@ -1,8 +1,10 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.*;
 import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,17 +109,35 @@ class ManagementEndToEndTest {
             });
         }
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1): bind the tenant
+        // GUC in the SAME transaction as the identity-plane inserts.
         var roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                roleId, tenantId, now, now);
-        var caps = jdbc.queryForList(
-                "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' "
-                + "OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%'");
-        for (var cap : caps) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                    + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
-        }
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                    + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                    roleId, tenantId, now, now);
+            var caps = jdbc.queryForList(
+                    "SELECT id FROM access_capabilities WHERE code LIKE 'EXECUTIVE_%' OR code LIKE 'RISK.%' "
+                    + "OR code LIKE 'ISSUE.%' OR code LIKE 'ESCALATION.%'");
+            for (var cap : caps) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                        + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
+            }
+        });
+
+        // executive_* / risks / issues / kpi_* / strategic_* tables are FORCE RLS
+        // (V20261029_1): direct service calls in the test thread need the tenant GUC,
+        // which TenantRlsConnectionHandler applies transaction-locally from the
+        // SecurityContext. Fail-closed predicate unchanged — not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth() {
@@ -159,6 +179,11 @@ class ManagementEndToEndTest {
                 .andExpect(jsonPath("$.status").value("OFF_TRACK"));
 
         // Verify alert was created
+        // MockMvc request post-processors reset the thread's SecurityContext
+        // after each request; re-bind the tenant identity before the direct
+        // service read so TenantRlsConnectionHandler applies SET LOCAL
+        // app.tenant_id (FORCE RLS, V20261029_1 — fail-closed unchanged).
+        RlsTestSupport.setSecurityContext(tenantId, userId);
         var alerts = alertService.findOpenAlerts(tenantId, 100);
         assertThat(alerts).anyMatch(a -> a.type() == ExecutiveAlert.AlertType.OBJECTIVE_OFF_TRACK);
 
@@ -293,8 +318,16 @@ class ManagementEndToEndTest {
         decisionService.submit(tenantId, created.id(), userId);
 
         // Override SLA to past
-        jdbc.update("UPDATE executive_decisions SET approval_due_at = NOW() - INTERVAL '1 day' "
-                + "WHERE id = ? AND tenant_id = ?", created.id(), tenantId);
+        // executive_decisions is FORCE RLS (V20261029_1): this raw JdbcTemplate
+        // UPDATE runs in autocommit, so bind the tenant GUC transaction-locally
+        // first. Fail-closed predicate unchanged — not a bypass.
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("UPDATE executive_decisions SET approval_due_at = NOW() - INTERVAL '1 day' "
+                    + "WHERE id = ? AND tenant_id = ?", created.id(), tenantId);
+        });
 
         // Run SLA monitoring
         int alerts = slaMonitoringService.checkDecisionApprovalSla(tenantId);

@@ -30,10 +30,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *     If a record already exists for the same (tenant, principal, endpoint,
  *     key) tuple, either replay it (same fingerprint) or reject with
  *     {@code CRM_IDEMPOTENCY_CONFLICT} (different fingerprint).
- *   - {@link #complete(UUID, int, String)} — store the response so future
- *     replays return the same body and status.
- *   - {@link #fail(UUID)} — remove the in-flight record so the client can
- *     retry with the same key.
+ *   - {@link #complete(UUID, UUID, int, String, String, String)} — store the
+ *     response so future replays return the same body and status.
+ *   - {@link #fail(UUID, UUID)} — remove the in-flight record so the client
+ *     can retry with the same key.
  * <p>
  * Branch: crm/003-stable-api-contracts
  */
@@ -58,9 +58,17 @@ public interface IdempotencyService {
      */
     Replay begin(UUID tenantId, UUID principalId, String endpoint, String idempotencyKey, String requestFingerprint);
 
-    void complete(UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType);
+    /**
+     * Store the response of an in-flight operation. The tenantId scopes the
+     * write to the caller's FORCE RLS context (V20261029_1).
+     */
+    void complete(UUID tenantId, UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType);
 
-    void fail(UUID operationId);
+    /**
+     * Remove an in-flight operation so the client can retry. The tenantId
+     * scopes the delete to the caller's FORCE RLS context (V20261029_1).
+     */
+    void fail(UUID tenantId, UUID operationId);
 
     /**
      * Result of {@link #begin}. Either a replay (cached response) or a
@@ -125,7 +133,7 @@ public interface IdempotencyService {
         }
 
         @Override
-        public synchronized void complete(UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType) {
+        public synchronized void complete(UUID tenantId, UUID operationId, int responseStatus, String responseBodyJson, String responseHeadersJson, String contentType) {
             IdempotencyRecord record = byOperation.get(operationId);
             if (record == null) return;
             IdempotencyRecord updated = new IdempotencyRecord(
@@ -137,7 +145,7 @@ public interface IdempotencyService {
         }
 
         @Override
-        public synchronized void fail(UUID operationId) {
+        public synchronized void fail(UUID tenantId, UUID operationId) {
             IdempotencyRecord record = byOperation.remove(operationId);
             if (record != null) {
                 byKey.remove(compositeKey(record.tenantId(), record.principalId(), record.endpoint(), record.idempotencyKey()));

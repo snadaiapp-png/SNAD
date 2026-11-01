@@ -95,22 +95,41 @@ public class TrialExpirationService {
     private final SubscriptionCommandService commandService;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     @Autowired
     public TrialExpirationService(JdbcTemplate jdbc,
                                   SubscriptionCommandService commandService,
-                                  PlatformTransactionManager transactionManager) {
-        this(jdbc, commandService, new TransactionTemplate(transactionManager), Clock.systemUTC());
+                                  PlatformTransactionManager transactionManager,
+                                  com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
+        this(jdbc, commandService, new TransactionTemplate(transactionManager), Clock.systemUTC(), tenantRlsContext);
+    }
+
+    /** Backward-compatible constructor (tests/direct PostgreSQL harnesses without RLS context). */
+    public TrialExpirationService(JdbcTemplate jdbc,
+                                  SubscriptionCommandService commandService,
+                                  TransactionTemplate transactions,
+                                  Clock clock) {
+        this(jdbc, commandService, transactions, clock, null);
     }
 
     public TrialExpirationService(JdbcTemplate jdbc,
                                   SubscriptionCommandService commandService,
                                   TransactionTemplate transactions,
-                                  Clock clock) {
+                                  Clock clock,
+                                  com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.commandService = commandService;
         this.transactions = transactions;
         this.clock = clock;
+        this.tenantRlsContext = tenantRlsContext;
+    }
+
+    /** Applies the transaction-local tenant GUC when an RLS context is available (no-op in bare test harnesses). */
+    private void applyTenantScope(UUID tenantId) {
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
     }
 
     /**
@@ -148,35 +167,60 @@ public class TrialExpirationService {
         // due-ness (never a scattered Instant.now() per row).
         Instant executionTime = clock.instant();
 
-        List<DueTrial> due = findDueTrials(executionTime);
+        // tenant_subscriptions is FORCE RLS (V20261029_1) and
+        // subscription_commands is FORCE RLS (V20261031_1): a bare
+        // cross-tenant scan would silently return zero rows and every
+        // ledger insert would be rejected. Enumerate candidate tenants from
+        // the platform tenant directory (non-RLS, PLATFORM-REFERENCE) and
+        // evaluate each tenant inside its own transaction-local GUC scope —
+        // the established dunning pattern
+        // (BillingStateService#runDunningCycleOnce).
+        List<UUID> tenantIds = jdbc.queryForList("SELECT id FROM tenants ORDER BY id", UUID.class);
         int expired = 0;
         int skipped = 0;
         int failed = 0;
+        int dueTotal = 0;
 
-        for (DueTrial trial : due) {
+        for (UUID tenantId : tenantIds) {
+            List<DueTrial> due;
             try {
-                if (expireIfStillDue(trial, executionTime)) {
-                    expired++;
-                } else {
-                    skipped++;
-                }
+                due = transactions.execute(txStatus -> {
+                    applyTenantScope(tenantId);
+                    return findDueTrials(tenantId, executionTime);
+                });
             } catch (Exception e) {
                 failed++;
-                // Failure isolation: log with full context and continue —
-                // one invalid subscription must not prevent the cycle from
-                // processing the remaining due trials.
-                log.error("TrialExpirationService: failed to expire subscription {} "
-                                + "(tenant {}, trial ended {}): {}",
-                        trial.subscriptionId(), trial.tenantId(), trial.trialEndsAt(),
-                        e.getMessage(), e);
+                log.error("TrialExpirationService: due-trial scan failed for tenant {}: {}",
+                        tenantId, e.getMessage(), e);
+                continue;
+            }
+            dueTotal += due.size();
+
+            for (DueTrial trial : due) {
+                try {
+                    if (expireIfStillDue(trial, executionTime)) {
+                        expired++;
+                    } else {
+                        skipped++;
+                    }
+                } catch (Exception e) {
+                    failed++;
+                    // Failure isolation: log with full context and continue —
+                    // one invalid subscription must not prevent the cycle from
+                    // processing the remaining due trials.
+                    log.error("TrialExpirationService: failed to expire subscription {} "
+                                    + "(tenant {}, trial ended {}): {}",
+                            trial.subscriptionId(), trial.tenantId(), trial.trialEndsAt(),
+                            e.getMessage(), e);
+                }
             }
         }
 
-        if (!due.isEmpty() || failed > 0) {
-            log.info("TrialExpirationService: executedAt={} due={} expired={} skipped={} failed={}",
-                    executionTime, due.size(), expired, skipped, failed);
+        if (dueTotal > 0 || failed > 0) {
+            log.info("TrialExpirationService: executedAt={} due={} expired={} skipped={} failed={} tenants={}",
+                    executionTime, dueTotal, expired, skipped, failed, tenantIds.size());
         }
-        return new TrialExpiryResult(due.size(), expired, skipped, failed, executionTime);
+        return new TrialExpiryResult(dueTotal, expired, skipped, failed, executionTime);
     }
 
     /**
@@ -196,13 +240,19 @@ public class TrialExpirationService {
      *         {@code false} if the row was already handled / no longer due
      */
     private boolean expireIfStillDue(DueTrial trial, Instant executionTime) {
+        // Own dedicated transaction (the cycle entry point holds none —
+        // @Transactional(NEVER)): a trial that fails must not poison the
+        // other trials of the same tenant. The tenant GUC is
+        // transaction-local, so it is applied inside this transaction
+        // before any RLS-protected access.
         Boolean expired = transactions.execute(txStatus -> {
+            applyTenantScope(trial.tenantId());
             // Lock + re-check: the scan is only a hint — the row may have
             // changed between the scan and this transaction.
             Recheck row = jdbc.queryForObject(
-                    "SELECT status, trial_ends_at FROM tenant_subscriptions WHERE id = ? FOR UPDATE",
+                    "SELECT status, trial_ends_at FROM tenant_subscriptions WHERE id = ? AND tenant_id = ? FOR UPDATE",
                     (rs, i) -> new Recheck(rs.getString("status"), rs.getTimestamp("trial_ends_at")),
-                    trial.subscriptionId());
+                    trial.subscriptionId(), trial.tenantId());
             if (row == null || row.trialEndsAt() == null
                     || !"TRIAL".equals(row.status()) && !"TRIALING".equals(row.status())
                     || row.trialEndsAt().toInstant().isAfter(executionTime)) {
@@ -225,10 +275,13 @@ public class TrialExpirationService {
         return Boolean.TRUE.equals(expired);
     }
 
-    private List<DueTrial> findDueTrials(Instant executionTime) {
+    private List<DueTrial> findDueTrials(UUID tenantId, Instant executionTime) {
+        // tenant_id predicate: defense in depth alongside the FORCE RLS
+        // policy — the scan always runs inside the tenant's GUC scope.
         return jdbc.query(
                 "SELECT id, tenant_id, trial_ends_at FROM tenant_subscriptions "
-                        + "WHERE status IN ('TRIAL', 'TRIALING') "
+                        + "WHERE tenant_id = ? "
+                        + "AND status IN ('TRIAL', 'TRIALING') "
                         + "AND trial_ends_at IS NOT NULL "
                         + "AND trial_ends_at <= ? "
                         + "ORDER BY trial_ends_at ASC, id ASC "
@@ -237,7 +290,7 @@ public class TrialExpirationService {
                         rs.getObject("id", UUID.class),
                         rs.getObject("tenant_id", UUID.class),
                         rs.getTimestamp("trial_ends_at").toInstant()),
-                Timestamp.from(executionTime));
+                tenantId, Timestamp.from(executionTime));
     }
 
     /** Result of one cycle — used for logging and test assertions. */

@@ -92,7 +92,22 @@ class OrganizationTenantIsolationTest {
     // ============================================================
     // Helper: create an organization under a specific tenant
     // ============================================================
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private jakarta.persistence.EntityManager em;
+
+    private void scopeGuc(UUID tenantId) {
+        // V20261029_1: organizations is FORCE RLS and this suite drives the API
+        // / repositories without an authenticated principal, so scope the test
+        // transaction to the acting tenant directly before tenant-scoped calls.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+    }
+
     private JsonNode createOrganization(UUID tenantId, String name, String description) throws Exception {
+        scopeGuc(tenantId);
         String payload = objectMapper.writeValueAsString(Map.of(
                 "tenantId", tenantId.toString(),
                 "name", name,
@@ -103,6 +118,12 @@ class OrganizationTenantIsolationTest {
                         .content(payload))
                 .andExpect(status().isCreated())
                 .andReturn();
+        // V20261029_1: flush the pending Hibernate INSERT while the tenant GUC
+        // still matches this create, then detach — a later scopeGuc() flip in
+        // the same test transaction would otherwise flush the deferred row
+        // under the WRONG tenant GUC and violate RLS.
+        em.flush();
+        em.clear();
         return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 
@@ -138,6 +159,7 @@ class OrganizationTenantIsolationTest {
         createOrganization(tenantBId, "Org B1", "desc B1");
 
         // List orgs for tenant A — should only see A1 and A2, never B1
+        scopeGuc(tenantAId);
         mockMvc.perform(get("/api/v1/organizations")
                         .param("tenantId", tenantAId.toString())
                         .accept(MediaType.APPLICATION_JSON))
@@ -149,6 +171,7 @@ class OrganizationTenantIsolationTest {
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("Org B1"))));
 
         // List orgs for tenant B — should only see B1
+        scopeGuc(tenantBId);
         mockMvc.perform(get("/api/v1/organizations")
                         .param("tenantId", tenantBId.toString())
                         .accept(MediaType.APPLICATION_JSON))
@@ -252,6 +275,7 @@ class OrganizationTenantIsolationTest {
         createOrganization(tenantAId, "Shared Name", "tenant A's org");
 
         // Create org with SAME name under tenant B — should NOT get 409
+        scopeGuc(tenantBId);
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -291,12 +315,15 @@ class OrganizationTenantIsolationTest {
         createOrganization(tenantBId, "B1", "desc");
 
         // Tenant A sees 2 orgs
+        scopeGuc(tenantAId);
         assertThat(organizationRepository.findByTenantId(tenantAId)).hasSize(2);
 
         // Tenant B sees 1 org
+        scopeGuc(tenantBId);
         assertThat(organizationRepository.findByTenantId(tenantBId)).hasSize(1);
 
         // None of tenant B's org names appear in tenant A's list
+        scopeGuc(tenantAId);
         assertThat(organizationRepository.findByTenantId(tenantAId))
                 .noneMatch(o -> o.getName().equals("B1"));
     }

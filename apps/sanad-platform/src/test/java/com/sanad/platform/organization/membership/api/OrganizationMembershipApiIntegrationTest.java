@@ -56,6 +56,9 @@ class OrganizationMembershipApiIntegrationTest {
     @Autowired
     private OrganizationMembershipRepository membershipRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     private UUID tenantId;
     private UUID organizationId;
 
@@ -67,6 +70,12 @@ class OrganizationMembershipApiIntegrationTest {
 
         Organization org = new Organization(tenant, "Acme Riyadh", "desc", OrganizationStatus.ACTIVE);
         organizationId = organizationRepository.save(org).getId();
+        // V20261029_1: organizations / organization_memberships are FORCE RLS and
+        // this suite drives the API without an authenticated principal, so scope
+        // the test transaction to the fixture tenant directly (all API calls join
+        // this transaction and inherit the GUC).
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
     }
 
     private String invitePayload(String email, String displayName) throws Exception {

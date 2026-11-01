@@ -10,6 +10,7 @@ import com.sanad.platform.admin.api.TenantDomainDtos.UpdateDomainRequest;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerificationMethod;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
 import com.sanad.platform.admin.service.TenantDomainService;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -23,6 +24,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
@@ -51,6 +54,7 @@ class TenantDomainServiceIntegrationTest {
 
     @Autowired private TenantDomainService domainService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
     @MockBean private DomainOwnershipVerifier ownershipVerifier;
 
     private UUID tenantId;
@@ -66,6 +70,11 @@ class TenantDomainServiceIntegrationTest {
     void setUp() {
         tenantId = UUID.randomUUID();
         createdTenants.add(tenantId);
+        // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every @Transactional TenantDomainService boundary (tenant_domains
+        // inserts/reads) — fail-closed predicate unchanged, not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
@@ -76,9 +85,19 @@ class TenantDomainServiceIntegrationTest {
 
     @AfterEach
     void sweepTenantDomainFixtures() {
+        RlsTestSupport.clearSecurityContext();
+        // tenant_domains is FORCE RLS (V20261029_1): the sweep DELETE must run
+        // with the owning tenant's GUC bound on the same transaction — an
+        // unbound autocommit DELETE matches zero rows (fail-closed predicate
+        // unchanged, not a bypass).
+        var sweepTx = new TransactionTemplate(transactionManager);
         for (UUID tid : createdTenants) {
-            jdbc.update("DELETE FROM tenant_domains WHERE tenant_id = ?", tid);
-            jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
+            sweepTx.executeWithoutResult(txStatus -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tid.toString());
+                jdbc.update("DELETE FROM tenant_domains WHERE tenant_id = ?", tid);
+                jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
+            });
         }
         createdTenants.clear();
     }

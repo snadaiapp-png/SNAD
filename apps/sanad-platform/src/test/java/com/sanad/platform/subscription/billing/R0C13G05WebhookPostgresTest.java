@@ -80,8 +80,12 @@ class R0C13G05WebhookPostgresTest {
         tenantId = seedTenant();
         otherTenantId = seedTenant();
         UUID plan = seedPlan();
-        subscriptionId = seedSubscription(tenantId, plan);
-        billingInvoiceId = seedBillingInvoice(tenantId, subscriptionId);
+        // FORCE-RLS seed writes (V20261029_1) run inside the owning tenant's
+        // transaction-local GUC scope — fail-closed predicate unchanged, not a
+        // bypass. The webhook path itself stays context-free by design: it
+        // resolves the tenant only from the stored provider binding.
+        subscriptionId = inTenant(tenantId, () -> seedSubscription(tenantId, plan));
+        billingInvoiceId = inTenant(tenantId, () -> seedBillingInvoice(tenantId, subscriptionId));
         providerPaymentRef = "test_pi_g05_" + compact(billingInvoiceId);
         seedProviderBinding(
                 tenantId, subscriptionId, billingInvoiceId, providerPaymentRef);
@@ -105,8 +109,14 @@ class R0C13G05WebhookPostgresTest {
                 // Disposable CI database remains the final cleanup boundary.
             }
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
-            jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+            // FORCE-RLS tables (V20261029_1): the deletes must run inside the
+            // tenant's transaction-local GUC scope — an unbound DELETE matches
+            // zero rows and would leave FK-blocking orphans.
+            inTenant(tenant, () -> {
+                jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
+                return null;
+            });
         }
         for (UUID plan : planIds) {
             jdbc.update("DELETE FROM saas_plan_entitlements WHERE plan_id = ?", plan);

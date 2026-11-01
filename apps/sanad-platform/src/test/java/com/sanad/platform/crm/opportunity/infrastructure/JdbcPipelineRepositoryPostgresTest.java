@@ -43,7 +43,7 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void create_persistsPipelineAndDerivesStages() {
-        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+        PipelineRecord saved = inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Sales " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Qualified", "Proposal", "Won"))));
 
@@ -53,7 +53,7 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         assertThat(saved.currencyCode()).isEqualTo("SAR");
         assertThat(saved.active()).isTrue();
 
-        List<StageRecord> stages = pipelines.findStages(tenantId, saved.id());
+        List<StageRecord> stages = inTenantTransaction(tenantId, () -> pipelines.findStages(tenantId, saved.id()));
         assertThat(stages).hasSize(4);
         // terminal "Won" stage derives probability 100 and terminal_state WON
         StageRecord won = stages.get(stages.size() - 1);
@@ -67,24 +67,24 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findById_roundTripsCreatedPipeline() {
-        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+        PipelineRecord saved = inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Leads " + tenantId.toString().substring(0, 6),
                         "USD", List.of("New", "Won", "Lost"))));
 
-        PipelineRecord fetched = pipelines.findById(tenantId, saved.id());
+        PipelineRecord fetched = inTenantTransaction(tenantId, () -> pipelines.findById(tenantId, saved.id()));
         assertThat(fetched).isEqualTo(saved);
     }
 
     @Test
     void findAll_listsAllPipelinesForTenant() {
-        inTransaction(() -> pipelines.create(tenantId, actorId,
+        inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Alpha " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Won"))));
-        inTransaction(() -> pipelines.create(tenantId, actorId,
+        inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Beta " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Won"))));
 
-        List<PipelineRecord> all = pipelines.findAll(tenantId);
+        List<PipelineRecord> all = inTenantTransaction(tenantId, () -> pipelines.findAll(tenantId));
         assertThat(all).hasSize(2);
     }
 
@@ -108,11 +108,11 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void update_bumpsVersionAndMutatesProvidedFields() {
-        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+        PipelineRecord saved = inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Original " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Won"))));
 
-        PipelineRecord updated = inTransaction(() -> pipelines.update(tenantId, actorId, saved.id(),
+        PipelineRecord updated = inTenantTransaction(tenantId, () -> pipelines.update(tenantId, actorId, saved.id(),
                 "Renamed " + tenantId.toString().substring(0, 6), "USD", saved.version()));
 
         assertThat(updated.version()).isEqualTo(saved.version() + 1);   // optimistic-lock bump
@@ -122,21 +122,21 @@ class JdbcPipelineRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void update_withStaleVersionThrowsConcurrencyConflict() {
-        PipelineRecord saved = inTransaction(() -> pipelines.create(tenantId, actorId,
+        PipelineRecord saved = inTenantTransaction(tenantId, () -> pipelines.create(tenantId, actorId,
                 new CreatePipelineCommand("Conflict " + tenantId.toString().substring(0, 6),
                         "SAR", List.of("New", "Won"))));
 
         // The UPDATE ... WHERE version=:expectedVersion matches 0 rows when the presented
         // version is stale; the repository maps that to CRM_CONCURRENCY_CONFLICT.
         long staleVersion = saved.version() + 7;
-        assertThatThrownBy(() -> inTransaction(() -> pipelines.update(tenantId, actorId, saved.id(),
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () -> pipelines.update(tenantId, actorId, saved.id(),
                 "Stale", "USD", staleVersion)))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
                         .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
 
         // The row itself is untouched by the failed update.
-        PipelineRecord unchanged = pipelines.findById(tenantId, saved.id());
+        PipelineRecord unchanged = inTenantTransaction(tenantId, () -> pipelines.findById(tenantId, saved.id()));
         assertThat(unchanged.version()).isEqualTo(saved.version());
         assertThat(unchanged.name()).startsWith("Conflict ");
     }

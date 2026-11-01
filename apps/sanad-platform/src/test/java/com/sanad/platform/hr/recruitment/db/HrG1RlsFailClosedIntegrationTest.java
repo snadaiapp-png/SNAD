@@ -66,6 +66,10 @@ class HrG1RlsFailClosedIntegrationTest {
         // Keep the shared sanad database current (append-only migrations).
         Flyway.configure()
                 .dataSource(url, username, password)
+                // Chain fidelity (Issue #1462): use the same locations as
+                // production Flyway — V20261031_1's fail-closed guard requires
+                // tables created by the db/vendor/postgresql migrations.
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .validateOnMigrate(false)
                 .load()
                 .migrate();

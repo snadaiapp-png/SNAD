@@ -39,7 +39,7 @@ class JdbcNoteRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void create_persistsNoteAndRoundTripsViaFindById() {
-        NoteRecord saved = inTransaction(() -> notes.create(tenantId, actorId,
+        NoteRecord saved = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "Initial contact call", actorId)));
 
         assertThat(saved.id()).isNotNull();
@@ -49,13 +49,13 @@ class JdbcNoteRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         assertThat(saved.archived()).isFalse();
         assertThat(saved.authorUserId()).isEqualTo(actorId);
 
-        NoteRecord fetched = notes.findById(tenantId, saved.id());
+        NoteRecord fetched = inTenantTransaction(tenantId, () -> notes.findById(tenantId, saved.id()));
         assertThat(fetched).isEqualTo(saved);
     }
 
     @Test
     void create_defaultsAuthorToActorWhenAuthorNull() {
-        NoteRecord saved = inTransaction(() -> notes.create(tenantId, actorId,
+        NoteRecord saved = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("LEAD", subjectId, "no explicit author", null)));
 
         assertThat(saved.authorUserId()).isEqualTo(actorId);
@@ -63,44 +63,48 @@ class JdbcNoteRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void findAllBySubject_excludesArchivedByDefault() {
-        UUID keep = inTransaction(() -> notes.create(tenantId, actorId,
+        UUID keep = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "keep", null))).id();
-        UUID toArchive = inTransaction(() -> notes.create(tenantId, actorId,
+        UUID toArchive = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "archive me", null))).id();
 
-        inTransaction(() -> notes.archive(tenantId, actorId, toArchive, 0));
+        inTenantTransaction(tenantId, () -> notes.archive(tenantId, actorId, toArchive, 0));
 
-        var activeOnly = notes.findAllBySubject(tenantId, "ACCOUNT", subjectId, 50, false);
+        var activeOnly = inTenantTransaction(tenantId, () ->
+                notes.findAllBySubject(tenantId, "ACCOUNT", subjectId, 50, false));
         assertThat(activeOnly).hasSize(1);
         assertThat(activeOnly.get(0).id()).isEqualTo(keep);
 
-        var includingArchived = notes.findAllBySubject(tenantId, "ACCOUNT", subjectId, 50, true);
+        var includingArchived = inTenantTransaction(tenantId, () ->
+                notes.findAllBySubject(tenantId, "ACCOUNT", subjectId, 50, true));
         assertThat(includingArchived).hasSize(2);
     }
 
     @Test
     void archive_setsArchivedTrueAndBumpsVersion() {
-        NoteRecord created = inTransaction(() -> notes.create(tenantId, actorId,
+        NoteRecord created = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("CONTACT", subjectId, "to be archived", null)));
 
-        NoteRecord archived = inTransaction(() -> notes.archive(tenantId, actorId, created.id(), 0));
+        NoteRecord archived = inTenantTransaction(tenantId, () -> notes.archive(tenantId, actorId, created.id(), 0));
 
         assertThat(archived.archived()).isTrue();
         assertThat(archived.version()).isEqualTo(1);
-        assertThat(notes.findById(tenantId, created.id()).archived()).isTrue();
+        assertThat(inTenantTransaction(tenantId, () -> notes.findById(tenantId, created.id())).archived()).isTrue();
     }
 
     @Test
     void archive_withStaleVersionThrowsConcurrencyConflict() {
-        NoteRecord created = inTransaction(() -> notes.create(tenantId, actorId,
+        NoteRecord created = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "v0", null)));
-        // Simulate concurrent update: bump version without archiving
-        jdbc().update("UPDATE crm_notes SET version = version + 1 WHERE tenant_id = :t AND id = :id",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
-                        .addValue("t", tenantId)
-                        .addValue("id", created.id()));
+        // Simulate concurrent update: bump version without archiving (tenant-bound, else the
+        // FORCE-RLS UPDATE silently matches zero rows and the conflict path never triggers)
+        inTenantTransaction(tenantId, () ->
+                jdbc().update("UPDATE crm_notes SET version = version + 1 WHERE tenant_id = :t AND id = :id",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                                .addValue("t", tenantId)
+                                .addValue("id", created.id())));
 
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 notes.archive(tenantId, actorId, created.id(), 0)))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
@@ -109,11 +113,11 @@ class JdbcNoteRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void archive_whenAlreadyArchivedThrowsAlreadyArchived() {
-        NoteRecord created = inTransaction(() -> notes.create(tenantId, actorId,
+        NoteRecord created = inTenantTransaction(tenantId, () -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "once", null)));
-        inTransaction(() -> notes.archive(tenantId, actorId, created.id(), 0)); // archived, v1
+        inTenantTransaction(tenantId, () -> notes.archive(tenantId, actorId, created.id(), 0)); // archived, v1
 
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 notes.archive(tenantId, actorId, created.id(), 1)))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())

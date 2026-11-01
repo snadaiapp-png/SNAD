@@ -82,9 +82,16 @@ class AiSecurityNegativeTest {
                 + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
                 userB, tenantB, "ais-" + userB.toString().substring(0, 8) + "@test", now, now);
 
+        // roles + role_capabilities are FORCE RLS (V20261029_1). This class is
+        // @Transactional so every jdbc call shares one tx-bound Connection; the
+        // tenant GUC must be re-bound per tenant INSIDE the same transaction
+        // before each tenant's identity-plane inserts.
         for (var tid : List.of(tenantA, tenantB)) {
             var uid = tid == tenantA ? userA : userB;
             var roleId = UUID.randomUUID();
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tid.toString());
             jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
                     + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
                     roleId, tid, now, now);
@@ -126,6 +133,11 @@ class AiSecurityNegativeTest {
     @Test
     void crossTenant_agentReadReturnsNotFound() throws Exception {
         // Create agent in tenantA
+        // V20261029_1 FORCE-RLS: the seed INSERT INTO ai_agents must run with
+        // the owning tenant's GUC — setUp left this shared test transaction
+        // bound to tenantB (fail-closed predicate unchanged, not a bypass).
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
         var agent = AiAgent.create(
                 tenantA, "SEC-XT-1", "Test", "Test",
                 AiAgent.Provider.DETERMINISTIC, null, null, null, null, null, userA);
@@ -139,6 +151,11 @@ class AiSecurityNegativeTest {
 
     @Test
     void crossTenant_agentListDoesNotLeak() throws Exception {
+        // V20261029_1 FORCE-RLS: seed under the owning tenant's GUC (setUp
+        // left this shared test transaction bound to tenantB) — fail-closed
+        // predicate unchanged, not a bypass.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantA.toString());
         agentService.create(AiAgent.create(
                 tenantA, "SEC-LEAK-1", "A", "Test",
                 AiAgent.Provider.DETERMINISTIC, null, null, null, null, null, userA));

@@ -1,9 +1,11 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +63,16 @@ class WorkflowDefinitionConcurrencyAuditTest {
             + "VALUES (?, ?, ?, 'Workflow audit user', 'ACTIVE', 'dummy', ?, ?)",
             userId, tenantId, "wf-audit-" + userId.toString().substring(0, 8) + "@test", now, now);
         });
+        // The NOT_SUPPORTED concurrency case executes outside the test-managed
+        // transaction. Preserve an authenticated tenant identity so the JDBC
+        // connection handler can apply SET LOCAL app.tenant_id in each service
+        // transaction; without it, FORCE-RLS tables correctly reject the fixture.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
@@ -92,25 +104,37 @@ class WorkflowDefinitionConcurrencyAuditTest {
         var executor = Executors.newFixedThreadPool(2);
         try {
             var lockFuture = executor.submit(() -> {
-                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                    definitionRepository.findByIdForUpdate(tenantId, definition.id()).orElseThrow();
-                    lockAcquired.countDown();
-                    try {
-                        if (!releaseLock.await(5, TimeUnit.SECONDS)) {
-                            throw new IllegalStateException("Timed out waiting to release definition row lock");
+                RlsTestSupport.setSecurityContext(tenantId, userId);
+                try {
+                    new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                        definitionRepository.findByIdForUpdate(tenantId, definition.id()).orElseThrow();
+                        lockAcquired.countDown();
+                        try {
+                            if (!releaseLock.await(5, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("Timed out waiting to release definition row lock");
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(e);
                         }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException(e);
-                    }
-                });
+                    });
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
+                }
             });
 
             assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
 
-            var mutationFuture = executor.submit(() -> definitionService.addStep(WorkflowStep.create(
-                    tenantId, definition.id(), "start", "Start",
-                    WorkflowStep.StepType.START, 1, "{}", null, null, null), userId));
+            var mutationFuture = executor.submit(() -> {
+                RlsTestSupport.setSecurityContext(tenantId, userId);
+                try {
+                    return definitionService.addStep(WorkflowStep.create(
+                            tenantId, definition.id(), "start", "Start",
+                            WorkflowStep.StepType.START, 1, "{}", null, null, null), userId);
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
+                }
+            });
 
             Thread.sleep(200);
             assertThat(mutationFuture.isDone())

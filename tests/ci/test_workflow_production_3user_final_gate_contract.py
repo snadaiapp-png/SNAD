@@ -3,6 +3,10 @@
 
 from pathlib import Path
 import unittest
+import json
+import os
+import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "workflow-production-3user-final-gate.yml"
@@ -47,14 +51,31 @@ class WorkflowProduction3UserFinalGateContractTest(unittest.TestCase):
             "/api/platform/api/v1/executive/subscriptions/v2?page=$page&size=100",
             text,
         )
-        self.assertIn(
-            ".content[]? | select(.tenantId==$tenant)",
-            text,
-        )
-        self.assertIn(
-            "Executive paginated read; Tenant B filtered locally",
-            text,
-        )
+        # Exercise the real jq selectors after pagination. Other tenants and
+        # inactive subscriptions must not influence the selected authority.
+        assignments = '\n'.join(line for line in text.splitlines()
+                                if line.startswith(('QA_ACTIVE_COUNT=', 'SUB_ID=', 'ACTIVE_PLAN_ID=')))
+        self.assertTrue(assignments, 'Subscription authority selectors are required')
+        script = assignments + '\nprintf "%s\n%s\n%s\n" "$QA_ACTIVE_COUNT" "$SUB_ID" "$ACTIVE_PLAN_ID"'
+        rows = [
+            {'tenantId':'a', 'status':'ACTIVE', 'id':'other', 'planId':'other-plan'},
+            {'tenantId':'b', 'status':'SUSPENDED', 'id':'inactive', 'planId':'inactive-plan'},
+            {'tenantId':'b', 'status':'ACTIVE', 'id':'owned', 'planId':'starter'},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / 'all-subscriptions.json'
+            for tenant, expected in [('b', ['1','owned','starter']), ('missing', ['0','null','null'])]:
+                fixture.write_text(json.dumps(rows))
+                env = dict(os.environ, WORK_DIR=directory, PROD_QA_TENANT_ID=tenant)
+                result = subprocess.run(['bash','-euc',script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), expected)
+            fixture.write_text(json.dumps(rows + [dict(rows[-1], id='duplicate')]))
+            env = dict(os.environ, WORK_DIR=directory, PROD_QA_TENANT_ID='b')
+            result = subprocess.run(['bash','-euc',script], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines()[0], '2')
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

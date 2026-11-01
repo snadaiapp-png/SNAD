@@ -320,6 +320,9 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
     }
 
     private void seedUser(UUID tenantId, UUID userId) throws Exception {
+        // users is FORCE RLS (V20261011_3): bind the tenant GUC before the insert
+        // instead of relying on leftover session context from a previous seed call.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO users (id, tenant_id, email, display_name, status, created_at, updated_at, " +
                 "must_change_password, session_version, platform_admin) " +
@@ -334,6 +337,9 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
 
     private UUID seedOrganization(UUID tenantId, String name) throws Exception {
         UUID orgId = UUID.randomUUID();
+        // organizations is FORCE RLS (V20261029_1): bind the tenant GUC BEFORE
+        // the insert, not after.
+        setTenant(tenantId);
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
@@ -342,7 +348,6 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
             ps.setString(3, name + " " + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
-        setTenant(tenantId);
         return orgId;
     }
 

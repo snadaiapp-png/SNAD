@@ -30,7 +30,9 @@ def _fake_repo(tmp_path: Path) -> tuple[Path, Path]:
     public = web / "public"
     brand = public / "assets" / "brand"
     brand.mkdir(parents=True)
-    build.mkdir(parents=True)
+    chunks = build / "static" / "chunks"
+    chunks.mkdir(parents=True)
+    (chunks / "entry.js").write_text("console.log(1);", encoding="utf-8")
 
     # Keep the fixture intentionally tiny while satisfying the checker's
     # existing fail-closed evidence requirements.
@@ -39,7 +41,7 @@ def _fake_repo(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     (build / "build-manifest.json").write_text(
-        json.dumps({"pages": {"/": []}}),
+        json.dumps({"pages": {"/": ["static/chunks/entry.js"]}}),
         encoding="utf-8",
     )
 
@@ -80,3 +82,11 @@ def test_performance_budget_checker_is_independent_of_process_cwd(
     )
     assert "PERFORMANCE MEASUREMENT REPORT" in result.stdout
     assert "PASS — all performance budgets met with verifiable measurements" in result.stdout
+
+
+def test_missing_referenced_chunk_remains_fail_closed(tmp_path: Path) -> None:
+    repo, checker = _fake_repo(tmp_path)
+    (repo / 'apps/web/.next/static/chunks/entry.js').unlink()
+    result = _run(checker, repo)
+    assert result.returncode != 0
+    assert 'PASS — all performance budgets met' not in result.stdout

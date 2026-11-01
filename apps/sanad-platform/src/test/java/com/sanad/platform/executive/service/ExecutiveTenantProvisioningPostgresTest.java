@@ -9,10 +9,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +26,7 @@ class ExecutiveTenantProvisioningPostgresTest {
 
     @Autowired private ExecutiveTenantProvisioningService provisioning;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @BeforeAll
     static void requirePostgreSqlDirect() {
@@ -49,15 +53,15 @@ class ExecutiveTenantProvisioningPostgresTest {
         assertThat(result.commercialState().effectiveSubscriptionStatus()).isIn("TRIAL", "TRIALING");
         assertThat(result.commercialState().loginAllowed()).isTrue();
         assertThat(count("SELECT COUNT(*) FROM tenants WHERE subdomain = ?", subdomain)).isEqualTo(1);
-        assertThat(count("SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ? "
+        assertThat(inTenant(result.tenant().id(), () -> count("SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ? "
                         + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
-                result.tenant().id())).isEqualTo(1);
-        assertThat(jdbc.queryForObject(
+                result.tenant().id()))).isEqualTo(1);
+        assertThat(inTenant(result.tenant().id(), () -> jdbc.queryForObject(
                 "SELECT billing_cycle FROM tenant_subscriptions WHERE tenant_id = ?",
-                String.class, result.tenant().id())).isEqualTo("ANNUAL");
-        assertThat(jdbc.queryForObject(
+                String.class, result.tenant().id()))).isEqualTo("ANNUAL");
+        assertThat(inTenant(result.tenant().id(), () -> jdbc.queryForObject(
                 "SELECT seat_quantity FROM tenant_subscriptions WHERE tenant_id = ?",
-                Integer.class, result.tenant().id())).isEqualTo(2);
+                Integer.class, result.tenant().id()))).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM saas_plans")).isEqualTo(planCountBefore);
     }
 
@@ -72,9 +76,9 @@ class ExecutiveTenantProvisioningPostgresTest {
                 "exec-id-" + suffix, "exec-id-" + suffix + "@example.test",
                 null, starterId, "MONTHLY", 1, 7), null);
 
-        UUID persistedPlan = jdbc.queryForObject(
+        UUID persistedPlan = inTenant(result.tenant().id(), () -> jdbc.queryForObject(
                 "SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?",
-                UUID.class, result.tenant().id());
+                UUID.class, result.tenant().id()));
         assertThat(persistedPlan).isEqualTo(starterId);
     }
 
@@ -88,10 +92,10 @@ class ExecutiveTenantProvisioningPostgresTest {
                 "exec-default-" + suffix, "exec-default-" + suffix + "@example.test",
                 null, null, null, null, 14), null);
 
-        assertThat(jdbc.queryForObject(
+        assertThat(inTenant(result.tenant().id(), () -> jdbc.queryForObject(
                 "SELECT p.code FROM tenant_subscriptions s JOIN saas_plans p ON p.id = s.plan_id "
                         + "WHERE s.tenant_id = ?",
-                String.class, result.tenant().id())).isEqualTo("STARTER");
+                String.class, result.tenant().id()))).isEqualTo("STARTER");
         assertThat(count("SELECT COUNT(*) FROM saas_plans")).isEqualTo(plansBefore);
         assertThat(count("SELECT COUNT(*) FROM plan_versions")).isEqualTo(versionsBefore);
     }
@@ -167,6 +171,14 @@ class ExecutiveTenantProvisioningPostgresTest {
                 VALUES (?, ?, ?, NULL, ?, 'SAR', 10000, 100000, 0, 10, 5, 1024, NOW(), NOW())
                 """, id, code, code, status);
         return id;
+    }
+
+    private <T> T inTenant(UUID tenantId, Supplier<T> action) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return action.get();
+        });
     }
 
     private long count(String sql, Object... args) {

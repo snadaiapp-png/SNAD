@@ -6,6 +6,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.List;
@@ -19,6 +22,7 @@ class CrmOwnershipRbacPostgresTest {
 
 
     private static JdbcTemplate jdbc;
+    private static TransactionTemplate seedTx;
     // Unique-per-run identity: the shared local database persists fixture rows
     // across suite executions; fixed tenant ids/subdomains collide with the
     // previous run's residue on the tenants PK/unique subdomain index
@@ -52,6 +56,10 @@ class CrmOwnershipRbacPostgresTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(dataSource);
+        // roles/role_capabilities are FORCE RLS (V20261029_1): the seed helpers
+        // bind the tenant GUC inside one transaction-bound connection.
+        PlatformTransactionManager txManager = new DataSourceTransactionManager(dataSource);
+        seedTx = new TransactionTemplate(txManager);
         seedTenantAndAdmin(TENANT_A, SUBDOMAIN_A);
         seedTenantAndAdmin(TENANT_B, SUBDOMAIN_B);
 
@@ -130,6 +138,12 @@ class CrmOwnershipRbacPostgresTest {
     }
 
     private static void seedTenantAndAdmin(UUID tenantId, String subdomain) {
+        // roles + role_capabilities are FORCE RLS (V20261029_1): the whole
+        // per-tenant seed runs in ONE transaction with the tenant GUC bound.
+        seedTx.executeWithoutResult(status -> {
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("""
                 INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at)
                 VALUES (?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -258,20 +272,30 @@ class CrmOwnershipRbacPostgresTest {
                     WHERE rc.tenant_id = ? AND rc.role_id = r.id AND rc.capability_id = ac.id
                 )
                 """, tenantId, tenantId, tenantId);
+        });
     }
 
     private int roleCapabilityCount(UUID tenantId, String roleCode) {
-        Integer count = jdbc.queryForObject("""
+        Integer count = seedTx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return jdbc.queryForObject("""
                 SELECT COUNT(*)
                   FROM role_capabilities rc
                   JOIN roles role ON role.tenant_id=rc.tenant_id AND role.id=rc.role_id
                  WHERE rc.tenant_id=? AND role.code=?
                 """, Integer.class, tenantId, roleCode);
+        });
         return count == null ? 0 : count;
     }
 
     private boolean hasCapability(UUID tenantId, String roleCode, String capabilityCode) {
-        Boolean present = jdbc.queryForObject("""
+        Boolean present = seedTx.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            return jdbc.queryForObject("""
                 SELECT EXISTS (
                     SELECT 1
                       FROM role_capabilities rc
@@ -280,6 +304,7 @@ class CrmOwnershipRbacPostgresTest {
                      WHERE rc.tenant_id=? AND role.code=? AND capability.code=?
                 )
                 """, Boolean.class, tenantId, roleCode, capabilityCode);
+        });
         return Boolean.TRUE.equals(present);
     }
 }

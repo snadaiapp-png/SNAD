@@ -30,6 +30,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.TenantGucDataSource;
 
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +49,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class SalesTeamUseCasesPostgresTest {
 
     private static NamedParameterJdbcTemplate jdbc;
+    private static TenantGucDataSource tenantDs;
     private static TransactionTemplate transactions;
     private static SalesTeamUseCases useCases;
     private static List<String> auditActions;
@@ -78,8 +80,14 @@ class SalesTeamUseCasesPostgresTest {
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        jdbc = new NamedParameterJdbcTemplate(dataSource);
-        transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        // FORCE-RLS tenant binding (V20261031_1): session-scoped app.tenant_id
+        // GUC on every physical connection — the same identity the application
+        // binds per request. Test support only; the fail-closed predicate
+        // stays authoritative. Transaction-local set_config(...,true) seeds
+        // (users) still win inside their transactions.
+        tenantDs = new TenantGucDataSource(dataSource, null);
+        jdbc = new NamedParameterJdbcTemplate(tenantDs);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(tenantDs));
 
         auditActions = new CopyOnWriteArrayList<>();
         timelineEvents = new CopyOnWriteArrayList<>();
@@ -105,6 +113,7 @@ class SalesTeamUseCasesPostgresTest {
         auditActions.clear();
         timelineEvents.clear();
         tenantId = createTenant("wp03");
+        tenantDs.setDefaultTenant(tenantId);
         actorId = createUser(tenantId, "actor", "ACTIVE");
         managerId = createUser(tenantId, "manager", "ACTIVE");
         memberId = createUser(tenantId, "member", "ACTIVE");

@@ -320,6 +320,7 @@ class CrmFlywayHistoryAssertionTest {
             // PR #1422: forward-only fail-closed RLS hardening for the nine post-baseline CRM
             // tables (missing/empty app.tenant_id must deny) at the sequence tail.
             , "20261021.1"   // fail-closed RLS on post-baseline CRM tables
+            , "20261026.4"   // RLS forensic function search_path and ACL hardening
             // SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1): forward-only, validation-only
             // per-tenant revalidation of the role capability matrix under RLS context
             // (re-derives V20260820_7's assertions, which are blind after V20260820_6
@@ -329,6 +330,20 @@ class CrmFlywayHistoryAssertionTest {
             // for auth token flows + fail-closed FORCE RLS on refresh_tokens and
             // password_reset_tokens (identity plane, mandate §5.2 priority).
             , "20261028.2"   // D6 auth token tenant index + fail-closed token-table RLS
+            // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460): forward-only fail-closed RLS
+            // for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only
+            // owner-bypass tables at the sequence tail.
+            , "20261029.1"   // tenant-owned business data fail-closed RLS + owner FORCE-bind
+            // SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29: empty-GUC fail-closed policy
+            // alignment (data-driven rewrite of the unguarded ::uuid tenant casts) and
+            // the external-portal pre-auth token pointer index (V20261011_4 pattern).
+            , "20261029.2"   // tenant policy empty-GUC fail-closed alignment
+            , "20261029.3"   // external-portal pre-auth token index
+            // SANAD P0 RLS closure (Issue #1462, T2 batch 2): fail-closed FORCE RLS on
+            // provisioning_jobs / provisioning_job_steps / subscription_commands,
+            // login_tenant_index ACL closure, owner-bypass FORCE bind for five
+            // legacy-shaped CRM tables (PostgreSQL Direct evidence).
+            , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
     );
 
 

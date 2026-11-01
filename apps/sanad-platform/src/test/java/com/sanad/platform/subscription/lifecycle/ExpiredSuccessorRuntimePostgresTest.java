@@ -5,6 +5,7 @@ import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -107,8 +108,14 @@ class ExpiredSuccessorRuntimePostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
-        ds.setDriverClassName("org.postgresql.Driver");
+        // FORCE-RLS tenant binding (V20261029_1): every physical connection
+        // this fixture hands out carries the session-scoped app.tenant_id GUC
+        // — the same identity the application binds per authenticated
+        // request. Not a bypass: the fail-closed policy predicate stays
+        // authoritative. The default tenant is bound once generated below.
+        DriverManagerDataSource rawDs = new DriverManagerDataSource(url, user, password);
+        rawDs.setDriverClassName("org.postgresql.Driver");
+        TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
@@ -120,6 +127,7 @@ class ExpiredSuccessorRuntimePostgresTest {
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
         versionA = UUID.randomUUID();
+        ds.setDefaultTenant(tenant);
         seedTenant(tenant);
         seedPlan(planA, "R0C10-DE", 14);
         seedPlanVersion(versionA, planA);

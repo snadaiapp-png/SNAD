@@ -46,7 +46,8 @@ class LifecycleControllerActorTest {
     @BeforeEach
     void setUp() {
         controller = new LifecycleController(
-                accessGuard, commandService, changeService, provisioningRunner, jdbc);
+                accessGuard, commandService, changeService, provisioningRunner,
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc), jdbc);
     }
 
     private UsernamePasswordAuthenticationToken authentication() {

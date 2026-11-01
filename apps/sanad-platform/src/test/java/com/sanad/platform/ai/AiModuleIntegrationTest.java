@@ -3,7 +3,9 @@ package com.sanad.platform.ai;
 import com.sanad.platform.ai.application.AiAgentService;
 import com.sanad.platform.ai.application.AiExecutionService;
 import com.sanad.platform.ai.domain.*;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +58,11 @@ class AiModuleIntegrationTest {
 
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
+        // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // every @Transactional service boundary (ai_agents / ai_inference_log
+        // writes) — fail-closed predicate unchanged, not a bypass.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
         var now = java.sql.Timestamp.from(java.time.Instant.now());
 
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
@@ -75,6 +82,11 @@ class AiModuleIntegrationTest {
                     + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                     userId, tenantId, "ai-" + userId.toString().substring(0, 8) + "@test", now, now);
         });
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private AiAgent buildActiveAgent(String code) {
