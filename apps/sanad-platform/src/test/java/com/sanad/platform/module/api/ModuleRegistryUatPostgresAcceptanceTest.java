@@ -92,7 +92,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
     private final List<SeededRow> seededRoles = new ArrayList<>();
     private final List<UUID> createdModules = new ArrayList<>();
     private final List<UUID> createdAuditRows = new ArrayList<>();
-    private final List<UUID> createdProvisioningJobs = new ArrayList<>();
+    private final List<SeededRow> createdProvisioningJobs = new ArrayList<>();
     /** Subscription seed rows tracked with their owning tenant: tenant_subscriptions
      * is FORCE RLS fail-closed (V20261029_1) — cleanup deletes must bind the GUC. */
     private final List<SeededRow> seededSubscriptions = new ArrayList<>();
@@ -277,14 +277,19 @@ class ModuleRegistryUatPostgresAcceptanceTest {
 
     @AfterEach
     void cleanup() {
-        for (UUID id : createdProvisioningJobs) {
-            jdbc.update("DELETE FROM provisioning_jobs WHERE id = ?", id);
+        // provisioning_jobs is FORCE RLS fail-closed since V20261031_1 (T2 batch 2,
+        // Issue #1462): cleanup deletes must run inside the tenant-scoped
+        // transaction, exactly like the other FORCE RLS'd fixture tables.
+        for (SeededRow row : createdProvisioningJobs) {
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM provisioning_jobs WHERE id = ?", row.id()));
         }
         for (SeededRow row : seededSubscriptions) {
-            // provisioning_jobs has no RLS (T2 deferral) — bare delete is fine;
-            // tenant_subscriptions is FORCE RLS fail-closed — bind the GUC so
-            // the cleanup delete actually matches its row.
-            jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", row.id());
+            // provisioning_jobs is FORCE RLS fail-closed — bind the GUC so the
+            // cleanup delete actually matches its row; tenant_subscriptions is
+            // FORCE RLS fail-closed as well.
+            inTenantContext(row.tenantId(), () ->
+                    jdbc.update("DELETE FROM provisioning_jobs WHERE subscription_id = ?", row.id()));
             inTenantContext(row.tenantId(), () ->
                     jdbc.update("DELETE FROM tenant_subscriptions WHERE id = ?", row.id()));
         }
@@ -487,7 +492,8 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         Instant now = Instant.now();
 
         // FK target: one control-tenant subscription + one FAILED provisioning job.
-        // tenant_subscriptions / provisioning_jobs are FORCE RLS (V20261029_1):
+        // tenant_subscriptions / provisioning_jobs are FORCE RLS (V20261029_1;
+        // provisioning_jobs since V20261031_1):
         // fixture writes MUST bind app.tenant_id on the same transaction —
         // the certified inTenantContext pattern (TransactionTemplate + set_config local).
         UUID subscriptionId = UUID.randomUUID();
@@ -507,9 +513,9 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         seededSubscriptions.add(new SeededRow(admin.tenantId(), subscriptionId));
 
         UUID jobId = UUID.randomUUID();
-        // provisioning_jobs carries no RLS yet (T2 deferral per the
-        // V20261029_1 header) — seeded under the same tenant scope for
-        // uniformity with the established fixture pattern.
+        // provisioning_jobs is FORCE RLS fail-closed since V20261031_1 (T2 batch
+        // 2, Issue #1462) — seeded under the same tenant scope for uniformity
+        // with the established fixture pattern (INSERT passes WITH CHECK).
         inTenantContext(admin.tenantId(), () ->
                 jdbc.update("""
                 INSERT INTO provisioning_jobs (id, tenant_id, subscription_id, action, status,
@@ -518,7 +524,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                         'UAT_TEST_ERROR', ?, ?)
                 """, jobId, admin.tenantId(), subscriptionId,
                 Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)));
-        createdProvisioningJobs.add(jobId);
+        createdProvisioningJobs.add(new SeededRow(admin.tenantId(), jobId));
 
         mockMvc.perform(
                         get("/api/v1/executive/provisioning/jobs")

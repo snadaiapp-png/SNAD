@@ -20,6 +20,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.TenantGucDataSource;
 
 import java.lang.reflect.Method;
 import java.util.Comparator;
@@ -40,6 +41,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class CrmOwnershipCursorPaginationPostgresTest {
 
     private static NamedParameterJdbcTemplate jdbc;
+    private static TenantGucDataSource tenantDs;
     private static CrmOwnershipCursorPaginationAspect aspect;
     private static Method listTeamsMethod;
 
@@ -69,7 +71,12 @@ class CrmOwnershipCursorPaginationPostgresTest {
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        jdbc = new NamedParameterJdbcTemplate(dataSource);
+        // FORCE-RLS tenant binding (V20261031_1): session-scoped app.tenant_id
+        // GUC on every physical connection — the same identity the application
+        // binds per request. Test support only; the fail-closed predicate
+        // stays authoritative.
+        tenantDs = new TenantGucDataSource(dataSource, null);
+        jdbc = new NamedParameterJdbcTemplate(tenantDs);
         CapabilityAuthorizationAspect authorization = mock(CapabilityAuthorizationAspect.class);
         doNothing().when(authorization).checkCapability(any(), any());
         aspect = new CrmOwnershipCursorPaginationAspect(jdbc, new CursorCodec(), authorization);
@@ -85,6 +92,7 @@ class CrmOwnershipCursorPaginationPostgresTest {
     void createTenantAndTeams() {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
+        tenantDs.setDefaultTenant(tenantId);
         teamIds = Stream.generate(UUID::randomUUID)
                 .limit(3)
                 .sorted(Comparator.naturalOrder())

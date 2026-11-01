@@ -335,6 +335,11 @@ class CrmFlywayHistoryAssertionTest {
             // the external-portal pre-auth token pointer index (V20261011_4 pattern).
             , "20261029.2"   // tenant policy empty-GUC fail-closed alignment
             , "20261029.3"   // external-portal pre-auth token index
+            // SANAD P0 RLS closure (Issue #1462, T2 batch 2): fail-closed FORCE RLS on
+            // provisioning_jobs / provisioning_job_steps / subscription_commands,
+            // login_tenant_index ACL closure, owner-bypass FORCE bind for five
+            // legacy-shaped CRM tables (PostgreSQL Direct evidence).
+            , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
     );
 
 

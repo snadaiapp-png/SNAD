@@ -637,7 +637,12 @@ class LifecycleSingleWriterPostgresTest {
         TenantGucDataSource.runAsTenant(third, () -> seedPlanItem(subC, third, planA, versionA));
         TenantGucDataSource.runAsTenant(third, () ->
                 provisioning.run(enqueueProvisioningJobFor(subC, third)));
-        assertThat(ledgerCount(subC, "ACTIVATE")).isEqualTo(1L);
+        // subscription_commands is FORCE-RLS (V20261031_1): the third tenant's
+        // ledger rows are only visible inside that tenant's GUC scope — the
+        // same sanctioned re-scoping used for the seed above. Fail-closed
+        // predicate unchanged; nothing is bypassed.
+        assertThat(TenantGucDataSource.readAsTenant(third, () -> ledgerCount(subC, "ACTIVATE")))
+                .isEqualTo(1L);
 
         // Tenant B: untouched status, zero command ledger, zero events.
         assertThat(TenantGucDataSource.readAsTenant(other,

@@ -99,7 +99,7 @@ class DenyDominancePostgresTest {
         }
     }
 
-    private static void migrate(){Flyway f=Flyway.configure().dataSource(isolatedUrl(),USER,PASSWORD).locations("classpath:db/migration").cleanDisabled(false).validateOnMigrate(true).load();f.clean();f.migrate();f.validate();}
+    private static void migrate(){Flyway f=Flyway.configure().dataSource(isolatedUrl(),USER,PASSWORD).locations("classpath:db/migration", "classpath:db/vendor/postgresql").cleanDisabled(false).validateOnMigrate(true).load();f.clean();f.migrate();f.validate();}
     private static String isolatedUrl(){return MigrationTestSchemaSupport.getIsolatedJdbcUrl(SOURCE_URL);}
     private static void setTenant(Connection c,UUID tenant)throws SQLException{try(PreparedStatement p=c.prepareStatement("SELECT set_config('app.tenant_id', ?, false)")){p.setString(1,tenant.toString());p.executeQuery();}}
     private static UUID firstUuid(Connection c,String sql)throws SQLException{try(PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()){assertThat(r.next()).isTrue();return r.getObject(1,UUID.class);}}

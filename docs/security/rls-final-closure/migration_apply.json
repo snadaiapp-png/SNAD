@@ -1,0 +1,993 @@
+{
+ "applied": [
+  {
+   "file": "V1__create_tenants_table.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V2__create_organizations_table.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V3__create_organization_memberships.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V4__create_users_table.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V5__link_users_to_organization_memberships.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V6__create_roles_table.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V7__create_access_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V8__create_role_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V9__create_user_role_assignments.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V10__add_auth_credentials.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V11__add_credential_bootstrap_columns.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V12__create_password_reset_tokens.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V13__add_session_version.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V14__seed_rbac_capabilities_and_roles.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V16__extend_platform_identity_and_tenants.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V17__create_platform_audit_logs.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V18__create_system_services.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V19__create_saas_administration.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260629_2__add_user_mobile_contact.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260702_1__create_unified_crm_core.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260702_2__reconcile_admin_role_and_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260702_3__complete_crm_imports_custom_fields.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260706_1__create_tenant_quota.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260711_1__create_subscription_change_events.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260713_1__create_crm_idempotency_records.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260713_2__add_pipeline_version_column.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260716_1__create_crm_tasks.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260716_2__create_crm_notes.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260716_3__create_crm_tags.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260716_4__crm_enterprise_account_customer_master.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_1__crm_contact_relationship_model.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_2__crm_contact_relationship_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_3__crm_timeline_tenant_lifecycle.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_4__create_business_process_e2e_backbone.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_5__grant_business_process_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_6__create_crm_g1_extension_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_100__crm_addresses_communication_methods.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260717_101__crm_addresses_communication_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260718_1__reconcile_crm_g1_after_baseline_gap.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260718_2__reconcile_crm_tags_after_baseline_gap.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260721_1__reconcile_crm_contact_relationship_model_after_baseline_gap.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260721_2__reconcile_crm_idempotency_records_after_baseline_gap.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_1__create_crm_sales_teams.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_2__create_crm_queues.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_3__create_crm_territories.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_4__create_crm_assignment_rules.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_5__upgrade_crm_assignments_and_create_ownership_history.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_6__create_crm_transfer_requests.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_7__add_owner_team_queue_columns.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_8__seed_crm_ownership_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260722_9__create_crm_assignment_rule_counters.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260723_1__create_crm_integration_requests.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260724_1__create_crm_command_executions_ledger.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260724_2__create_crm_command_artifacts.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260728_1__seed_crm_008_team_management_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260729_1__create_crm_customer_intelligence.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260729_2__seed_default_scoring_models.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260730_1__enable_crm_row_level_security.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260802_1__re_enable_crm_row_level_security.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_1__reconcile_crm_custom_field_and_pipeline_audit_columns.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_2__create_crm_shift_templates.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_3__create_crm_shift_assignments.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_4__create_crm_staff_availability.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_5__create_crm_staff_skills.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_6__create_crm_capacity_plans.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_7__create_crm_workload_assignments.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_8__create_crm_service_assignments.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260804_9__create_crm_cases.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260805_1__create_crm_email_logs.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260805_2__create_crm_reporting_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260805_3__create_crm_portal_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260806_1__seed_executive_health_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260807_1__grant_crm_capabilities_to_non_admin_roles.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260807_2__seed_default_pipeline_and_accounts.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260807_3__add_case_insensitive_tag_unique_index.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260807_4__add_activity_result_column_and_related_type_check.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260812_1__create_mobile_sync_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260812_2__add_sync_columns_to_crm_entities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260812_3__force_rls_mobile_sync_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260813_1__seed_control_plane_admin_and_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260814_1__create_module_registry.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260814_2__create_module_capabilities_and_plan_entitlements.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_1__create_senior_management_kpi_engine.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_2__add_executive_management_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_3__create_decision_risk_issue_escalation_audit.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_4__add_decision_risk_issue_escalation_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_5__create_command_center_alerts_ai.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_6__add_command_center_alerts_intelligence_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_7__add_sla_fields.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_8__make_alert_created_by_nullable.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_9__make_audit_actor_nullable.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_10__create_workflow_engine.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_11__add_workflow_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_12__add_requested_by_to_approvals.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_13__make_approval_step_instance_id_nullable.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_14__create_ai_module.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_15__add_ai_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_16__create_finance_module.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_17__add_finance_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_18__create_analytics_module.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_19__add_analytics_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_20__tenant_domains_and_billing_state.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_21__drop_tenant_entitlement_cache.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_23__seed_domain_management_and_billing_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_24__governance_configurations.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_25__seed_governance_config_and_executive_report_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260815_26__enable_governance_cfg_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_1__register_contract_management_module.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_2__register_websites_module.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_3__create_websites_platform_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_4__enable_websites_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_5__create_commerce_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_6__enable_commerce_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_7__create_erp_tables.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260816_8__enable_erp_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260819_1__create_hr_employees.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_1__create_commerce_order_number_sequences.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_2__seed_rbac_role_templates.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_3__correct_rbac_role_template_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_4__reconcile_idempotency_and_add_cart_invariant.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_5__rbac_exact_matrix_and_provenance.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_6__commerce_finance_linkage_and_role_bindings.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_7__rbac_exact_matrix_9_of_9.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_9__restore_admin_capability_invariant.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_10__seed_crm_caller_identification_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_11__create_crm_call_events.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_12__force_rls_crm_call_events.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260820_13__seed_crm_call_event_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260822_1__crm_collaboration_event_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260822_2__crm_collaboration_event_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260822_3__crm_entity_participant_integrity.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260822_4__crm_event_outbox_contract_alignment.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260823_1__crm_contacts_force_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260823_2__crm_participant_role_exclusivity.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260828_1__canonicalize_control_plane_owner_email.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260829_1__scp_applications_catalog.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260829_2__scp_products_and_plan_versions.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260829_3__scp_subscription_items.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260829_4__scp_prices_country_currencies_and_product_entitlements.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260830_1__scp_lifecycle_and_provisioning.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260830_2__scp_usage_metering_and_rbac.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260901_1__canonicalize_capability_codes_uppercase.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_1__workflow_y2_identity_and_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_2__workflow_y2_definition_graph.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_3__workflow_y2_work_items_approvals.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_4__workflow_y2_runtime_context.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_5__workflow_y2_sla_incidents_execution.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_6__workflow_y2_events_notifications.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260902_7__workflow_break_glass_override.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260904_1__workflow_y2_production_reconciliation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260904_2__reconcile_hrm_platform_country_and_employer_prerequisites.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_1__create_hr_people_and_sensitive_identity.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_2__expand_hr_employment_and_history.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_3__create_hr_structure_versions.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_4__create_hr_assignments_and_temporal_guards.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_5__harden_hr_fail_closed_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_6__create_hr_migration_review_items.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_7__install_hr_backfill_orchestration.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_8__complete_hr_backfill_plan_conformance.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_9__fix_hr_backfill_reconcile_and_review.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_10__fix_idempotency_and_manager_resolution.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_11__fix_manager_review_item_creation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_12__create_ws3_ws4_foundation_schema.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_13__create_hr_employment_jurisdiction_periods.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_14__create_hr_audit_outbox_idempotency.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_15__add_hr_audit_delivery_claim_columns.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_16__create_hr_contract_compensation_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_17__seed_hrm_v2_capabilities_and_admin_scopes.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260905_18__reconcile_y2_identity_with_g0_cutover.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260906_1__workflow_notification_dedup_unique.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260906_2__scp_subscription_multiplicity_model_b.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260908_1__workflow_incident_optimistic_lock.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260910_1__workflow_y2_sla_and_cancellation_hardening.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260911_1__r1_module_entitlement_policy.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260911_2__r1_attachments_external_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260911_3__r1_journey_time_governance.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_1__r2_notification_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_2__r2_external_portal_feedback.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_3__r2_analytics_projections.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_4__r0c13_subscription_billing_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_5__r0c13_verified_webhook_resolution.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260912_6__r0c13_g07_provider_unavailable_classification.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260914_1__scp_application_catalog_lifecycle.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260914_2__workflow_idempotency_nulls_not_distinct.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_2__hr_g1_recruitment_onboarding_schema.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_3__hr_g1_rls_policies.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_4__hr_g1_onboarding_template_seed.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_5__hr_t7_offer_approval_correlation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_6__hr_t8_hire_conversion_governance.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_7__hr_t9_governed_onboarding.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260918_8__hr_t10_candidate_self_service.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260921_1__project_owner_global_permissions.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260922_1__hr_g1_operator_capabilities_and_admin_scopes.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260923_1__hr_g2_time_attendance_leave_schema.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260923_2__hr_g2_rls_policies.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260923_3__hr_g2_seed_leave_types_and_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_1__hr_g2_scheduling_schema.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_2__hr_g2_attendance_events_and_ledger.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_3__hr_g2_workflow_linkage.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_4__hr_g2_idempotency_constraint.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_5__hr_g2_leave_state_canonical_alignment.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260924_6__hr_g2_fail_closed_rls_empty_context_repair.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260925_1__subscription_resource_entitlements.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20260925_2__subscription_operating_units.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_1__uac_overrides_relationships_events.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_2__create_platform_iam_memberships.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_3__create_platform_role_metadata.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_4__seed_platform_iam_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_5__seed_platform_iam_roles.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_6__bootstrap_platform_owner_membership.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_7__reconcile_canonical_platform_owner_executive_admin.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_8__uac_effective_permission_projection.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_9__uac_protected_roles_registry.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_10__uac_capability_metadata_and_authz_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_11__uac_projection_indexes.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261001_12__uac_admin_audit_backfill_guard.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261002_2__hr_g3_performance_goals_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261002_3__hr_g3_performance_reviews_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_1__hr_g3_performance_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_2__partner_principal_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_3__partner_reference_integrity.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_4__partner_membership_admin_boundary.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_5__partner_tenant_binding_boundary.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_6__partner_delegation_grant_boundary.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261003_7__add_tenant_username.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261004_1__partner_recovery_safety.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261005_1__dynamic_application_iam_registry.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261005_2__r0c13_g07_operator_capabilities.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261006_1__users_phase7_effective_access_explanation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261006_2__hr_g4_payroll_snapshot_foundation.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261008_1__seed_current_module_iam_contracts.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261010_1__crm_accounts_fail_closed_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261010_99__hrm_g4_canonical_owner_payroll_view_only.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261011_3__public_users_fail_closed_tenant_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261011_4__pre_auth_tenant_resolver.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261019_1__users_runtime_role_tenant_policy.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261020_1__supabase_data_api_default_deny.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261020_2__enable_post_baseline_crm_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261021_1__crm_post_baseline_fail_closed_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261026_4__rls_forensic_function_search_path_and_acl_hardening.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261028_1__validate_role_template_matrix_under_tenant_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261029_1__tenant_owned_business_data_fail_closed_rls.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261029_2__tenant_policy_empty_guc_fail_closed_alignment.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261029_3__workflow_external_action_preauth_token_index.sql",
+   "status": "SKIP_ALREADY"
+  },
+  {
+   "file": "V20261031_1__d6_t2_batch2_rls_closure.sql",
+   "status": "OK"
+  },
+  {
+   "file": "R__finalize_hr_backfill_closure.sql",
+   "status": "SKIP_ALREADY"
+  }
+ ],
+ "failed": null,
+ "total_files": 246,
+ "started_utc": "2026-10-31T17:50:20.955663Z",
+ "applied_ok": 1,
+ "finished_utc": "2026-10-31T17:50:20.975202Z"
+}
