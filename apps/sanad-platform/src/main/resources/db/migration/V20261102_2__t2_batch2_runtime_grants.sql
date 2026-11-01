@@ -85,9 +85,20 @@ BEGIN
     RAISE EXCEPTION 'T2_BATCH2_RUNTIME_GRANTS_VERIFY: subscription_commands ledger ACL incomplete';
   END IF;
   -- Append-only contract: UPDATE/DELETE must stay denied on the ledger.
-  IF has_table_privilege('sanad', 'public.subscription_commands', 'UPDATE')
-     OR has_table_privilege('sanad', 'public.subscription_commands', 'DELETE') THEN
-    RAISE EXCEPTION 'T2_BATCH2_RUNTIME_GRANTS_VERIFY: subscription_commands must remain append-only for sanad';
+  -- Scope: the separate-owner deployment model (migrator != sanad, e.g.
+  -- Supabase prod where postgres owns and sanad runs). In the owner-as-sanad
+  -- fixture model (CI/dev databases where the restricted role is also the
+  -- migrator and therefore table owner) the owner legitimately holds every
+  -- table privilege, so the negative check is skipped there; FORCE RLS still
+  -- binds the owner and the tenant_isolation policy remains the isolation
+  -- boundary. The separate-owner contract is asserted by the dedicated
+  -- owner-separation tests (Auth Token Index Owner Separation / PostgreSQL
+  -- Direct suites).
+  IF current_user <> 'sanad' THEN
+    IF has_table_privilege('sanad', 'public.subscription_commands', 'UPDATE')
+       OR has_table_privilege('sanad', 'public.subscription_commands', 'DELETE') THEN
+      RAISE EXCEPTION 'T2_BATCH2_RUNTIME_GRANTS_VERIFY: subscription_commands must remain append-only for sanad';
+    END IF;
   END IF;
   -- RLS must remain ENABLE + FORCE on all three tables (no weakening allowed)
   FOREACH tbl IN ARRAY ARRAY['provisioning_jobs', 'provisioning_job_steps', 'subscription_commands'] LOOP
