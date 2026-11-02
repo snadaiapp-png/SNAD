@@ -1,6 +1,7 @@
 package com.sanad.platform.ai;
 
 import com.sanad.platform.ai.application.AiAgentService;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.ai.application.AiExecutionService;
 import com.sanad.platform.ai.domain.*;
 import com.sanad.platform.crm.test.RlsTestSupport;
@@ -54,8 +55,7 @@ class AiModuleIntegrationTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE ai_inference_log, ai_agents RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("ai_inference_log", "ai_agents");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so

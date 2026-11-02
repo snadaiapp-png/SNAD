@@ -1,0 +1,125 @@
+name: Migrator/Runtime Separation Certification (P0, Issue #1462)
+
+# ============================================================
+# SANAD P0 FINAL REMEDIATION — Article 4 acceptance matrix:
+# dedicated `sanad_migrator` migration identity vs restricted
+# `sanad` runtime identity, proven with REAL connections on an
+# isolated host-native PostgreSQL 17.6 + project-pinned Flyway
+# CLI 11.7.2. No production access. No test weakening.
+#
+# 35 probes: Flyway-as-migrator, runtime DML positives, DDL /
+# TRUNCATE / flyway-history / SET ROLE / BYPASSRLS denials,
+# Tenant A/B isolation, missing/empty GUC fail-closed, auth
+# plane (user creation, refresh/reset tokens, trigger-maintained
+# pre-auth index, pre-auth resolver), append-only subscription
+# ledger, ownership/ACL/RLS catalog snapshot.
+# ============================================================
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrator-runtime-separation.yml'
+      - 'tests/security/migrator-separation/**'
+      - 'apps/sanad-platform/src/main/resources/db/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrator-separation-cert-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  separation-certification:
+    name: Isolated PG17.6 — sanad_migrator vs sanad acceptance matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install isolated PostgreSQL 17.6 (exact pin, host-native, no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop postgresql 2>/dev/null || true
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          # Current pool (for dependencies) + superseded-version archive (for the exact 17.6 pin)
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
+          sudo apt-get update -qq
+          PG_OK=no
+          for v in "17.6-1.pgdg24.04+1" "17.6-*"; do
+            if sudo apt-get install -y -qq --allow-downgrades "postgresql-17=$v" "postgresql-client-17=$v"; then PG_OK=yes; break; fi
+          done
+          if [ "$PG_OK" != "yes" ]; then
+            echo "GATE_NOTE=PG_17_6_UNAVAILABLE_DEVIATION_TO_LATEST_17X_DOCUMENTED" >> "$GITHUB_ENV"
+            sudo apt-get install -y -qq postgresql-17 postgresql-client-17
+          fi
+          sudo pg_dropcluster 16 main --stop 2>/dev/null || true
+          sudo pg_dropcluster 17 main --stop 2>/dev/null || true
+          sudo pg_createcluster 17 main --start >/dev/null
+          sudo pg_lsclusters
+          PGV=$(sudo -u postgres psql -Atqc "SHOW server_version;" | grep -oE '^17\.[0-9]+' | head -1)
+          echo "POSTGRES_VERSION=$PGV (server)" >> "$GITHUB_ENV"
+          echo "TOOLCHAIN: PostgreSQL server $PGV / client $(psql --version | grep -oE '17\.[0-9]+' | head -1) (isolated host-native cluster)"
+
+      - name: Install Flyway CLI 11.7.2 (project-pinned version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_mvn() { # $1=group path $2=filename $3=dest
+            for base in "https://maven-central.storage-download.googleapis.com/maven2" "https://repo1.maven.org/maven2"; do
+              if curl -fsS -m 600 -o "$3" "$base/$1/$2"; then return 0; fi
+            done
+            return 1
+          }
+          fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
+          mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
+          # 11.7.2 CLI bundles lib/flyway/flyway-database-postgresql-11.7.2.jar,
+          # drivers/postgresql-42.7.2.jar and a private JRE — no extra downloads.
+          test -s /tmp/flyway/lib/flyway/flyway-database-postgresql-11.7.2.jar
+          test -s /tmp/flyway/drivers/postgresql-42.7.2.jar
+          /tmp/flyway/flyway -v | head -2
+
+      - name: Run separation acceptance matrix
+        shell: bash
+        env:
+          SEP_PGHOST: 127.0.0.1
+          SEP_PGPORT: '5432'
+          SEP_FLYWAY: /tmp/flyway/flyway
+          SEP_ADMIN_PSQL: sudo -u postgres psql
+        run: |
+          set -euo pipefail
+          # Ephemeral per-run migrator password: generated at runtime, masked,
+          # never a repository literal (cluster is destroyed with the runner).
+          mig_pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$mig_pw"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+          DO \$r\$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
+              CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            END IF;
+          END \$r\$;
+          ALTER ROLE sanad_migrator PASSWORD '$mig_pw';
+          SQL
+          SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+
+      - name: Upload separation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrator-runtime-separation-evidence
+          path: |
+            /tmp/separation-run.log
+            /tmp/separation-cert-artifacts/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,6 +1,7 @@
 package com.sanad.platform.management;
 
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.management.application.EscalationService;
 import com.sanad.platform.management.application.ExecutiveDecisionService;
 import com.sanad.platform.management.application.IssueService;
@@ -67,11 +68,7 @@ class ManagementDecisionRiskIssueTest {
             tx = new TransactionTemplate(transactionManager);
         }
         // Truncate all management tables
-        jdbc.execute("TRUNCATE TABLE management_audit_trail, escalations, decision_actions, "
-                + "decision_participants, executive_decisions, risks, issues, "
-                + "strategic_initiatives, kpi_measurements, kpi_targets, "
-                + "kpi_definitions, key_results, strategic_objectives RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("management_audit_trail", "escalations", "decision_actions", "decision_participants", "executive_decisions", "risks", "issues", "strategic_initiatives", "kpi_measurements", "kpi_targets", "kpi_definitions", "key_results", "strategic_objectives");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         approverId = UUID.randomUUID();

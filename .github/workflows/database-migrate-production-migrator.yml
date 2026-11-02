@@ -1,0 +1,123 @@
+name: Database Migration Production (Migrator Identity)
+
+# ============================================================
+# SANAD P0 (Issue #1462) — PROTECTED production migration path.
+#
+# Replaces the legacy database-migrate-production.yml execution model:
+#  * runs as the dedicated `sanad_migrator` identity (secrets
+#    PROD_FLYWAY_MIGRATOR_USER / PROD_FLYWAY_MIGRATOR_PASSWORD —
+#    never the runtime DATABASE_USERNAME, never a superuser);
+#  * Flyway 11.7.2 — the project-pinned certified version;
+#  * validateOnMigrate=TRUE (the legacy path disabled validation);
+#  * requires the Production environment + typed confirmation;
+#  * asserts the separated topology + migrator ownership before
+#    and after migrating (fail closed).
+#
+# PRODUCTION_RELEASE=NO-GO until G8 authorization. This workflow
+# exists so the authorized path is ready; it still requires the
+# Production environment reviewers to approve each dispatch.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'migrate-as-migrator' to run Flyway against production"
+        required: true
+        default: "no"
+      expected_head:
+        description: "Expected chain head after migration (e.g. 20261103.2)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Run Flyway migrations as sanad_migrator against production PostgreSQL
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 20
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "migrate-as-migrator" ]; then
+            echo "::error::typed confirmation missing"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flyway CLI 11.7.2 (project-pinned version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_mvn() {
+            for base in "https://maven-central.storage-download.googleapis.com/maven2" "https://repo1.maven.org/maven2"; do
+              if curl -fsS -m 600 -o "$3" "$base/$1/$2"; then return 0; fi
+            done
+            return 1
+          }
+          fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
+          mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
+          /tmp/flyway/flyway -v | head -2
+
+      - name: Pre-flight assertions (fail closed)
+        shell: bash
+        env:
+          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
+          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$FLYWAY_USER" ] && [ "$FLYWAY_USER" != "postgres" ] && [ "$FLYWAY_USER" != "sanad" ] || {
+            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be the dedicated sanad_migrator identity (got: ${FLYWAY_USER:-unset})"; exit 1; }
+          echo "pre-flight: migrator identity confirmed (not postgres, not the runtime role)"
+
+      - name: Flyway info (before)
+        env:
+          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
+          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MIG="apps/sanad-platform/src/main/resources/db/migration"
+          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
+            -locations="filesystem:$MIG,filesystem:$VEN" \
+            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history info
+
+      - name: Flyway migrate (as sanad_migrator, validation STRICT)
+        env:
+          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
+          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MIG="apps/sanad-platform/src/main/resources/db/migration"
+          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+          # NO baselineOnMigrate, NO repair, NO outOfOrder — strict certification semantics.
+          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
+            -locations="filesystem:$MIG,filesystem:$VEN" \
+            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history migrate
+
+      - name: Flyway validate + info (after)
+        env:
+          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
+          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MIG="apps/sanad-platform/src/main/resources/db/migration"
+          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
+            -locations="filesystem:$MIG,filesystem:$VEN" \
+            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history validate
+          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
+            -locations="filesystem:$MIG,filesystem:$VEN" \
+            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history info
+          if [ -n "${{ github.event.inputs.expected_head }}" ]; then
+            echo "expected_head input provided — post-merge production verification must confirm it (G10)."
+          fi

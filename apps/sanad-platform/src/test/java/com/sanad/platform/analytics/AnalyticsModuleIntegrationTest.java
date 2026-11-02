@@ -1,6 +1,7 @@
 package com.sanad.platform.analytics;
 
 import com.sanad.platform.analytics.application.*;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.analytics.domain.*;
 import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -33,7 +34,7 @@ class AnalyticsModuleIntegrationTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE analytics_reports, analytics_dashboards, analytics_data_sources RESTART IDENTITY CASCADE");
+        TestIsolation.truncateAll("analytics_reports", "analytics_dashboards", "analytics_data_sources");
         tenantId = UUID.randomUUID(); userId = UUID.randomUUID();
         // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
         // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside

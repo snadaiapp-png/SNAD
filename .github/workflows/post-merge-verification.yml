@@ -417,6 +417,12 @@ jobs:
           SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          -- P0 migrator/runtime separation (V20261103_1): the chain requires the
+          -- dedicated migration role to exist cluster-wide (NOLOGIN: CI runs the
+          -- chain as `sanad` in the fixture topology; the separated topology is
+          -- certified by tests/security/migrator-separation/run-separation-cert.sh).
+          SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
@@ -681,6 +687,12 @@ jobs:
           SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L', :'sanad_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          -- P0 migrator/runtime separation (V20261103_1): the chain requires the
+          -- dedicated migration role to exist cluster-wide (NOLOGIN: CI runs the
+          -- chain as `sanad` in the fixture topology; the separated topology is
+          -- certified by tests/security/migrator-separation/run-separation-cert.sh).
+          SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;

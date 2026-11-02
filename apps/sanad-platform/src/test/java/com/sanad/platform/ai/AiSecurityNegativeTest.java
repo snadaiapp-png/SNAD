@@ -1,6 +1,7 @@
 package com.sanad.platform.ai;
 
 import com.sanad.platform.ai.api.AiController;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.ai.application.AiAgentService;
 import com.sanad.platform.ai.application.AiExecutionService;
 import com.sanad.platform.ai.domain.*;
@@ -51,8 +52,7 @@ class AiSecurityNegativeTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("TRUNCATE TABLE ai_inference_log, ai_agents RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("ai_inference_log", "ai_agents");
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();
         userA = UUID.randomUUID();

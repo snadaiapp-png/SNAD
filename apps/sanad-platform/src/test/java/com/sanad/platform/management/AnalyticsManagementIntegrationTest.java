@@ -1,6 +1,7 @@
 package com.sanad.platform.management;
 
 import com.sanad.platform.management.application.AnalyticsManagementIntegrationService;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,7 @@ class AnalyticsManagementIntegrationTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE analytics_reports, analytics_dashboards, analytics_data_sources RESTART IDENTITY CASCADE");
+        TestIsolation.truncateAll("analytics_reports", "analytics_dashboards", "analytics_data_sources");
         tenantId = UUID.randomUUID();
         var now = java.sql.Timestamp.from(java.time.Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)", tenantId, "ami-" + tenantId.toString().substring(0, 8), now, now);

@@ -1,5 +1,12 @@
 name: Database Migration Production
 
+# SUPERSEDED (Issue #1462, P0 migrator/runtime separation):
+# use .github/workflows/database-migrate-production-migrator.yml — it runs as the
+# dedicated sanad_migrator identity with Flyway 11.7.2 and validateOnMigrate=true.
+# This legacy workflow runs as PROD_DB_USER with validation disabled and must not
+# be used for production migrations anymore. Retained for history per the
+# no-deletion policy.
+
 on:
   workflow_dispatch:
     inputs:
