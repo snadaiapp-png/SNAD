@@ -23,7 +23,7 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 export PATH="/usr/lib/postgresql/17/bin:$PATH"
 export PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres
 sudo -u postgres psql -Atqc "SELECT version()" | head -1 | tee "$ART/pg-version.txt"
-gate TOOLCHAIN "PostgreSQL $(psql --version | grep -oE '17\.[0-9]+') host-native isolated; Flyway $($FLYWAY -v 2>/dev/null | head -1)"
+gate TOOLCHAIN "PostgreSQL server $(sudo -u postgres psql -Atqc 'SHOW server_version;') host-native isolated; Flyway $($FLYWAY -v 2>/dev/null | grep -E '^Flyway ' | head -1)"
 
 # ---------------------------------------------------------------- roles/dbs
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
@@ -42,8 +42,9 @@ role_contract=$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text||'|'||rols
 [ "$role_contract" = "true|false|false|false|false|false" ] || die ROLE "sanad contract violation: $role_contract"
 gate ROLE "sanad contract OK (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, NOBYPASSRLS)"
 
-export PGPASSWORD='cert_local_only'
-fw() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -locations="$LOCS" "${@:2}"; }
+export PGPASSWORD='cert_local_only'   # psql only; Flyway CLI takes -password explicitly
+fw() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$LOCS" "${@:2}"; }
+fwc() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$2" "${@:3}"; }
 history_head() { psql -At -d "$1" -c "SELECT max(version) FROM flyway_schema_history WHERE success=true AND version IS NOT NULL;"; }
 success_rows() { psql -At -d "$1" -c "SELECT count(*) FROM flyway_schema_history WHERE success=true;"; }
 sql_rls="SELECT c.relname||':'||c.relrowsecurity::int||c.relforcerowsecurity::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands','users','tenant_subscriptions') ORDER BY 1;"
@@ -122,7 +123,7 @@ cp -r "$MIG_LOC_ROOT"/. "$CHAIN_COPY/"
 fw injection migrate | tail -3 > "$ART/C0-apply.log" || die C "injection baseline apply failed unexpectedly"
 
 rm "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="filesystem:$CHAIN_COPY" validate > "$ART/C1-missing.log" 2>&1; then
   die C "c1: validate PASSED despite missing applied migration (fail-open!)"
 fi
@@ -130,7 +131,7 @@ gate C "c1 PASS: missing applied migration -> validate FAILED (fail-closed)"
 
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 printf '\n-- certification tamper marker\n' >> "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="filesystem:$CHAIN_COPY" validate > "$ART/C2-tamper.log" 2>&1; then
   die C "c2: validate PASSED despite checksum tamper (fail-open!)"
 fi
@@ -138,7 +139,7 @@ gate C "c2 PASS: checksum tamper -> validate FAILED (fail-closed)"
 
 before_succ=$(success_rows injection)
 printf 'SELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V2026999_1__inject_failure.sql"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="filesystem:$CHAIN_COPY" migrate > "$ART/C3-midchain.log" 2>&1; then
   die C "c3: migrate PASSED despite failing migration (fail-open!)"
 fi
