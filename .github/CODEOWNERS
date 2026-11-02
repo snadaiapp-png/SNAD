@@ -1,0 +1,17 @@
+# SANAD code owners — security-sensitive paths require owner review.
+# Effective once require_code_owner_reviews=true is applied to main protection
+# (see docs/security/g1-governance-controls.md C3).
+
+# Flyway migration chain (immutable ledger, RLS/ACL surface)
+/apps/sanad-platform/src/main/resources/db/migration/   @snadaiapp-png
+/apps/sanad-platform/src/main/resources/db/vendor/      @snadaiapp-png
+
+# Security SQL contracts and their fixtures
+/tests/security/                                        @snadaiapp-png
+
+# Deployment identities (RLS bypass surface)
+/apps/sanad-platform/docker-compose*.yml                @snadaiapp-png
+/apps/sanad-platform/docker/postgres-init/              @snadaiapp-png
+
+# G1 evidence and governance
+/docs/security/                                         @snadaiapp-png
