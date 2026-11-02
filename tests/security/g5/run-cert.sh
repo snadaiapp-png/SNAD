@@ -75,7 +75,9 @@ gate A "RLS catalog: ENABLE+FORCE (11) on users, refresh_tokens, password_reset_
 # ============================================================================
 gate B "start: apply chain up to production watermark 20261021.1"
 fw upgrade_hist migrate -target=20261021.1 | tee "$ART/B-migrate-to-watermark.log"
-fw upgrade_hist validate | tee "$ART/B-validate-at-watermark.log"
+# at the watermark, pending resolutions are EXPECTED (that is the production state);
+# validate still checks checksums of every APPLIED migration — pending are ignored explicitly
+fw upgrade_hist validate -ignoreMigrationPatterns='*:pending' | tee "$ART/B-validate-at-watermark.log"
 head_b1=$(history_head upgrade_hist)
 [ "$head_b1" = "20261021.1" ] || die B "history-equivalent head=$head_b1, expected 20261021.1"
 
