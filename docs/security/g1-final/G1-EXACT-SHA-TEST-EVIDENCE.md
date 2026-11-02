@@ -10,7 +10,8 @@
 | `81b5585fd…` | PR #1465 head at baseline | 47 success / 2 skipped / **`Maven Test Suite` stuck `in_progress` >12 h (run 41357909105) — never terminal → treated as NOT PASSED** |
 | `4a0cf0802…` | + `V20261102_2`, test pins | 6 required/mandated gates FAILED — root cause: `T2_BATCH2_RUNTIME_GRANTS_VERIFY` guard vs owner-as-`sanad` fixture model (runs 41364348714, 41364348777; logs archived) |
 | `d0694a00f…` | guard scoped to separate-owner model | 36 success; **2 FAILED** — `Wave 1 Task 1 PostgreSQL Direct`, `Verify 8 tables, 26 indexes, and tenant isolation`: my own test-pin defect — duplicate `20261102.2` entry in two `containsExactly` pending sequences (true failure of my change, not flake) |
-| `8e93beaec…` | pending-sequence corrected | **final head** — results in §2 |
+| `8e93beaec…` | pending-sequence fix #1 (one duplicate per list remained) | `Wave 1 Task 1 PostgreSQL Direct` still FAILED (same two `containsExactly` tests; run log archived) |
+| `ecf90bb08f75749ec058227e5c4978b5fa23dc6f` | duplicate removed — tail exactly `20261101.1, 20261102.1, 20261102.2` | **final head** — results in §2 |
 
 ## 2. Final head `8e93beaec968dc8bcfee75a7733bff29952930f1`
 
