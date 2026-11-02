@@ -209,11 +209,11 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          DO $ BEGIN
+          DO $migrator_guard$ BEGIN
             IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
               RAISE EXCEPTION 'runtime role inherits migration role';
             END IF;
-          END $;
+          END $migrator_guard$;
           GRANT sanad TO sanad_g3;
           DO $$
           BEGIN
