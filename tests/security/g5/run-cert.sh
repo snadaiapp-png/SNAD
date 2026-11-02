@@ -215,7 +215,10 @@ gate D "start: logical backup of upgraded history-equivalent DB"
 # FINDING for DR certification: the production backup role MUST hold BYPASSRLS.
 # All post-restore verification (D1-D5) remains as sanad.
 T4=$(date +%s)
-sudo -u postgres pg_dump -Fc -d upgrade_hist -f "$ART/release-schema-dump.dump"
+# postgres cannot write into the root-owned $ART dir — dump to /tmp (sticky 1777),
+# then move into the artifact set as the invoking (root) user.
+sudo -u postgres pg_dump -Fc -d upgrade_hist -f /tmp/release-schema-dump.dump
+mv /tmp/release-schema-dump.dump "$ART/release-schema-dump.dump"
 T5=$(date +%s)
 sudo -u postgres pg_restore -d restored --no-owner --role=sanad "$ART/release-schema-dump.dump" 2> "$ART/D-restore-stderr.txt" || {
   grep -vE "role \"postgres\" does not exist|already exists" "$ART/D-restore-stderr.txt" | grep -q . && die D "pg_restore failed" || true; }
