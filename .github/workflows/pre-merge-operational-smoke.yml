@@ -89,11 +89,11 @@ jobs:
           SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          DO $ BEGIN
+          DO $migrator_guard$ BEGIN
             IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
               RAISE EXCEPTION 'runtime role inherits migration role';
             END IF;
-          END $;
+          END $migrator_guard$;
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
