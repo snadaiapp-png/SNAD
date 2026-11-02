@@ -241,11 +241,31 @@ gate D "D2 PASS: RLS ENABLE/FORCE flags identical across restore ($(wc -l < "$AR
 
 grants=$(psql -At -U sanad -d restored -c "SELECT table_name||':'||string_agg(privilege_type,',' ORDER BY privilege_type) FROM information_schema.role_table_grants WHERE grantee='sanad' AND table_name IN ('refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands') GROUP BY table_name ORDER BY table_name;")
 echo "$grants" | tee "$ART/D3-grants.txt"
-echo "$grants" | grep -q '^refresh_tokens:INSERT,SELECT,UPDATE,DELETE$' || die D "refresh_tokens DML grant missing"
-echo "$grants" | grep -q '^password_reset_tokens:INSERT,SELECT,UPDATE,DELETE$' || die D "password_reset_tokens DML grant missing"
-echo "$grants" | grep -q '^provisioning_jobs:INSERT,SELECT,UPDATE$' || die D "provisioning_jobs grant missing"
-echo "$grants" | grep -q '^subscription_commands:INSERT,SELECT$' || die D "subscription_commands grant missing"
-gate D "D3 PASS: restricted runtime ACL present exactly as migrated"
+# NOTE (run #18 finding): sanad OWNS these tables, so role_table_grants reports the
+# implicit owner privileges (REFERENCES/TRIGGER/TRUNCATE) alongside the migrated
+# DML grants — an 'exactly these 4' assertion is unachievable by construction for
+# the owner role. The fail-closed properties asserted here are: (a) every DML
+# privilege the migrations grant IS present after restore, (b) the restored ACL is
+# byte-identical to the source (D3b). Full least-privilege enforcement belongs to
+# the pending G1 'separate Flyway migrator role' requirement (tracked, HOLD).
+has_priv() { echo ",$2," | grep -q ",$3," || die D "$1 missing $3 grant in restored ACL"; }
+rt_line=$(echo "$grants" | grep '^refresh_tokens:' | cut -d: -f2)
+[ -n "$rt_line" ] || die D "refresh_tokens absent from restored ACL"
+has_priv refresh_tokens "$rt_line" INSERT; has_priv refresh_tokens "$rt_line" SELECT
+has_priv refresh_tokens "$rt_line" UPDATE; has_priv refresh_tokens "$rt_line" DELETE
+prt_line=$(echo "$grants" | grep '^password_reset_tokens:' | cut -d: -f2)
+[ -n "$prt_line" ] || die D "password_reset_tokens absent from restored ACL"
+has_priv password_reset_tokens "$prt_line" INSERT; has_priv password_reset_tokens "$prt_line" SELECT
+has_priv password_reset_tokens "$prt_line" UPDATE; has_priv password_reset_tokens "$prt_line" DELETE
+pj_line=$(echo "$grants" | grep '^provisioning_jobs:' | cut -d: -f2)
+[ -n "$pj_line" ] || die D "provisioning_jobs absent from restored ACL"
+has_priv provisioning_jobs "$pj_line" INSERT; has_priv provisioning_jobs "$pj_line" SELECT; has_priv provisioning_jobs "$pj_line" UPDATE
+sc_line=$(echo "$grants" | grep '^subscription_commands:' | cut -d: -f2)
+[ -n "$sc_line" ] || die D "subscription_commands absent from restored ACL"
+has_priv subscription_commands "$sc_line" INSERT; has_priv subscription_commands "$sc_line" SELECT
+gr_src=$(psql -At -U sanad -d upgrade_hist -c "SELECT table_name||':'||string_agg(privilege_type,',' ORDER BY privilege_type) FROM information_schema.role_table_grants WHERE grantee='sanad' AND table_name IN ('refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands') GROUP BY table_name ORDER BY table_name;")
+[ "$gr_src" = "$grants" ] || die D "D3b: ACL differs between source and restored"
+gate D "D3 PASS: migrated DML grants present after restore (refresh_tokens/password_reset_tokens: I,S,U,D; provisioning_jobs: I,S,U; subscription_commands: I,S); D3b PASS: ACL byte-identical source↔restored [owner-privilege caveat → pending separate-migrator-role requirement]"
 
 TA=00000000-0000-0000-0000-000000000001; TB=00000000-0000-0000-0000-000000000002
 psql -v ON_ERROR_STOP=1 -U sanad -d restored <<SQL
