@@ -139,6 +139,8 @@ if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -passwo
 fi
 gate C "c2 PASS: checksum tamper -> validate FAILED (fail-closed)"
 
+# restore pristine file (c2 left the tampered copy; validateOnMigrate must pass to reach c3)
+cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 before_succ=$(success_rows injection)
 printf 'SELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V2026999_1__inject_failure.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
