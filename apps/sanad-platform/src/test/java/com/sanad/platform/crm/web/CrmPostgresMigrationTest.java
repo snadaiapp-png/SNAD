@@ -290,6 +290,7 @@ class CrmPostgresMigrationTest {
     // V20261102_1 and V20261102_2 are distinct pending versions and must both appear;
     // V20261102_2 IS the LATEST version and must not be listed twice.
     private static final String D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION = "20261102.1";
+    private static final String D6_T2_RUNTIME_GRANTS_VERSION = "20261102.2";
     // TEST_ALIGNMENT_REASON: SANAD P0 FINAL REMEDIATION (Issue #1462, Article 3) adds
     // V20261103_1 (sanad_migrator role contract) + V20261103_2 (topology-gated ownership
     // transfer + runtime ACL matrix, closes F-01) at the sequence tail.
@@ -603,6 +604,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
                         MigrationVersion.fromVersion(D6_AUTH_TOKEN_ACL_VERSION),
                         MigrationVersion.fromVersion(D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION),
+                        MigrationVersion.fromVersion(D6_T2_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_SEPARATION_ROLE_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
@@ -855,6 +857,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
                         MigrationVersion.fromVersion(D6_AUTH_TOKEN_ACL_VERSION),
                         MigrationVersion.fromVersion(D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION),
+                        MigrationVersion.fromVersion(D6_T2_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_SEPARATION_ROLE_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
