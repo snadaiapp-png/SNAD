@@ -129,14 +129,33 @@ INJ_LOC="filesystem:$CHAIN_COPY,filesystem:$VEN_LOC_ROOT"
 
 fw injection migrate | tail -3 > "$ART/C0-apply.log" || die C "injection baseline apply failed unexpectedly"
 
-rm "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
+# c1 removes a MID-CHAIN applied migration (NOT the head): Flyway 11 default
+# ignoreMigrationPatterns='*:future' classifies an applied migration above the
+# highest RESOLVED version as FUTURE_SUCCESS and silently ignores it, so
+# removing the chain head would pass validate and prove nothing. Below max
+# resolved, a missing applied migration is MISSING_SUCCESS -> hard error.
+# Selection: numeric version key (V<ver>__name.sql -> ver with '_'->'.'),
+# skip non-conforming names, pick the version just below the chain head.
+c1_sel=$(for f in "$CHAIN_COPY"/V*.sql; do
+    b=$(basename "$f")
+    v=$(printf '%s' "$b" | sed -E 's/^V([0-9_]+)__.*/\1/' | tr '_' '.')
+    case "$v" in *[!0-9.]*) continue ;; esac
+    printf '%s %s\n' "$v" "$b"
+  done | sort -k1,1V)
+c1_ver=$(printf '%s\n' "$c1_sel" | tail -2 | head -1 | awk '{print $1}')
+c1_file=$(printf '%s\n' "$c1_sel" | tail -2 | head -1 | awk '{print $2}')
+c1_head=$(printf '%s\n' "$c1_sel" | tail -1 | awk '{print $1}')
+[ -n "$c1_file" ] || die C "c1: could not select a mid-chain migration from $CHAIN_COPY"
+[ "$c1_ver" != "$c1_head" ] || die C "c1: selected version equals chain head ($c1_head) — head removal is future-ignored, unusable for c1"
+rm "$CHAIN_COPY/$c1_file"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="$INJ_LOC" validate > "$ART/C1-missing.log" 2>&1; then
-  die C "c1: validate PASSED despite missing applied migration (fail-open!)"
+  die C "c1: validate PASSED despite missing applied migration $c1_ver (fail-open!)"
 fi
-grep -q "Detected applied migration not resolved locally: 20261102.2." "$ART/C1-missing.log" \
-  || die C "c1: validate failed for the wrong reason (missing-migration error absent)"
-gate C "c1 PASS: missing applied migration -> validate FAILED (fail-closed)"
+grep -q "Detected applied migration not resolved locally: $c1_ver." "$ART/C1-missing.log" \
+  || die C "c1: validate failed for the wrong reason (missing $c1_ver error absent)"
+gate C "c1 PASS: missing mid-chain applied migration $c1_ver -> validate FAILED (fail-closed)"
+cp "$MIG_LOC_ROOT/$c1_file" "$CHAIN_COPY/"
 
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 printf '\n-- certification tamper marker\n' >> "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
