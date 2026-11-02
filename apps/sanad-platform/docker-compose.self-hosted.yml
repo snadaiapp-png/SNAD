@@ -23,14 +23,22 @@ services:
     profiles: ["local-db"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sanad}
-      POSTGRES_USER: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
+      # Identity split (P1 RLS-bypass remediation): bootstrap superuser is
+      # separate from the restricted runtime role the backend connects as —
+      # a superuser bypasses RLS even with FORCE.
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD must be set}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?DATABASE_USERNAME must be set (restricted runtime role, e.g. sanad)}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
     expose:
       - "5432"
     volumes:
       - sanad-pgdata:/var/lib/postgresql/data
+      # Provisions the restricted runtime role on FIRST initialization only
+      # (for existing volumes run the documented CREATE ROLE once).
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${POSTGRES_DB:-sanad}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-sanad}"]
       interval: 10s
       timeout: 5s
       retries: 5
