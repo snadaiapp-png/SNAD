@@ -225,8 +225,11 @@ sudo -u postgres pg_restore -d restored --no-owner --role=sanad "$ART/release-sc
 T6=$(date +%s)
 gate D "backup=$((T5-T4))s restore=$((T6-T5))s (RTO window; logical dump RPO=0 at dump instant)"
 
-h_src=$(psql -At -U sanad -d upgrade_hist -c "SELECT md5(coalesce(string_agg(version||':'||checksum::text||':'||success::text, ';' ORDER BY installed_rank),''));")
-h_rst=$(psql -At -U sanad -d restored -c "SELECT md5(coalesce(string_agg(version||':'||checksum::text||':'||success::text, ';' ORDER BY installed_rank),''));")
+# D1 hashes the FULL history (versioned + repeatables via coalesce(version,'-'));
+# NOTE: the aggregate needs its FROM clause — runs #14-#17 were the first-ever
+# executions of this block and exposed the missing table reference instantly.
+h_src=$(psql -At -U sanad -d upgrade_hist -c "SELECT md5(coalesce(string_agg(coalesce(version,'-')||':'||checksum::text||':'||success::text, ';' ORDER BY installed_rank),'')) FROM flyway_schema_history;")
+h_rst=$(psql -At -U sanad -d restored -c "SELECT md5(coalesce(string_agg(coalesce(version,'-')||':'||checksum::text||':'||success::text, ';' ORDER BY installed_rank),'')) FROM flyway_schema_history;")
 [ "$h_src" = "$h_rst" ] || die D "flyway_schema_history differs between source and restored (src=$h_src rst=$h_rst)"
 gate D "D1 PASS: flyway_schema_history identical (md5=${h_src:0:12}...)"
 
