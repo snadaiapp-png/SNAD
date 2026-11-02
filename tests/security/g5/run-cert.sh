@@ -207,13 +207,17 @@ gate C "c4 PASS: repair/baseline never invoked at any point (no repair artifacts
 # SCENARIO D — Backup → Restore → integrity + RLS + roles + Tenant A/B
 # ============================================================================
 gate D "start: logical backup of upgraded history-equivalent DB"
-# pg_dump/pg_restore inherit PGUSER=postgres (line ~24), but postgres has no TCP
-# password (peer socket-only) and PGPASSWORD holds sanad's secret. The runtime role
-# sanad OWNS upgrade_hist/restored — dump and restore explicitly as sanad.
+# Backup identity: pg_dump as sanad FAILS CLOSED on FORCE-RLS tables (verified
+# run #15: 'query would be affected by row-level security policy for table
+# access_scope_grants') — PostgreSQL refuses RLS-filtered dumps to prevent
+# silent data loss. Real DR backups therefore run as a bypass-capable role:
+# here postgres via socket/peer (superuser), mirroring the production runbook.
+# FINDING for DR certification: the production backup role MUST hold BYPASSRLS.
+# All post-restore verification (D1-D5) remains as sanad.
 T4=$(date +%s)
-pg_dump -Fc -U sanad -d upgrade_hist -f "$ART/release-schema-dump.dump"
+sudo -u postgres pg_dump -Fc -d upgrade_hist -f "$ART/release-schema-dump.dump"
 T5=$(date +%s)
-pg_restore -U sanad -d restored --no-owner --role=sanad "$ART/release-schema-dump.dump" 2> "$ART/D-restore-stderr.txt" || {
+sudo -u postgres pg_restore -d restored --no-owner --role=sanad "$ART/release-schema-dump.dump" 2> "$ART/D-restore-stderr.txt" || {
   grep -vE "role \"postgres\" does not exist|already exists" "$ART/D-restore-stderr.txt" | grep -q . && die D "pg_restore failed" || true; }
 T6=$(date +%s)
 gate D "backup=$((T5-T4))s restore=$((T6-T5))s (RTO window; logical dump RPO=0 at dump instant)"
