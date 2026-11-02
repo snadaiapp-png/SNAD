@@ -40,7 +40,8 @@ Then store the migrator credentials **only** in the GitHub secret store:
 and enable LOGIN with that password:
 
 ```sql
-ALTER ROLE sanad_migrator LOGIN PASSWORD '<the secret from the store>';
+-- Use the privileged psql provisioning session and its protected variable:
+SELECT format('ALTER ROLE sanad_migrator LOGIN PASSWORD %L', :'migrator_secret') \gexec
 ```
 
 Finally verify the runtime contract (fail closed if violated):
