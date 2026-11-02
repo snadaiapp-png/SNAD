@@ -45,7 +45,7 @@ gate ROLE "sanad contract OK (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOIN
 export PGPASSWORD='cert_local_only'   # psql only; Flyway CLI takes -password explicitly
 fw() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$LOCS" "${@:2}"; }
 fwc() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$2" "${@:3}"; }
-history_head() { psql -At -U sanad -d "$1" -c "SELECT max(version) FROM flyway_schema_history WHERE success=true AND version IS NOT NULL;"; }
+history_head() { psql -At -U sanad -d "$1" -c "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1;"; }
 success_rows() { psql -At -U sanad -d "$1" -c "SELECT count(*) FROM flyway_schema_history WHERE success=true;"; }
 sql_rls="SELECT c.relname||':'||c.relrowsecurity::int||c.relforcerowsecurity::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands','users','tenant_subscriptions') ORDER BY 1;"
 
