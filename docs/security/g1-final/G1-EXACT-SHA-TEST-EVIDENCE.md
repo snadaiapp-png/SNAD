@@ -15,7 +15,7 @@
 
 ## 2. Final head `8e93beaec968dc8bcfee75a7733bff29952930f1`
 
-At report time CI on the final head was **still running** (49 checks registered; 2 design-skipped; remainder in flight). Per the stop conditions, no PASS is claimed for any check that has not reached a terminal state on this SHA. The authoritative record will be the PR #1465 check-runs page for this SHA; the result set must be re-read at merge-decision time.
+**TERMINAL (final re-read 2026-11-02):** all **50 check runs on `ecf90bb08…` reached a terminal state — 48 SUCCESS / 2 skipped (by design) / 0 failures**, including every branch-protection required check: `Maven Test Suite` (run id 125025877360, in flight ~50 min, terminal **success**), `PostgreSQL Acceptance Tests`, `CRM Integration Tests`, `Build Next.js Web`, `CRM Deployment Readiness`, `Verify 8 tables, 26 indexes, and tenant isolation` — all success. Skips: `Full-stack ERP human preview` (human-preview lane) and `R0C-12 Canonical Gate G` (dispatch-gated; must be terminal before any certification claim). The authoritative page is the PR #1465 check-runs view of this SHA.
 
 **Locally executed on the exact final tree** (migration content identical to `d0694a00f`; only a test file changed in `8e93beaec`):
 
