@@ -147,6 +147,17 @@ jobs:
           \gexec
           ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           GRANT sanad TO sanad_hrm_visual;
+          -- Provision the migration identity before the strict Flyway run.
+          SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator')
+          \gexec
+          ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          DO $migration_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'CI_ROLE_SEPARATION_FAILED: sanad inherits migrator';
+            END IF;
+          END $migration_guard$;
           DO $$
           BEGIN
             IF NOT EXISTS (
