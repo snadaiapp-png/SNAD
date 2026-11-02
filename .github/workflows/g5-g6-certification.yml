@@ -82,18 +82,20 @@ jobs:
         run: |
           set -euo pipefail
           df -h /tmp | tail -1
-          for i in 1 2 3; do
-            curl -fsSL --retry 3 --retry-delay 5 -o /tmp/fw.tgz \
-              "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/11.7.2/flyway-commandline-11.7.2-linux-x64.tar.gz" && break
-            echo "flyway download attempt $i failed"; sleep 10
-          done
-          test -s /tmp/fw.tgz
+          # Maven Central rate-limits shared egress IPs (observed HTTP 429 / curl 23);
+          # Google's official Central mirror first, repo1 as fallback.
+          fetch_mvn() { # $1=group path $2=filename $3=dest
+            for base in "https://maven-central.storage-download.googleapis.com/maven2" "https://repo1.maven.org/maven2"; do
+              for i in 1 2; do
+                if curl -fsSL --retry 3 --retry-delay 5 -o "$3" "$base/$1/$2" && test -s "$3"; then return 0; fi
+                echo "download $2 from $base attempt $i failed"; sleep 5
+              done
+            done
+            return 1
+          }
+          fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
           mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
-          for i in 1 2 3; do
-            curl -fsSL --retry 3 --retry-delay 5 -o /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar \
-              "https://repo1.maven.org/maven2/org/flywaydb/flyway-database-postgresql/11.7.2/flyway-database-postgresql-11.7.2.jar" && break
-            echo "pg module download attempt $i failed"; sleep 10
-          done
+          fetch_mvn "org/flywaydb/flyway-database-postgresql/11.7.2" "flyway-database-postgresql-11.7.2.jar" /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar
           test -s /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar
           /tmp/flyway/flyway -v | head -2
           echo "FLYWAY_VERSION=$(/tmp/flyway/flyway -v 2>/dev/null | grep -oE 'by Red Gate.*|Flyway [0-9.]+' | head -1)" >> "$GITHUB_ENV" || true
