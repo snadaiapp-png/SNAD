@@ -47,7 +47,7 @@ jobs:
           fi
           echo "CHAIN_IDENTITY_OK: candidate == main for both Flyway locations"
 
-      - name: Install isolated PostgreSQL 17.6 (PGDG, host-native, no containers)
+      - name: Install isolated PostgreSQL 17.6 (exact pin, host-native, no containers)
         shell: bash
         run: |
           set -euo pipefail
@@ -55,17 +55,25 @@ jobs:
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
             -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          # Current pool (for dependencies) + superseded-version archive (for the exact 17.6 pin)
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
           sudo apt-get update -qq
-          if ! sudo apt-get install -y -qq "postgresql-17=17.6*"; then
-            echo "GATE_NOTE=PG_17_6_NOT_AVAILABLE_IN_PGDG_FALLBACK_LATEST_17" >> "$GITHUB_ENV"
+          PG_OK=no
+          for v in "17.6-1.pgdg24.04+1" "17.6-*"; do
+            if sudo apt-get install -y -qq --allow-downgrades "postgresql-17=$v"; then PG_OK=yes; break; fi
+          done
+          if [ "$PG_OK" != "yes" ]; then
+            echo "GATE_NOTE=PG_17_6_UNAVAILABLE_DEVATION_TO_LATEST_17X_DOCUMENTED" >> "$GITHUB_ENV"
             sudo apt-get install -y -qq postgresql-17
           fi
           sudo pg_dropcluster 16 main --stop 2>/dev/null || true
+          sudo pg_dropcluster 17 main --stop 2>/dev/null || true
           sudo pg_createcluster 17 main --start >/dev/null
           sudo pg_lsclusters
-          PGV=$(psql --version | grep -oE '17\.[0-9]+')
+          PGV=$(psql --version | grep -oE '17\.[0-9]+' | head -1)
           echo "POSTGRES_VERSION=$PGV" >> "$GITHUB_ENV"
           echo "TOOLCHAIN: PostgreSQL $PGV (isolated host-native cluster)"
 
