@@ -95,8 +95,10 @@ jobs:
           }
           fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
           mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
-          fetch_mvn "org/flywaydb/flyway-database-postgresql/11.7.2" "flyway-database-postgresql-11.7.2.jar" /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar
-          test -s /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar
+          # 11.7.2 CLI distribution ALREADY bundles lib/flyway/flyway-database-postgresql-11.7.2.jar,
+          # drivers/postgresql-42.7.2.jar, and a private JRE — no extra downloads, no setup-java.
+          test -s /tmp/flyway/lib/flyway/flyway-database-postgresql-11.7.2.jar
+          test -s /tmp/flyway/drivers/postgresql-42.7.2.jar
           /tmp/flyway/flyway -v | head -2
           echo "FLYWAY_VERSION=$(/tmp/flyway/flyway -v 2>/dev/null | grep -oE 'by Red Gate.*|Flyway [0-9.]+' | head -1)" >> "$GITHUB_ENV" || true
 
