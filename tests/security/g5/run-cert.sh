@@ -268,28 +268,41 @@ gr_src=$(psql -At -U sanad -d upgrade_hist -c "SELECT table_name||':'||string_ag
 gate D "D3 PASS: migrated DML grants present after restore (refresh_tokens/password_reset_tokens: I,S,U,D; provisioning_jobs: I,S,U; subscription_commands: I,S); D3b PASS: ACL byte-identical source↔restored [owner-privilege caveat → pending separate-migrator-role requirement]"
 
 TA=00000000-0000-0000-0000-000000000001; TB=00000000-0000-0000-0000-000000000002
+# D4 seed: FK chain users(tenant_id)→tenants(id) and tokens(tenant_id,user_id)→users
+# requires parent rows; token tables have 8 NOT NULL-ordered columns (verified
+# locally on PG 17.6) — explicit column lists + valid UUID values are mandatory
+# (runs #10-#18 never reached this block; first execution exposed the defects).
 psql -v ON_ERROR_STOP=1 -U sanad -d restored <<SQL
 BEGIN;
+INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at)
+  VALUES ('$TA','Cert Tenant A','cert-a','ACTIVE',now(),now())
+  ON CONFLICT (id) DO NOTHING;
 SELECT set_config('app.tenant_id','$TA',true);
-INSERT INTO public.refresh_tokens VALUES ('a1000000-0000-0000-0000-000000000001','hash-A','$TA','u1000000-0000-0000-0000-000000000001','ACTIVE');
-INSERT INTO public.password_reset_tokens VALUES ('a1000000-0000-0000-0000-000000000002','reset-A','$TA','u1000000-0000-0000-0000-000000000001','ACTIVE');
+INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at)
+  VALUES ('a0000000-0000-0000-0000-000000000001','$TA','cert-a@sanad.test','ACTIVE',now(),now());
+INSERT INTO public.refresh_tokens (id,tenant_id,user_id,token_hash,status,expires_at,created_at)
+  VALUES ('a1000000-0000-0000-0000-000000000001','$TA','a0000000-0000-0000-0000-000000000001','hash-A','ACTIVE',now()+interval '7 days',now());
+INSERT INTO public.password_reset_tokens (id,tenant_id,user_id,token_hash,status,expires_at,created_at)
+  VALUES ('a1000000-0000-0000-0000-000000000002','$TA','a0000000-0000-0000-0000-000000000001','reset-A','ACTIVE',now()+interval '1 day',now());
 COMMIT;
 SQL
 idx=$(psql -At -U sanad -d restored -c "SELECT count(*) FROM public.auth_token_tenant_index;")
 [ "$idx" = "2" ] || die D "pre-auth index read w/o GUC failed (count=$idx, expected 2)"
 ct_read=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); SELECT count(*) FROM public.refresh_tokens;" | tail -1)
 [ "$ct_read" = "0" ] || die D "cross-tenant READ leaked rows (tenant B saw $ct_read)"
+# DML command tags are 'UPDATE 0'/'DELETE 0' (verified) — assert the exact tag,
+# which pins BOTH the statement type and the zero-rows outcome.
 ct_upd=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); UPDATE public.refresh_tokens SET status='ACTIVE';" | tail -1)
-[ "$ct_upd" = "0" ] || die D "cross-tenant UPDATE affected rows"
+[ "$ct_upd" = "UPDATE 0" ] || die D "cross-tenant UPDATE affected rows (tag=$ct_upd)"
 ct_del=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); DELETE FROM public.password_reset_tokens;" | tail -1)
-[ "$ct_del" = "0" ] || die D "cross-tenant DELETE affected rows"
+[ "$ct_del" = "DELETE 0" ] || die D "cross-tenant DELETE affected rows (tag=$ct_del)"
 noguc=$(psql -At -U sanad -d restored -c "SELECT count(*) FROM public.refresh_tokens;" | tail -1)
 [ "$noguc" = "0" ] || die D "missing-GUC read leaked rows (fail-open!)"
-if psql -v ON_ERROR_STOP=1 -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TA',true); UPDATE public.refresh_tokens SET token_hash='changed';" > /dev/null 2>&1; then
+if psql -v ON_ERROR_STOP=1 -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TA',true); UPDATE public.refresh_tokens SET token_hash='changed' WHERE id='a1000000-0000-0000-0000-000000000001';" > /dev/null 2>&1; then
   die D "token_hash immutability violated (update accepted)"
 fi
 psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TA',true); SELECT count(*) FROM public.refresh_tokens;" | tail -1 | grep -q '^1$' || die D "tenant A lost its row (over-blocking!)"
-gate D "D4 PASS: Tenant A/B isolation, missing-GUC denial, pre-auth index w/o GUC, immutability (fail-closed 42501/23514; cross-tenant = 0 rows)"
+gate D "D4 PASS: Tenant A/B isolation (read/update/delete zero-effect), missing-GUC denial, pre-auth index w/o GUC=2, token_hash immutability 23514 AUTH_TOKEN_IDENTITY_IMMUTABLE (verified locally on PG 17.6.0 before CI)"
 
 owner=$(psql -At -U sanad -d restored -c "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.refresh_tokens'::regclass;")
 gate D "D5: refresh_tokens owner=$owner (FORCE binds owner); sanad super/bypassrls=$(psql -At -U sanad -d restored -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad' AND (rolsuper OR rolbypassrls));")"
