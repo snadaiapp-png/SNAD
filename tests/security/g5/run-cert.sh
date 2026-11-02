@@ -170,9 +170,14 @@ gate C "c2 PASS: checksum tamper -> validate FAILED (fail-closed)"
 # restore pristine file (c2 left the tampered copy; validateOnMigrate must pass to reach c3)
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 before_succ=$(success_rows injection)
-# Rollback is proven with REAL committed DDL inside the failing migration, so the
-# assertion is meaningful (not trivially true on a table that never existed).
-printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V2026999_1__inject_failure.sql"
+# Injected version MUST compare numerically ABOVE the chain head. The chain uses
+# date-style versions: 20261102.2 = 20,261,102.2, so '2026999.1' (2,026,999.1) is
+# an OLDER version — Flyway classifies it IGNORED (below schema version, outOfOrder
+# disabled) and validateOnMigrate aborts BEFORE executing it (runs #10/#11/#13).
+# V20261102_3 (20,261,102.3 > 20,261,102.2) is an in-order PENDING migration and IS
+# executed: CREATE TABLE commits inside the migration transaction, the SELECT then
+# fails (42P01), and PostgreSQL rolls the whole transaction back.
+printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V20261102_3__inject_failure.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="$INJ_LOC" migrate > "$ART/C3-midchain.log" 2>&1; then
   die C "c3: migrate PASSED despite failing migration (fail-open!)"
@@ -183,13 +188,13 @@ grep -q "Changes successfully rolled back" "$ART/C3-midchain.log" \
 # a failed in-transaction migration is fully rolled back and writes NO history row;
 # the success=false row exists only on non-transactional engines. Certify the
 # documented PG semantics: no row, no schema pollution, clean retry without repair.
-[ "$(psql -At -U sanad -d injection -c "SELECT count(*) FROM flyway_schema_history WHERE version='2026999.1';")" = "0" ] \
+[ "$(psql -At -U sanad -d injection -c "SELECT count(*) FROM flyway_schema_history WHERE version='20261102.3';")" = "0" ] \
   || die C "c3: failed migration left a history row (rollback incomplete)"
 psql -At -U sanad -d injection -c "SELECT to_regclass('public.certification_rollback_marker_xyz') IS NULL;" | grep -q t \
   || die C "c3: partial DDL from failed migration was not rolled back"
 [ "$(success_rows injection)" = "$before_succ" ] \
   || die C "c3: schema history row count changed after failed migration"
-rm "$CHAIN_COPY/V2026999_1__inject_failure.sql"
+rm "$CHAIN_COPY/V20261102_3__inject_failure.sql"
 $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
      -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
   || die C "c3: retry after clean failure failed (database left inconsistent)"
