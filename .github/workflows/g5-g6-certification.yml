@@ -1,0 +1,96 @@
+name: G5/G6 Flyway Upgrade & Backup-Restore Certification (P0 G1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Release candidate SHA to certify (frozen candidate = 177e27c...)'
+        required: false
+        default: '177e27c2648ce5ba02988413981a650d3d7a2a5a'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g5g6-cert-${{ github.event.inputs.release_sha }}
+  cancel-in-progress: false
+
+jobs:
+  certification:
+    name: Isolated PG17.6 + Flyway 11.7.2 — Scenarios A/B/C + Backup/Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Assert migration chain identity between candidate and latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch -q origin main
+          MIG_LOC="apps/sanad-platform/src/main/resources/db/migration"
+          VEN_LOC="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+          diff_stat=$(git diff --stat "${{ github.event.inputs.release_sha }}" origin/main -- "$MIG_LOC" "$VEN_LOC" || true)
+          if [ -n "$diff_stat" ]; then
+            echo "::error::MIGRATION_CHAIN_DRIFT between candidate and main: $diff_stat"
+            exit 1
+          fi
+          echo "CHAIN_IDENTITY_OK: candidate == main for both Flyway locations"
+
+      - name: Install isolated PostgreSQL 17.6 (PGDG, host-native, no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop postgresql 2>/dev/null || true
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          if ! sudo apt-get install -y -qq "postgresql-17=17.6*"; then
+            echo "GATE_NOTE=PG_17_6_NOT_AVAILABLE_IN_PGDG_FALLBACK_LATEST_17" >> "$GITHUB_ENV"
+            sudo apt-get install -y -qq postgresql-17
+          fi
+          sudo pg_dropcluster 16 main --stop 2>/dev/null || true
+          sudo pg_createcluster 17 main --start >/dev/null
+          sudo pg_lsclusters
+          PGV=$(psql --version | grep -oE '17\.[0-9]+')
+          echo "POSTGRES_VERSION=$PGV" >> "$GITHUB_ENV"
+          echo "TOOLCHAIN: PostgreSQL $PGV (isolated host-native cluster)"
+
+      - name: Install Flyway CLI 11.7.2 (project-pinned version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/fw.tgz \
+            "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/11.7.2/flyway-commandline-11.7.2-linux-x64.tar.gz"
+          mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
+          curl -fsSL -o /tmp/flyway/jars/flyway-database-postgresql-11.7.2.jar \
+            "https://repo1.maven.org/maven2/org/flywaydb/flyway-database-postgresql/11.7.2/flyway-database-postgresql-11.7.2.jar"
+          /tmp/flyway/flyway -v | head -2
+          echo "FLYWAY_VERSION=$(/tmp/flyway/flyway -v 2>/dev/null | grep -oE 'by Red Gate.*|Flyway [0-9.]+' | head -1)" >> "$GITHUB_ENV" || true
+
+      - name: Run G5/G6 certification engine
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          sudo -E bash tests/security/g5/run-cert.sh 2>&1 | tee /tmp/cert-run.log
+
+      - name: Upload certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g5-g6-certification-evidence
+          path: |
+            /tmp/cert-run.log
+            /tmp/g5-g6-report.md
+            /tmp/g5-artifacts/
+          if-no-files-found: warn
+          retention-days: 30

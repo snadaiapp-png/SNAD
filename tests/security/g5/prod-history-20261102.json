@@ -1,0 +1,1458 @@
+{
+"source": "snad-prod-fresh (tkbrvupemreqabwzdpyq) \u2014 read-only Management API SQL",
+"captured_utc": "2026-11-02T11:31:11.591391+00:00",
+"ledger": [
+{
+"v": "1",
+"c": -958889984,
+"t": "SQL",
+"d": "create tenants table"
+},
+{
+"v": "2",
+"c": 576059220,
+"t": "SQL",
+"d": "create organizations table"
+},
+{
+"v": "3",
+"c": 224173874,
+"t": "SQL",
+"d": "create organization memberships"
+},
+{
+"v": "4",
+"c": -577443745,
+"t": "SQL",
+"d": "create users table"
+},
+{
+"v": "5",
+"c": -602763981,
+"t": "SQL",
+"d": "link users to organization memberships"
+},
+{
+"v": "6",
+"c": -1697033457,
+"t": "SQL",
+"d": "create roles table"
+},
+{
+"v": "7",
+"c": 143389810,
+"t": "SQL",
+"d": "create access capabilities"
+},
+{
+"v": "8",
+"c": -1317003070,
+"t": "SQL",
+"d": "create role capabilities"
+},
+{
+"v": "9",
+"c": 1883659809,
+"t": "SQL",
+"d": "create user role assignments"
+},
+{
+"v": "10",
+"c": 2040583020,
+"t": "SQL",
+"d": "add auth credentials"
+},
+{
+"v": "11",
+"c": 273574829,
+"t": "SQL",
+"d": "add credential bootstrap columns"
+},
+{
+"v": "12",
+"c": 2044170658,
+"t": "SQL",
+"d": "create password reset tokens"
+},
+{
+"v": "13",
+"c": -2020575460,
+"t": "SQL",
+"d": "add session version"
+},
+{
+"v": "14",
+"c": 1173432850,
+"t": "SQL",
+"d": "seed rbac capabilities and roles"
+},
+{
+"v": "16",
+"c": 1044591919,
+"t": "SQL",
+"d": "extend platform identity and tenants"
+},
+{
+"v": "17",
+"c": -304124173,
+"t": "SQL",
+"d": "create platform audit logs"
+},
+{
+"v": "18",
+"c": 576433163,
+"t": "SQL",
+"d": "create system services"
+},
+{
+"v": "19",
+"c": -1824064901,
+"t": "SQL",
+"d": "create saas administration"
+},
+{
+"v": "20260629.2",
+"c": -935163010,
+"t": "SQL",
+"d": "add user mobile contact"
+},
+{
+"v": "20260702.1",
+"c": 378218163,
+"t": "SQL",
+"d": "create unified crm core"
+},
+{
+"v": "20260702.2",
+"c": -2075857941,
+"t": "SQL",
+"d": "reconcile admin role and capabilities"
+},
+{
+"v": "20260702.3",
+"c": 2121381367,
+"t": "SQL",
+"d": "complete crm imports custom fields"
+},
+{
+"v": "20260706.1",
+"c": 402564580,
+"t": "SQL",
+"d": "create tenant quota"
+},
+{
+"v": "20260711.1",
+"c": -2044076288,
+"t": "SQL",
+"d": "create subscription change events"
+},
+{
+"v": "20260713.1",
+"c": -1636968799,
+"t": "SQL",
+"d": "create crm idempotency records"
+},
+{
+"v": "20260713.2",
+"c": 1800918522,
+"t": "SQL",
+"d": "add pipeline version column"
+},
+{
+"v": "20260716.1",
+"c": 1876832173,
+"t": "SQL",
+"d": "create crm tasks"
+},
+{
+"v": "20260716.2",
+"c": 652958231,
+"t": "SQL",
+"d": "create crm notes"
+},
+{
+"v": "20260716.3",
+"c": -567510807,
+"t": "SQL",
+"d": "create crm tags"
+},
+{
+"v": "20260716.4",
+"c": -1617548722,
+"t": "SQL",
+"d": "crm enterprise account customer master"
+},
+{
+"v": "20260717.1",
+"c": -2039748491,
+"t": "SQL",
+"d": "crm contact relationship model"
+},
+{
+"v": "20260717.2",
+"c": -1619581989,
+"t": "SQL",
+"d": "crm contact relationship capabilities"
+},
+{
+"v": "20260717.3",
+"c": -260659723,
+"t": "SQL",
+"d": "crm timeline tenant lifecycle"
+},
+{
+"v": "20260717.4",
+"c": 1733096140,
+"t": "SQL",
+"d": "create business process e2e backbone"
+},
+{
+"v": "20260717.5",
+"c": -354523200,
+"t": "SQL",
+"d": "grant business process capabilities"
+},
+{
+"v": "20260717.6",
+"c": 462157714,
+"t": "SQL",
+"d": "create crm g1 extension tables"
+},
+{
+"v": "20260717.100",
+"c": -1554631480,
+"t": "SQL",
+"d": "crm addresses communication methods"
+},
+{
+"v": "20260717.101",
+"c": -232707050,
+"t": "SQL",
+"d": "crm addresses communication capabilities"
+},
+{
+"v": "20260718.1",
+"c": 179842293,
+"t": "SQL",
+"d": "reconcile crm g1 after baseline gap"
+},
+{
+"v": "20260718.2",
+"c": -1069067692,
+"t": "SQL",
+"d": "reconcile crm tags after baseline gap"
+},
+{
+"v": "20260721.1",
+"c": 86890961,
+"t": "SQL",
+"d": "reconcile crm contact relationship model after baseline gap"
+},
+{
+"v": "20260721.2",
+"c": 1004037743,
+"t": "SQL",
+"d": "reconcile crm idempotency records after baseline gap"
+},
+{
+"v": "20260722.1",
+"c": -1527294602,
+"t": "SQL",
+"d": "create crm sales teams"
+},
+{
+"v": "20260722.2",
+"c": -1434983107,
+"t": "SQL",
+"d": "create crm queues"
+},
+{
+"v": "20260722.3",
+"c": -2128040066,
+"t": "SQL",
+"d": "create crm territories"
+},
+{
+"v": "20260722.4",
+"c": -547242244,
+"t": "SQL",
+"d": "create crm assignment rules"
+},
+{
+"v": "20260722.5",
+"c": -1254642953,
+"t": "SQL",
+"d": "upgrade crm assignments and create ownership history"
+},
+{
+"v": "20260722.6",
+"c": -1552092498,
+"t": "SQL",
+"d": "create crm transfer requests"
+},
+{
+"v": "20260722.7",
+"c": -346880149,
+"t": "SQL",
+"d": "add owner team queue columns"
+},
+{
+"v": "20260722.8",
+"c": -1641730452,
+"t": "SQL",
+"d": "seed crm ownership capabilities"
+},
+{
+"v": "20260722.9",
+"c": 438221740,
+"t": "SQL",
+"d": "create crm assignment rule counters"
+},
+{
+"v": "20260723.1",
+"c": 1736834420,
+"t": "SQL",
+"d": "create crm integration requests"
+},
+{
+"v": "20260724.1",
+"c": 1146826874,
+"t": "SQL",
+"d": "create crm command executions ledger"
+},
+{
+"v": "20260724.2",
+"c": 821849558,
+"t": "SQL",
+"d": "create crm command artifacts"
+},
+{
+"v": "20260728.1",
+"c": -598365107,
+"t": "SQL",
+"d": "seed crm 008 team management capabilities"
+},
+{
+"v": "20260729.1",
+"c": -1009308168,
+"t": "SQL",
+"d": "create crm customer intelligence"
+},
+{
+"v": "20260729.2",
+"c": -1921082547,
+"t": "SQL",
+"d": "seed default scoring models"
+},
+{
+"v": "20260730.1",
+"c": -1454460887,
+"t": "SQL",
+"d": "enable crm row level security"
+},
+{
+"v": "20260802.1",
+"c": 674078442,
+"t": "SQL",
+"d": "re enable crm row level security"
+},
+{
+"v": "20260804.1",
+"c": -1584459185,
+"t": "SQL",
+"d": "reconcile crm custom field and pipeline audit columns"
+},
+{
+"v": "20260804.2",
+"c": -1811041078,
+"t": "SQL",
+"d": "create crm shift templates"
+},
+{
+"v": "20260804.3",
+"c": -381898448,
+"t": "SQL",
+"d": "create crm shift assignments"
+},
+{
+"v": "20260804.4",
+"c": 423551525,
+"t": "SQL",
+"d": "create crm staff availability"
+},
+{
+"v": "20260804.5",
+"c": -587970954,
+"t": "SQL",
+"d": "create crm staff skills"
+},
+{
+"v": "20260804.6",
+"c": 1197670786,
+"t": "SQL",
+"d": "create crm capacity plans"
+},
+{
+"v": "20260804.7",
+"c": -1722792219,
+"t": "SQL",
+"d": "create crm workload assignments"
+},
+{
+"v": "20260804.8",
+"c": -1205968834,
+"t": "SQL",
+"d": "create crm service assignments"
+},
+{
+"v": "20260804.9",
+"c": 258136338,
+"t": "SQL",
+"d": "create crm cases"
+},
+{
+"v": "20260805.1",
+"c": 1574759053,
+"t": "SQL",
+"d": "create crm email logs"
+},
+{
+"v": "20260805.2",
+"c": 1055411079,
+"t": "SQL",
+"d": "create crm reporting capabilities"
+},
+{
+"v": "20260805.3",
+"c": -541091333,
+"t": "SQL",
+"d": "create crm portal capabilities"
+},
+{
+"v": "20260806.1",
+"c": -829458342,
+"t": "SQL",
+"d": "seed executive health capabilities"
+},
+{
+"v": "20260807.1",
+"c": -192258631,
+"t": "SQL",
+"d": "grant crm capabilities to non admin roles"
+},
+{
+"v": "20260807.2",
+"c": -728642742,
+"t": "SQL",
+"d": "seed default pipeline and accounts"
+},
+{
+"v": "20260807.3",
+"c": -331685594,
+"t": "SQL",
+"d": "add case insensitive tag unique index"
+},
+{
+"v": "20260807.4",
+"c": -175051859,
+"t": "SQL",
+"d": "add activity result column and related type check"
+},
+{
+"v": "20260812.1",
+"c": -1707493223,
+"t": "SQL",
+"d": "create mobile sync tables"
+},
+{
+"v": "20260812.2",
+"c": 488398506,
+"t": "SQL",
+"d": "add sync columns to crm entities"
+},
+{
+"v": "20260812.3",
+"c": 348213364,
+"t": "SQL",
+"d": "force rls mobile sync tables"
+},
+{
+"v": "20260813.1",
+"c": 1512860159,
+"t": "SQL",
+"d": "seed control plane admin and capabilities"
+},
+{
+"v": "20260814.1",
+"c": -2121911094,
+"t": "SQL",
+"d": "create module registry"
+},
+{
+"v": "20260814.2",
+"c": -1719312711,
+"t": "SQL",
+"d": "create module capabilities and plan entitlements"
+},
+{
+"v": "20260815.1",
+"c": 2034243288,
+"t": "SQL",
+"d": "create senior management kpi engine"
+},
+{
+"v": "20260815.2",
+"c": -235048727,
+"t": "SQL",
+"d": "add executive management capabilities"
+},
+{
+"v": "20260815.3",
+"c": -395200126,
+"t": "SQL",
+"d": "create decision risk issue escalation audit"
+},
+{
+"v": "20260815.4",
+"c": 1884441636,
+"t": "SQL",
+"d": "add decision risk issue escalation capabilities"
+},
+{
+"v": "20260815.5",
+"c": 2060820019,
+"t": "SQL",
+"d": "create command center alerts ai"
+},
+{
+"v": "20260815.6",
+"c": -1191214440,
+"t": "SQL",
+"d": "add command center alerts intelligence capabilities"
+},
+{
+"v": "20260815.7",
+"c": -1011558427,
+"t": "SQL",
+"d": "add sla fields"
+},
+{
+"v": "20260815.8",
+"c": 15593163,
+"t": "SQL",
+"d": "make alert created by nullable"
+},
+{
+"v": "20260815.9",
+"c": -995748045,
+"t": "SQL",
+"d": "make audit actor nullable"
+},
+{
+"v": "20260815.10",
+"c": -589705719,
+"t": "SQL",
+"d": "create workflow engine"
+},
+{
+"v": "20260815.11",
+"c": 118661956,
+"t": "SQL",
+"d": "add workflow capabilities"
+},
+{
+"v": "20260815.12",
+"c": -1819188821,
+"t": "SQL",
+"d": "add requested by to approvals"
+},
+{
+"v": "20260815.13",
+"c": 2049537243,
+"t": "SQL",
+"d": "make approval step instance id nullable"
+},
+{
+"v": "20260815.14",
+"c": -1476192317,
+"t": "SQL",
+"d": "create ai module"
+},
+{
+"v": "20260815.15",
+"c": 1978404040,
+"t": "SQL",
+"d": "add ai capabilities"
+},
+{
+"v": "20260815.16",
+"c": -1048270962,
+"t": "SQL",
+"d": "create finance module"
+},
+{
+"v": "20260815.17",
+"c": 2087351279,
+"t": "SQL",
+"d": "add finance capabilities"
+},
+{
+"v": "20260815.18",
+"c": 1201665176,
+"t": "SQL",
+"d": "create analytics module"
+},
+{
+"v": "20260815.19",
+"c": -1031468389,
+"t": "SQL",
+"d": "add analytics capabilities"
+},
+{
+"v": "20260815.20",
+"c": 2034270192,
+"t": "SQL",
+"d": "tenant domains and billing state"
+},
+{
+"v": "20260815.21",
+"c": -2079791967,
+"t": "SQL",
+"d": "drop tenant entitlement cache"
+},
+{
+"v": "20260815.23",
+"c": -23729275,
+"t": "SQL",
+"d": "seed domain management and billing capabilities"
+},
+{
+"v": "20260815.24",
+"c": 890548607,
+"t": "SQL",
+"d": "governance configurations"
+},
+{
+"v": "20260815.25",
+"c": -1576407900,
+"t": "SQL",
+"d": "seed governance config and executive report capabilities"
+},
+{
+"v": "20260815.26",
+"c": -397833871,
+"t": "SQL",
+"d": "enable governance cfg rls"
+},
+{
+"v": "20260816.1",
+"c": 952676633,
+"t": "SQL",
+"d": "register contract management module"
+},
+{
+"v": "20260816.2",
+"c": -328336352,
+"t": "SQL",
+"d": "register websites module"
+},
+{
+"v": "20260816.3",
+"c": -2113051657,
+"t": "SQL",
+"d": "create websites platform tables"
+},
+{
+"v": "20260816.4",
+"c": 239659358,
+"t": "SQL",
+"d": "enable websites rls"
+},
+{
+"v": "20260816.5",
+"c": -685989951,
+"t": "SQL",
+"d": "create commerce tables"
+},
+{
+"v": "20260816.6",
+"c": -1713410017,
+"t": "SQL",
+"d": "enable commerce rls"
+},
+{
+"v": "20260816.7",
+"c": 1547324081,
+"t": "SQL",
+"d": "create erp tables"
+},
+{
+"v": "20260816.8",
+"c": -753839552,
+"t": "SQL",
+"d": "enable erp rls"
+},
+{
+"v": "15",
+"c": null,
+"t": "JDBC",
+"d": "seed rbac roles and capabilities"
+},
+{
+"v": "20260819.1",
+"c": -292515513,
+"t": "SQL",
+"d": "create hr employees"
+},
+{
+"v": "20260820.1",
+"c": -1516727251,
+"t": "SQL",
+"d": "create commerce order number sequences"
+},
+{
+"v": "20260820.2",
+"c": 970781651,
+"t": "SQL",
+"d": "seed rbac role templates"
+},
+{
+"v": "20260820.3",
+"c": 1793610230,
+"t": "SQL",
+"d": "correct rbac role template capabilities"
+},
+{
+"v": "20260820.4",
+"c": -883811586,
+"t": "SQL",
+"d": "reconcile idempotency and add cart invariant"
+},
+{
+"v": "20260820.5",
+"c": 465417725,
+"t": "SQL",
+"d": "rbac exact matrix and provenance"
+},
+{
+"v": "20260820.6",
+"c": -1768869972,
+"t": "SQL",
+"d": "commerce finance linkage and role bindings"
+},
+{
+"v": "20260820.7",
+"c": 1774566906,
+"t": "SQL",
+"d": "rbac exact matrix 9 of 9"
+},
+{
+"v": "20260820.9",
+"c": 1229833259,
+"t": "SQL",
+"d": "restore admin capability invariant"
+},
+{
+"v": "20260820.10",
+"c": -1956108023,
+"t": "SQL",
+"d": "seed crm caller identification capabilities"
+},
+{
+"v": "20260820.11",
+"c": 194560588,
+"t": "SQL",
+"d": "create crm call events"
+},
+{
+"v": "20260820.12",
+"c": 1662082071,
+"t": "SQL",
+"d": "force rls crm call events"
+},
+{
+"v": "20260820.13",
+"c": -278071409,
+"t": "SQL",
+"d": "seed crm call event capabilities"
+},
+{
+"v": "20260822.1",
+"c": -1527133490,
+"t": "SQL",
+"d": "crm collaboration event foundation"
+},
+{
+"v": "20260822.2",
+"c": 1112233021,
+"t": "SQL",
+"d": "crm collaboration event rls"
+},
+{
+"v": "20260822.3",
+"c": -1160505636,
+"t": "SQL",
+"d": "crm entity participant integrity"
+},
+{
+"v": "20260822.4",
+"c": 629057195,
+"t": "SQL",
+"d": "crm event outbox contract alignment"
+},
+{
+"v": "20260823.1",
+"c": 1080201721,
+"t": "SQL",
+"d": "crm contacts force rls"
+},
+{
+"v": "20260823.2",
+"c": -1270241503,
+"t": "SQL",
+"d": "crm participant role exclusivity"
+},
+{
+"v": "15",
+"c": null,
+"t": "DELETE",
+"d": "seed rbac roles and capabilities"
+},
+{
+"v": "20260828.1",
+"c": 1871559463,
+"t": "SQL",
+"d": "canonicalize control plane owner email"
+},
+{
+"v": "20260829.1",
+"c": -1512841046,
+"t": "SQL",
+"d": "scp applications catalog"
+},
+{
+"v": "20260829.2",
+"c": 1220008057,
+"t": "SQL",
+"d": "scp products and plan versions"
+},
+{
+"v": "20260829.3",
+"c": -2134245628,
+"t": "SQL",
+"d": "scp subscription items"
+},
+{
+"v": "20260829.4",
+"c": 1491558374,
+"t": "SQL",
+"d": "scp prices country currencies and product entitlements"
+},
+{
+"v": "20260830.1",
+"c": -424249090,
+"t": "SQL",
+"d": "scp lifecycle and provisioning"
+},
+{
+"v": "20260830.2",
+"c": -303364504,
+"t": "SQL",
+"d": "scp usage metering and rbac"
+},
+{
+"v": "20260901.1",
+"c": -153334731,
+"t": "SQL",
+"d": "canonicalize capability codes uppercase"
+},
+{
+"v": "20260902.1",
+"c": 1049950312,
+"t": "SQL",
+"d": "workflow y2 identity and capabilities"
+},
+{
+"v": "20260902.2",
+"c": -1576451650,
+"t": "SQL",
+"d": "workflow y2 definition graph"
+},
+{
+"v": "20260902.3",
+"c": -1327699719,
+"t": "SQL",
+"d": "workflow y2 work items approvals"
+},
+{
+"v": "20260902.4",
+"c": 369095663,
+"t": "SQL",
+"d": "workflow y2 runtime context"
+},
+{
+"v": "20260902.5",
+"c": -1905057792,
+"t": "SQL",
+"d": "workflow y2 sla incidents execution"
+},
+{
+"v": "20260902.6",
+"c": 522490958,
+"t": "SQL",
+"d": "workflow y2 events notifications"
+},
+{
+"v": "20260902.7",
+"c": -596638806,
+"t": "SQL",
+"d": "workflow break glass override"
+},
+{
+"v": "20260904.1",
+"c": -114015904,
+"t": "SQL",
+"d": "workflow y2 production reconciliation"
+},
+{
+"v": "20260904.2",
+"c": 1022774243,
+"t": "SQL",
+"d": "reconcile hrm platform country and employer prerequisites"
+},
+{
+"v": "20260905.1",
+"c": -331508129,
+"t": "SQL",
+"d": "create hr people and sensitive identity"
+},
+{
+"v": "20260905.2",
+"c": 1292625183,
+"t": "SQL",
+"d": "expand hr employment and history"
+},
+{
+"v": "20260905.3",
+"c": -2115329382,
+"t": "SQL",
+"d": "create hr structure versions"
+},
+{
+"v": "20260905.4",
+"c": -908996276,
+"t": "SQL",
+"d": "create hr assignments and temporal guards"
+},
+{
+"v": "20260905.5",
+"c": -36678752,
+"t": "SQL",
+"d": "harden hr fail closed rls"
+},
+{
+"v": "20260905.6",
+"c": -655281189,
+"t": "SQL",
+"d": "create hr migration review items"
+},
+{
+"v": "20260905.7",
+"c": -480990110,
+"t": "SQL",
+"d": "install hr backfill orchestration"
+},
+{
+"v": "20260905.8",
+"c": -1486024086,
+"t": "SQL",
+"d": "complete hr backfill plan conformance"
+},
+{
+"v": "20260905.9",
+"c": -1507657252,
+"t": "SQL",
+"d": "fix hr backfill reconcile and review"
+},
+{
+"v": "20260905.10",
+"c": -1568635213,
+"t": "SQL",
+"d": "fix idempotency and manager resolution"
+},
+{
+"v": "20260905.11",
+"c": 334107422,
+"t": "SQL",
+"d": "fix manager review item creation"
+},
+{
+"v": "20260905.12",
+"c": -1800957687,
+"t": "SQL",
+"d": "create ws3 ws4 foundation schema"
+},
+{
+"v": "20260905.13",
+"c": -893404972,
+"t": "SQL",
+"d": "create hr employment jurisdiction periods"
+},
+{
+"v": "20260905.14",
+"c": 1449005770,
+"t": "SQL",
+"d": "create hr audit outbox idempotency"
+},
+{
+"v": "20260905.15",
+"c": 861140957,
+"t": "SQL",
+"d": "add hr audit delivery claim columns"
+},
+{
+"v": "20260905.16",
+"c": 1284435742,
+"t": "SQL",
+"d": "create hr contract compensation foundation"
+},
+{
+"v": "20260905.17",
+"c": -49427619,
+"t": "SQL",
+"d": "seed hrm v2 capabilities and admin scopes"
+},
+{
+"v": "20260905.18",
+"c": 304127689,
+"t": "SQL",
+"d": "reconcile y2 identity with g0 cutover"
+},
+{
+"v": "20260906.1",
+"c": -1992152271,
+"t": "SQL",
+"d": "workflow notification dedup unique"
+},
+{
+"v": "20260906.2",
+"c": 541757763,
+"t": "SQL",
+"d": "scp subscription multiplicity model b"
+},
+{
+"v": "20260908.1",
+"c": -1468760505,
+"t": "SQL",
+"d": "workflow incident optimistic lock"
+},
+{
+"v": null,
+"c": 588575066,
+"t": "SQL",
+"d": "finalize hr backfill closure"
+},
+{
+"v": "20260910.1",
+"c": -1446256034,
+"t": "SQL",
+"d": "workflow y2 sla and cancellation hardening"
+},
+{
+"v": "20260911.1",
+"c": -1783578860,
+"t": "SQL",
+"d": "r1 module entitlement policy"
+},
+{
+"v": "20260911.2",
+"c": -841059474,
+"t": "SQL",
+"d": "r1 attachments external foundation"
+},
+{
+"v": "20260911.3",
+"c": -1764568977,
+"t": "SQL",
+"d": "r1 journey time governance"
+},
+{
+"v": "20260912.1",
+"c": 1988955164,
+"t": "SQL",
+"d": "r2 notification foundation"
+},
+{
+"v": "20260912.2",
+"c": -1622087522,
+"t": "SQL",
+"d": "r2 external portal feedback"
+},
+{
+"v": "20260912.3",
+"c": 1047616754,
+"t": "SQL",
+"d": "r2 analytics projections"
+},
+{
+"v": "20260912.4",
+"c": -170792332,
+"t": "SQL",
+"d": "r0c13 subscription billing foundation"
+},
+{
+"v": "20260912.5",
+"c": -2126668706,
+"t": "SQL",
+"d": "r0c13 verified webhook resolution"
+},
+{
+"v": "20260912.6",
+"c": -93208556,
+"t": "SQL",
+"d": "r0c13 g07 provider unavailable classification"
+},
+{
+"v": "20260914.1",
+"c": 1102054308,
+"t": "SQL",
+"d": "scp application catalog lifecycle"
+},
+{
+"v": "20260914.2",
+"c": 1115048095,
+"t": "SQL",
+"d": "workflow idempotency nulls not distinct"
+},
+{
+"v": "20260918.2",
+"c": -730898513,
+"t": "SQL",
+"d": "hr g1 recruitment onboarding schema"
+},
+{
+"v": "20260918.3",
+"c": 1219845910,
+"t": "SQL",
+"d": "hr g1 rls policies"
+},
+{
+"v": "20260918.4",
+"c": -637767830,
+"t": "SQL",
+"d": "hr g1 onboarding template seed"
+},
+{
+"v": "20260918.5",
+"c": -357833135,
+"t": "SQL",
+"d": "hr t7 offer approval correlation"
+},
+{
+"v": "20260918.6",
+"c": -539065684,
+"t": "SQL",
+"d": "hr t8 hire conversion governance"
+},
+{
+"v": "20260918.7",
+"c": -554244854,
+"t": "SQL",
+"d": "hr t9 governed onboarding"
+},
+{
+"v": "20260918.8",
+"c": 1681137227,
+"t": "SQL",
+"d": "hr t10 candidate self service"
+},
+{
+"v": "20260921.1",
+"c": -1866303121,
+"t": "SQL",
+"d": "project owner global permissions"
+},
+{
+"v": "20260922.1",
+"c": 654259523,
+"t": "SQL",
+"d": "hr g1 operator capabilities and admin scopes"
+},
+{
+"v": "20260923.1",
+"c": 941224683,
+"t": "SQL",
+"d": "hr g2 time attendance leave schema"
+},
+{
+"v": "20260923.2",
+"c": -1649371291,
+"t": "SQL",
+"d": "hr g2 rls policies"
+},
+{
+"v": "20260923.3",
+"c": -1762370092,
+"t": "SQL",
+"d": "hr g2 seed leave types and capabilities"
+},
+{
+"v": "20260924.1",
+"c": 102579905,
+"t": "SQL",
+"d": "hr g2 scheduling schema"
+},
+{
+"v": "20260924.2",
+"c": 2106995639,
+"t": "SQL",
+"d": "hr g2 attendance events and ledger"
+},
+{
+"v": "20260924.3",
+"c": -1772858628,
+"t": "SQL",
+"d": "hr g2 workflow linkage"
+},
+{
+"v": "20260924.4",
+"c": -1038023559,
+"t": "SQL",
+"d": "hr g2 idempotency constraint"
+},
+{
+"v": "20260924.5",
+"c": -159482945,
+"t": "SQL",
+"d": "hr g2 leave state canonical alignment"
+},
+{
+"v": "20260924.6",
+"c": 1173831463,
+"t": "SQL",
+"d": "hr g2 fail closed rls empty context repair"
+},
+{
+"v": "20260925.1",
+"c": 616041484,
+"t": "SQL",
+"d": "subscription resource entitlements"
+},
+{
+"v": "20260925.2",
+"c": 816281954,
+"t": "SQL",
+"d": "subscription operating units"
+},
+{
+"v": "20261001.1",
+"c": -1005049866,
+"t": "SQL",
+"d": "uac overrides relationships events"
+},
+{
+"v": "20261001.2",
+"c": 1443706572,
+"t": "SQL",
+"d": "create platform iam memberships"
+},
+{
+"v": "20261001.3",
+"c": -1756460322,
+"t": "SQL",
+"d": "create platform role metadata"
+},
+{
+"v": "20261001.4",
+"c": -861847002,
+"t": "SQL",
+"d": "seed platform iam capabilities"
+},
+{
+"v": "20261001.5",
+"c": -702736823,
+"t": "SQL",
+"d": "seed platform iam roles"
+},
+{
+"v": "20261001.6",
+"c": -1977523879,
+"t": "SQL",
+"d": "bootstrap platform owner membership"
+},
+{
+"v": "20261001.7",
+"c": -500843245,
+"t": "SQL",
+"d": "reconcile canonical platform owner executive admin"
+},
+{
+"v": "20261001.8",
+"c": -1863353307,
+"t": "SQL",
+"d": "uac effective permission projection"
+},
+{
+"v": "20261001.9",
+"c": 1798200317,
+"t": "SQL",
+"d": "uac protected roles registry"
+},
+{
+"v": "20261001.10",
+"c": 1070343118,
+"t": "SQL",
+"d": "uac capability metadata and authz capabilities"
+},
+{
+"v": "20261001.11",
+"c": 167450586,
+"t": "SQL",
+"d": "uac projection indexes"
+},
+{
+"v": "20261001.12",
+"c": -1901954332,
+"t": "SQL",
+"d": "uac admin audit backfill guard"
+},
+{
+"v": "20261002.2",
+"c": -315961905,
+"t": "SQL",
+"d": "hr g3 performance goals foundation"
+},
+{
+"v": "20261002.3",
+"c": -1717582557,
+"t": "SQL",
+"d": "hr g3 performance reviews rls"
+},
+{
+"v": "20261003.1",
+"c": -1584957545,
+"t": "SQL",
+"d": "hr g3 performance capabilities"
+},
+{
+"v": "20261003.2",
+"c": -2116382707,
+"t": "SQL",
+"d": "partner principal foundation"
+},
+{
+"v": "20261003.3",
+"c": -310114512,
+"t": "SQL",
+"d": "partner reference integrity"
+},
+{
+"v": "20261003.4",
+"c": -1613589574,
+"t": "SQL",
+"d": "partner membership admin boundary"
+},
+{
+"v": "20261003.5",
+"c": -331228924,
+"t": "SQL",
+"d": "partner tenant binding boundary"
+},
+{
+"v": "20261003.6",
+"c": -1470045108,
+"t": "SQL",
+"d": "partner delegation grant boundary"
+},
+{
+"v": "20261003.7",
+"c": -598990031,
+"t": "SQL",
+"d": "add tenant username"
+},
+{
+"v": "20261004.1",
+"c": -745057522,
+"t": "SQL",
+"d": "partner recovery safety"
+},
+{
+"v": "20261005.1",
+"c": 1182163072,
+"t": "SQL",
+"d": "dynamic application iam registry"
+},
+{
+"v": "20261005.2",
+"c": -1977912053,
+"t": "SQL",
+"d": "r0c13 g07 operator capabilities"
+},
+{
+"v": "20261006.1",
+"c": 1303607034,
+"t": "SQL",
+"d": "users phase7 effective access explanation"
+},
+{
+"v": "20261006.2",
+"c": -1271550355,
+"t": "SQL",
+"d": "hr g4 payroll snapshot foundation"
+},
+{
+"v": "20261008.1",
+"c": -998414655,
+"t": "SQL",
+"d": "seed current module iam contracts"
+},
+{
+"v": "20261010.1",
+"c": -1487247123,
+"t": "SQL",
+"d": "crm accounts fail closed rls"
+},
+{
+"v": "20261010.99",
+"c": 1310572285,
+"t": "SQL",
+"d": "hrm g4 canonical owner payroll view only"
+},
+{
+"v": "20261011.3",
+"c": -948545618,
+"t": "SQL",
+"d": "public users fail closed tenant rls"
+},
+{
+"v": "20261011.4",
+"c": 1487903528,
+"t": "SQL",
+"d": "pre auth tenant resolver"
+},
+{
+"v": "20261019.1",
+"c": -1658498393,
+"t": "SQL",
+"d": "users runtime role tenant policy"
+},
+{
+"v": "20261020.1",
+"c": 624841025,
+"t": "SQL",
+"d": "supabase data api default deny"
+},
+{
+"v": "20261020.2",
+"c": 40169492,
+"t": "SQL",
+"d": "enable post baseline crm rls"
+},
+{
+"v": "20261021.1",
+"c": -1558721256,
+"t": "SQL",
+"d": "crm post baseline fail closed rls"
+}
+]
+}
