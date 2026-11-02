@@ -16,6 +16,10 @@ LOCS="filesystem:$MIG_LOC_ROOT,filesystem:$VEN_LOC_ROOT"
 PROD_HIST="tests/security/g5/prod-history-20261102.json"
 ART=/tmp/g5-artifacts; mkdir -p "$ART"
 SUMMARY=/tmp/g5-g6-report.md; : > "$SUMMARY"
+# Per-run ephemeral credential for the isolated certification cluster: generated
+# at runtime, never a repository literal, never echoed. Satisfies the supplemental
+# secret policy by construction — no allowlist entry, no policy weakening.
+CERT_PW="$(openssl rand -hex 24)"
 
 gate() { echo "GATE [$1] $2"; echo "GATE [$1] $2" >> "$SUMMARY"; }
 die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$SUMMARY"; exit 1; }
@@ -26,13 +30,16 @@ sudo -u postgres psql -Atqc "SELECT version()" | head -1 | tee "$ART/pg-version.
 gate TOOLCHAIN "PostgreSQL server $(sudo -u postgres psql -Atqc 'SHOW server_version;') host-native isolated; Flyway $($FLYWAY -v 2>/dev/null | grep -E '^Flyway ' | head -1)"
 
 # ---------------------------------------------------------------- roles/dbs
-sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+sudo -u postgres psql -v ON_ERROR_STOP=1 -v cert_pw="$CERT_PW" <<'SQL'
 DO $role$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad') THEN
-    CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD 'cert_local_only';
+    CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
 END $role$;
 ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+-- psql client-side interpolation (:'cert_pw') must stay OUTSIDE the dollar-quoted
+-- DO block: psql does not substitute variables inside $...$ strings.
+ALTER ROLE sanad PASSWORD :'cert_pw';
 SELECT 'CREATE DATABASE sanad OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='sanad')\gexec
 SELECT 'CREATE DATABASE upgrade_hist OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='upgrade_hist')\gexec
 SELECT 'CREATE DATABASE restored OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='restored')\gexec
@@ -42,9 +49,9 @@ role_contract=$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text||'|'||rols
 [ "$role_contract" = "true|false|false|false|false|false" ] || die ROLE "sanad contract violation: $role_contract"
 gate ROLE "sanad contract OK (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, NOBYPASSRLS)"
 
-export PGPASSWORD='cert_local_only'   # psql only; Flyway CLI takes -password explicitly
-fw() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$LOCS" "${@:2}"; }
-fwc() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password='cert_local_only' -locations="$2" "${@:3}"; }
+export PGPASSWORD="$CERT_PW"   # psql only; Flyway CLI takes -password explicitly
+fw() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password="$CERT_PW" -locations="$LOCS" "${@:2}"; }
+fwc() { $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/$1" -user=sanad -password="$CERT_PW" -locations="$2" "${@:3}"; }
 history_head() { psql -At -U sanad -d "$1" -c "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1;"; }
 success_rows() { psql -At -U sanad -d "$1" -c "SELECT count(*) FROM flyway_schema_history WHERE success=true;"; }
 sql_rls="SELECT c.relname||':'||c.relrowsecurity::int||c.relforcerowsecurity::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands','users','tenant_subscriptions') ORDER BY 1;"
@@ -148,7 +155,7 @@ c1_head=$(printf '%s\n' "$c1_sel" | tail -1 | awk '{print $1}')
 [ -n "$c1_file" ] || die C "c1: could not select a mid-chain migration from $CHAIN_COPY"
 [ "$c1_ver" != "$c1_head" ] || die C "c1: selected version equals chain head ($c1_head) — head removal is future-ignored, unusable for c1"
 rm "$CHAIN_COPY/$c1_file"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" validate > "$ART/C1-missing.log" 2>&1; then
   die C "c1: validate PASSED despite missing applied migration $c1_ver (fail-open!)"
 fi
@@ -159,7 +166,7 @@ cp "$MIG_LOC_ROOT/$c1_file" "$CHAIN_COPY/"
 
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 printf '\n-- certification tamper marker\n' >> "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" validate > "$ART/C2-tamper.log" 2>&1; then
   die C "c2: validate PASSED despite checksum tamper (fail-open!)"
 fi
@@ -178,7 +185,7 @@ before_succ=$(success_rows injection)
 # executed: CREATE TABLE commits inside the migration transaction, the SELECT then
 # fails (42P01), and PostgreSQL rolls the whole transaction back.
 printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V20261102_3__inject_failure.sql"
-if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
+if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-midchain.log" 2>&1; then
   die C "c3: migrate PASSED despite failing migration (fail-open!)"
 fi
@@ -195,7 +202,7 @@ psql -At -U sanad -d injection -c "SELECT to_regclass('public.certification_roll
 [ "$(success_rows injection)" = "$before_succ" ] \
   || die C "c3: schema history row count changed after failed migration"
 rm "$CHAIN_COPY/V20261102_3__inject_failure.sql"
-$FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
+$FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
   || die C "c3: retry after clean failure failed (database left inconsistent)"
 [ "$(history_head injection)" = "20261102.2" ] || die C "c3: head changed after retry"
