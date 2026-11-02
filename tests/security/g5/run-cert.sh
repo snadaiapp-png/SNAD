@@ -121,37 +121,61 @@ gate B "PASS: upgrade applied [$applied_new], validate OK"
 gate C "start: failure injection proofs"
 CHAIN_COPY=/tmp/chain_c; rm -rf "$CHAIN_COPY"; mkdir -p "$CHAIN_COPY"
 cp -r "$MIG_LOC_ROOT"/. "$CHAIN_COPY/"
+# All injection validate/migrate calls use BOTH locations: the injection DB history
+# contains vendor-location migrations too; targeting the main-chain copy alone aborts
+# with "applied migration not resolved locally" (vendor 2026xxxx.x) before the
+# injected defect is ever reached — masking the very failure mode under proof.
+INJ_LOC="filesystem:$CHAIN_COPY,filesystem:$VEN_LOC_ROOT"
 
 fw injection migrate | tail -3 > "$ART/C0-apply.log" || die C "injection baseline apply failed unexpectedly"
 
 rm "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
-     -locations="filesystem:$CHAIN_COPY" validate > "$ART/C1-missing.log" 2>&1; then
+     -locations="$INJ_LOC" validate > "$ART/C1-missing.log" 2>&1; then
   die C "c1: validate PASSED despite missing applied migration (fail-open!)"
 fi
+grep -q "Detected applied migration not resolved locally: 20261102.2." "$ART/C1-missing.log" \
+  || die C "c1: validate failed for the wrong reason (missing-migration error absent)"
 gate C "c1 PASS: missing applied migration -> validate FAILED (fail-closed)"
 
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 printf '\n-- certification tamper marker\n' >> "$CHAIN_COPY/V20261102_2__t2_batch2_runtime_grants.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
-     -locations="filesystem:$CHAIN_COPY" validate > "$ART/C2-tamper.log" 2>&1; then
+     -locations="$INJ_LOC" validate > "$ART/C2-tamper.log" 2>&1; then
   die C "c2: validate PASSED despite checksum tamper (fail-open!)"
 fi
+grep -qi "checksum mismatch" "$ART/C2-tamper.log" \
+  || die C "c2: validate failed for the wrong reason (checksum mismatch error absent)"
 gate C "c2 PASS: checksum tamper -> validate FAILED (fail-closed)"
 
 # restore pristine file (c2 left the tampered copy; validateOnMigrate must pass to reach c3)
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 before_succ=$(success_rows injection)
-printf 'SELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V2026999_1__inject_failure.sql"
+# Rollback is proven with REAL committed DDL inside the failing migration, so the
+# assertion is meaningful (not trivially true on a table that never existed).
+printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V2026999_1__inject_failure.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
-     -locations="filesystem:$CHAIN_COPY" migrate > "$ART/C3-midchain.log" 2>&1; then
+     -locations="$INJ_LOC" migrate > "$ART/C3-midchain.log" 2>&1; then
   die C "c3: migrate PASSED despite failing migration (fail-open!)"
 fi
-psql -At -U sanad -d injection -c "SELECT version, success FROM flyway_schema_history WHERE version='2026999.1';" | tee "$ART/C3-failed-row.txt" | grep -q '2026999.1|f' \
-  || die C "c3: failed migration not recorded as success=false"
-psql -At -U sanad -d injection -c "SELECT to_regclass('public.certification_nonexistent_table_xyz') IS NULL;" | grep -q t \
+grep -q "Changes successfully rolled back" "$ART/C3-midchain.log" \
+  || die C "c3: Flyway did not confirm transaction rollback (see C3-midchain.log)"
+# Flyway 11.7.2 DbMigrate.applyMigrations: on DDL-transactional databases (PostgreSQL)
+# a failed in-transaction migration is fully rolled back and writes NO history row;
+# the success=false row exists only on non-transactional engines. Certify the
+# documented PG semantics: no row, no schema pollution, clean retry without repair.
+[ "$(psql -At -U sanad -d injection -c "SELECT count(*) FROM flyway_schema_history WHERE version='2026999.1';")" = "0" ] \
+  || die C "c3: failed migration left a history row (rollback incomplete)"
+psql -At -U sanad -d injection -c "SELECT to_regclass('public.certification_rollback_marker_xyz') IS NULL;" | grep -q t \
   || die C "c3: partial DDL from failed migration was not rolled back"
-gate C "c3 PASS: mid-chain failure -> migrate aborted, failed row recorded, transaction rolled back (success rows before=$before_succ after=$(success_rows injection))"
+[ "$(success_rows injection)" = "$before_succ" ] \
+  || die C "c3: schema history row count changed after failed migration"
+rm "$CHAIN_COPY/V2026999_1__inject_failure.sql"
+$FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password=cert_local_only \
+     -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
+  || die C "c3: retry after clean failure failed (database left inconsistent)"
+[ "$(history_head injection)" = "20261102.2" ] || die C "c3: head changed after retry"
+gate C "c3 PASS: mid-chain failure -> migrate aborted, transaction rolled back (real DDL marker absent, no history pollution), clean retry without repair [Flyway PG-transactional: no success=false row by design]"
 
 gate C "c4 PASS: repair/baseline never invoked at any point (no repair artifacts; all failures stay failed)"
 
