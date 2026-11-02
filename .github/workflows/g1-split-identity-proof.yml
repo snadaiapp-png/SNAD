@@ -1,0 +1,37 @@
+name: G1 Split Identity Security Proof
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/g1-split-identity-proof.yml'
+      - '.github/workflows/ci.yml'
+      - 'tests/security/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  split-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert isolated migrator/runtime permissions and tenant RLS
+        shell: bash
+        env:
+          PGPASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/security/g1_split_identity_proof.sql
