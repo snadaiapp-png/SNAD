@@ -7,6 +7,12 @@ on:
         description: 'Release candidate SHA to certify (frozen candidate = 177e27c...)'
         required: false
         default: '177e27c2648ce5ba02988413981a650d3d7a2a5a'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/g5-g6-certification.yml'
+      - 'tests/security/g5/**'
+      - 'apps/sanad-platform/src/main/resources/db/**'
 
 permissions:
   contents: read
@@ -24,7 +30,7 @@ jobs:
       - name: Checkout release candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.release_sha }}
+          ref: ${{ github.event.inputs.release_sha || '177e27c2648ce5ba02988413981a650d3d7a2a5a' }}
           fetch-depth: 0
 
       - name: Assert migration chain identity between candidate and latest main
@@ -34,7 +40,7 @@ jobs:
           git fetch -q origin main
           MIG_LOC="apps/sanad-platform/src/main/resources/db/migration"
           VEN_LOC="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
-          diff_stat=$(git diff --stat "${{ github.event.inputs.release_sha }}" origin/main -- "$MIG_LOC" "$VEN_LOC" || true)
+          diff_stat=$(git diff --stat "${{ github.event.inputs.release_sha || '177e27c2648ce5ba02988413981a650d3d7a2a5a' }}" origin/main -- "$MIG_LOC" "$VEN_LOC" || true)
           if [ -n "$diff_stat" ]; then
             echo "::error::MIGRATION_CHAIN_DRIFT between candidate and main: $diff_stat"
             exit 1
@@ -78,7 +84,7 @@ jobs:
       - name: Run G5/G6 certification engine
         shell: bash
         env:
-          RELEASE_SHA: ${{ github.event.inputs.release_sha }}
+          RELEASE_SHA: ${{ github.event.inputs.release_sha || '177e27c2648ce5ba02988413981a650d3d7a2a5a' }}
         run: |
           set -euo pipefail
           sudo -E bash tests/security/g5/run-cert.sh 2>&1 | tee /tmp/cert-run.log
