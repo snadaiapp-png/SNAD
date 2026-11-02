@@ -281,7 +281,16 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: SANAD P0 RLS closure (Issue #1462, T2 batch 2) adds a
     // forward-only migration at the sequence tail (V20261031_1).
     private static final String D6_T2_BATCH2_RLS_VERSION = "20261031.1";
-    private static final String LATEST_MIGRATION_VERSION = "20261101.1";
+    // TEST_ALIGNMENT_REASON: P0 G1 Phase 4 (PR #1465) adds V20261101_1 (auth-token index ACL
+    // and immutable identity) as an intermediate version and V20261102_1 (restricted runtime
+    // ACL for the FORCE-RLS'd token tables) at the sequence tail.
+    private static final String D6_AUTH_TOKEN_ACL_VERSION = "20261101.1";
+    // TEST_ALIGNMENT_REASON: SANAD P0 G1 unified remediation (Issue #1462) adds V20261102_2
+    // (restricted runtime ACL for the FORCE-RLS'd T2 batch 2 tables) at the sequence tail.
+    // V20261102_1 and V20261102_2 are distinct pending versions and must both appear;
+    // V20261102_2 IS the LATEST version and must not be listed twice.
+    private static final String D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION = "20261102.1";
+    private static final String LATEST_MIGRATION_VERSION = "20261102.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -588,6 +597,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
                         MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
+                        MigrationVersion.fromVersion(D6_AUTH_TOKEN_ACL_VERSION),
+                        MigrationVersion.fromVersion(D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -837,6 +848,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(TENANT_POLICY_FORENSIC_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(EXTERNAL_ACTION_PREAUTH_TOKEN_INDEX_VERSION),
                         MigrationVersion.fromVersion(D6_T2_BATCH2_RLS_VERSION),
+                        MigrationVersion.fromVersion(D6_AUTH_TOKEN_ACL_VERSION),
+                        MigrationVersion.fromVersion(D6_AUTH_TOKEN_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

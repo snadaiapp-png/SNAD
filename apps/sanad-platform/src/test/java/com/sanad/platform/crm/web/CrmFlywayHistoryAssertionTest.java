@@ -345,6 +345,14 @@ class CrmFlywayHistoryAssertionTest {
             // legacy-shaped CRM tables (PostgreSQL Direct evidence).
             , "20261031.1"   // D6 T2 batch 2 RLS closure (Issue #1462)
             , "20261101.1"   // auth-token index ACL and immutable identity
+            // SANAD P0 G1 Phase 4 (Issue #1462): restricted runtime ACL for the
+            // FORCE-RLS'd auth token tables — the 248-migration chain carried no
+            // GRANT for `sanad` on refresh_tokens/password_reset_tokens; CI harness
+            // lines 11-12 masked it out-of-band. Forward-only GRANTs, no weakening.
+            , "20261102.1"   // auth-token restricted runtime ACL (Phase 4 rehearsal finding)
+            // SANAD P0 G1 unified remediation (Issue #1462, six-table matrix): the T2 batch 2
+            // tables carried no `sanad` ACL either — restricted runtime grants, no weakening.
+            , "20261102.2"   // T2 batch 2 restricted runtime ACL (six-table matrix finding)
     );
 
 
