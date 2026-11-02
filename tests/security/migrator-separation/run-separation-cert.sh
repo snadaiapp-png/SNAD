@@ -130,10 +130,10 @@ gate S0 "roles OK: sanad_migrator=$m_contract sanad=$r_contract; topology=separa
 # ============================================================================
 gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD)"
 "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
-  -user=sanad_migrator -password="${SEP_MIG_PW:-separation-cert}" \
+  -user=sanad_migrator -password="${SEP_MIG_PW:?SEP_MIG_PW must be supplied from the isolated test secret store}" \
   -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
 "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
-  -user=sanad_migrator -password="${SEP_MIG_PW:-separation-cert}" \
+  -user=sanad_migrator -password="${SEP_MIG_PW:?SEP_MIG_PW must be supplied from the isolated test secret store}" \
   -locations="$LOCS" validate > "$ART/S1-validate.log" 2>&1 || die S1 "validate failed"
 head_now=$(admin postgres "$SEP_DB" "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")
 [ "$head_now" = "$EXPECTED_HEAD" ] || die S1 "head=$head_now expected=$EXPECTED_HEAD"
