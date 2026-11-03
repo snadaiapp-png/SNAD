@@ -11,27 +11,31 @@ Production Flyway latest success: `20261021.1`; role `sanad_migrator` absent; `s
 - `V20261103_2`: ownership/runtime ACL separation and topology guard.
 - This PR adds `V20261103_3` as a **forward-only** correction. Never edit already-applied migration checksums.
 
-## v2 (2026-11-03, same PR): topology-aware guard
-The v1 precondition set (`runtime owns ledger; separation required`) failed closed in
-the CI `migration-fixture` topology, where Spring-Boot/Flyway contexts legitimately
-run the chain AS `sanad` (owner-as-runner) — P0001 in every context-dependent suite
-(Maven, PostgreSQL Acceptance, CRM Integration, g5-g6 and separation certs; CI runs
-2026-11-03, PR head 7ea40f3). v2 mirrors the `V20261103_2` topology model:
-
-- `separated`: original strict behaviour — ownership precondition + REVOKE +
-  EFFECTIVE-privilege postconditions (`has_table_privilege`).
-- `migration-fixture` / unset: loud `SANAD_TOPOLOGY_FIXTURE` WARNING, REVOKE still
-  normalizes the EXPLICIT ACL, postcondition asserts the EXPLICIT grant surface via
-  `aclexplode` (owner implicit privileges are not ACL-revocable by design — same
-  documented caveat as `V20261102_2`; this path is NOT a separation certification
-  path).
-- unknown topology value: fail closed (P0001 class guard, ERRCODE 22023).
-
-CI companion updates in this PR: expected chain heads `20261103.2 -> 20261103.3` in
-`tests/security/g5/run-cert.sh` (scenarios A/B/C) and
-`tests/security/migrator-separation/run-separation-cert.sh`; the scenario-C failure
-injection file moves to `V20261103_4__inject_failure.sql` (must sit numerically above
-the new chain head) and its no-history-row check now pins `20261103.4`.
+## v3 (2026-11-03, same PR): fixture topology is VALIDATE-ONLY
+- **v1** failed closed in the CI `migration-fixture` topology (chain runs AS `sanad`,
+  owner-as-runner): P0001 `runtime owns ledger; separation required` in every
+  Spring-Boot context suite (Maven, PostgreSQL Acceptance, CRM Integration, g5-g6,
+  separation certs; CI runs on head 7ea40f3).
+- **v2** normalized the explicit ACL in fixture mode too — and broke the fixture
+  contract: a PostgreSQL **self-REVOKE restricts the owner** (verified live on
+  PG 17.11 and CI PG 16.15), so FK `ON DELETE CASCADE` from `tenant_subscriptions`
+  into the ledger and the tenants-side RI check (`SELECT ... FOR KEY SHARE`
+  requires UPDATE) failed with 42501 for the fixture runtime, breaking
+  disposable-DB test cleanability (R0C13G09*, PlatformUserPostgresAcceptanceTest).
+- **v3** final model: `separated` → strict (ownership precondition + REVOKE +
+  effective-privilege postconditions; CI-certified by
+  `run-separation-cert.sh` S6 UPDATE/DELETE denials); `migration-fixture`/unset →
+  loud WARNING + preconditions, **NO ACL mutation** (same documented skip class
+  as `V20261102_2`: negative guarantees are only asserted in the separated
+  topology); unknown value → fail closed (22023).
+- CI companion updates: expected chain heads `20261103.2 -> 20261103.3` in
+  `tests/security/g5/run-cert.sh` (A/B/C) and
+  `tests/security/migrator-separation/run-separation-cert.sh`; scenario-C failure
+  injection file moved to `V20261103_4__inject_failure.sql` (must sit numerically
+  above the new chain head) with its no-history-row check pinned to `20261103.4`;
+  Java head constants updated (CrmPostgresMigrationTest, Crm008bFoundationAcceptanceTest,
+  CrmFlywayHistoryAssertionTest version list, R0C13G02SchemaPostgresTest,
+  HrG1MigrationTest).
 
 ## Execution order and hard stop
 1. Obtain independent reviewer approval of the **specific production change**, role and ownership topology, recovery prerequisites, and execution window.

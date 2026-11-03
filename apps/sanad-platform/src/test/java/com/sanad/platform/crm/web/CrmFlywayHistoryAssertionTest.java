@@ -358,6 +358,7 @@ class CrmFlywayHistoryAssertionTest {
             // evidence-derived runtime ACL matrix (also closes F-01).
             , "20261103.1"   // sanad_migrator role contract (migrator/runtime separation)
             , "20261103.2"   // migrator ownership + runtime ACL matrix (F-01 closed)
+            , "20261103.3"   // append-only ledger runtime ACL correction (Issue #1462, separated topology)
     );
 
 

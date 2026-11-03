@@ -295,7 +295,7 @@ class CrmPostgresMigrationTest {
     // V20261103_1 (sanad_migrator role contract) + V20261103_2 (topology-gated ownership
     // transfer + runtime ACL matrix, closes F-01) at the sequence tail.
     private static final String MIGRATOR_SEPARATION_ROLE_VERSION = "20261103.1";
-    private static final String LATEST_MIGRATION_VERSION = "20261103.2";
+    private static final String LATEST_MIGRATION_VERSION = "20261103.3";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
