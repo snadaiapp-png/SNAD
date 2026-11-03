@@ -28,8 +28,10 @@ END $do$;
 --     Run the file scripts/ops/migrator-separation/transfer-ownership-to-migrator.sql
 --     (it also transfers schema public and flyway_schema_history).
 
--- (c) declare the target topology for the sanad database
-ALTER DATABASE sanad SET sanad.deployment_topology = 'separated';
+-- (c) declare the target topology for the production database.
+--     On Supabase the production database is named `postgres`
+--     (verified read-only 2026-11-03: current_database() = postgres).
+ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
 ```
 
 Then store the migrator credentials **only** in the GitHub secret store:
@@ -58,11 +60,20 @@ SELECT pg_has_role('sanad','sanad_migrator','MEMBER');  -- must be f
 Use the protected workflow `Database Migration Production (Migrator Identity)`
 (`.github/workflows/database-migrate-production-migrator.yml`):
 
-* workflow_dispatch → type `migrate-as-migrator` → approve the
+* workflow_dispatch from the G8-approved commit → type
+  `migrate-as-migrator`, provide `approved_sha` (must equal the
+  dispatched ref HEAD) and `expected_head` → approve the
   **Production** environment review;
-* runs Flyway **11.7.2** as `sanad_migrator` with
-  `validateOnMigrate=true` (no baseline, no repair, no outOfOrder);
-* asserts the identity is neither `postgres` nor the runtime role.
+* runs Flyway **11.7.2** as `sanad_migrator` — exactly that role —
+  with `validateOnMigrate=true` (no baseline, no repair, no
+  outOfOrder); credentials reach Flyway only through `FLYWAY_*`
+  environment variables, never CLI arguments;
+* asserts BEFORE migrating: connected identity, role contracts,
+  membership isolation and `sanad.deployment_topology='separated'`;
+* asserts AFTER migrating: Flyway `validate`, the enforced expected
+  chain head, migrator ownership (relations + routines), the
+  append-only ledger, FORCE RLS on the guarded plane and the runtime
+  denials (§6) — every condition fails closed.
 
 The runtime service (`render.yaml`) has `FLYWAY_ENABLED=false`: the backend
 never runs migrations and never needs DDL privileges. Deploy order:
