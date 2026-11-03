@@ -11,6 +11,7 @@ import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -137,11 +138,28 @@ public class LifecycleController {
 
     @PostMapping("/subscriptions/{id}/provision")
     @RequireCapability("EXECUTIVE_MANAGE")
+    @Transactional
     public ResponseEntity<ProvisioningJobRunner.JobOutcome> provision(
             @PathVariable UUID id,
             Authentication authentication) {
         accessGuard.require(authentication);
-        UUID jobId = enqueueJob(id, "PROVISION_SUBSCRIPTION");
+        // V20261029_1/V20261031_1 place tenant_subscriptions and provisioning_jobs
+        // under fail-closed FORCE RLS. SET LOCAL app.tenant_id only applies inside
+        // an explicit transaction, so the enqueue must run transactionally with the
+        // JWT-bound tenant scope — the same contract listJobs applies above. The
+        // bare autocommit enqueue would read zero rows / be rejected (42501) the
+        // moment the pending chain reaches production.
+        UUID scope = principalUuid(authentication, "tenant_id");
+        if (scope != null) {
+            rlsContext.applyForCurrentTransaction(scope);
+        }
+        UUID jobId;
+        try {
+            jobId = enqueueJob(id, "PROVISION_SUBSCRIPTION");
+        } catch (EmptyResultDataAccessException unknownSubscription) {
+            // fail closed: RLS filtered the subscription out of the caller's tenant
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown subscription");
+        }
         return ResponseEntity.ok(provisioningRunner.run(jobId));
     }
 

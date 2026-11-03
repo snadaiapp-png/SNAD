@@ -31,6 +31,9 @@ jobs:
   deploy:
     name: Deploy Backend to Render
     runs-on: ubuntu-latest
+    # G2-D (Issue #1462): every production deployment path must pass the
+    # protected Production environment (required reviewers, no self-review).
+    environment: Production
     timeout-minutes: 15
     if: github.event.inputs.confirm_deploy == 'deploy'
     env:

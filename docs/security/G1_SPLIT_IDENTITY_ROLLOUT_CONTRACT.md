@@ -1,5 +1,24 @@
 # G1 production split-identity rollout contract
 
+> **Status update — 2026-11-03 (read-only verification, Issue #1462).**
+> The mandatory provisioning below remains the gate. Current verified facts:
+>
+> * The split-identity chain **is merged on `main`**: `V20261103_1__sanad_migrator_role_contract.sql`
+>   and `V20261103_2__migrator_ownership_and_runtime_acl.sql` (PR #1471, merge `c043cf6`,
+>   CI run 41552016355 success; certified chain head `20261103.2`).
+> * The **production database has not applied it yet**: live `flyway_schema_history` head is
+>   `20261021.1` (verified read-only 2026-11-03 02:33 UTC via the Supabase management API;
+>   `sanad_migrator` does not exist on production, `sanad.deployment_topology` is unset).
+> * The protected path `.github/workflows/database-migrate-production-migrator.yml` is hardened
+>   (fail closed): exact-role pre-flight, env-only secrets, `approved_sha` binding, enforced
+>   `expected_head`, and pre/post catalog assertions (role contract, membership isolation,
+>   separated topology, migrator ownership, append-only ledger, FORCE RLS).
+> * Operator blockers before the production run: provision `sanad_migrator` and the
+>   `PROD_FLYWAY_MIGRATOR_USER` / `PROD_FLYWAY_MIGRATOR_PASSWORD` Production-environment
+>   secrets (not present as of 2026-11-03), set `ALTER DATABASE postgres SET
+>   sanad.deployment_topology = 'separated'`, run the RUNBOOK §2(b) ownership transfer,
+>   verify a restorable backup (G6), and obtain G8 release authorization.
+
 This PR is intentionally DRAFT and must not be merged until the deployment is provisioned and the full application test matrix passes. It changes Spring Boot's production Flyway connection identity; it does **not** create a database role, migrate table ownership, or grant runtime DML.
 
 ## Mandatory provisioning

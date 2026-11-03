@@ -3,19 +3,30 @@ name: Database Migration Production (Migrator Identity)
 # ============================================================
 # SANAD P0 (Issue #1462) — PROTECTED production migration path.
 #
-# Replaces the legacy database-migrate-production.yml execution model:
-#  * runs as the dedicated `sanad_migrator` identity (secrets
-#    PROD_FLYWAY_MIGRATOR_USER / PROD_FLYWAY_MIGRATOR_PASSWORD —
-#    never the runtime DATABASE_USERNAME, never a superuser);
-#  * Flyway 11.7.2 — the project-pinned certified version;
-#  * validateOnMigrate=TRUE (the legacy path disabled validation);
-#  * requires the Production environment + typed confirmation;
-#  * asserts the separated topology + migrator ownership before
-#    and after migrating (fail closed).
+# G2-C hardened contract — EVERY condition fails closed:
+#  * IDENTITY    — the connection must be EXACTLY `sanad_migrator`
+#                  (secrets PROD_FLYWAY_MIGRATOR_USER / _PASSWORD);
+#                  `postgres` and the runtime role are refused.
+#  * SECRETS     — Flyway credentials reach the CLI ONLY through
+#                  environment variables (FLYWAY_URL / FLYWAY_USER /
+#                  FLYWAY_PASSWORD); never as CLI arguments
+#                  (process-list / log safety).
+#  * PINNING     — Flyway 11.7.2 (project-pinned); the run is bound
+#                  to the G8-approved commit SHA (input approved_sha
+#                  must equal the dispatched ref HEAD) and to the
+#                  expected chain head (enforced after migration).
+#  * STRICTNESS  — validateOnMigrate=true; NO baselineOnMigrate,
+#                  NO repair, NO outOfOrder; clean disabled.
+#  * ASSERTIONS  — real catalog checks BEFORE and AFTER migrating:
+#                  role contracts, membership isolation, separated
+#                  topology, migrator ownership (relations+routines,
+#                  extension-owned excluded), append-only ledger,
+#                  FORCE RLS on the guarded plane, runtime denials.
+#  * GATING      — requires the Production environment reviewer
+#                  approval + typed confirmation + concurrency lock.
 #
-# PRODUCTION_RELEASE=NO-GO until G8 authorization. This workflow
-# exists so the authorized path is ready; it still requires the
-# Production environment reviewers to approve each dispatch.
+# PRODUCTION_RELEASE=NO-GO until G8 authorization. Dispatch only
+# from the approved commit after the RUNBOOK §2 bootstrap is done.
 # ============================================================
 
 on:
@@ -25,30 +36,65 @@ on:
         description: "Type 'migrate-as-migrator' to run Flyway against production"
         required: true
         default: "no"
+      approved_sha:
+        description: "G8-approved full commit SHA bound to this run (must equal the dispatched ref HEAD)"
+        required: true
+        default: ""
       expected_head:
-        description: "Expected chain head after migration (e.g. 20261103.2)"
-        required: false
+        description: "Expected Flyway chain head after migration (e.g. 20261103.2)"
+        required: true
         default: ""
 
 permissions:
   contents: read
+
+concurrency:
+  group: production-database-migration
+  cancel-in-progress: false
 
 jobs:
   migrate:
     name: Run Flyway migrations as sanad_migrator against production PostgreSQL
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      # Flyway reads its entire configuration from these environment
+      # variables — secrets never appear on a command line.
+      FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
+      FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+      FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+      FLYWAY_LOCATIONS: filesystem:apps/sanad-platform/src/main/resources/db/migration,filesystem:apps/sanad-platform/src/main/resources/db/vendor/postgresql
+      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      FLYWAY_CONNECT_RETRIES: "5"
+      FLYWAY_TABLE: flyway_schema_history
+      FLYWAY_CLEAN_DISABLED: "true"
     steps:
-      - name: Confirm
+      - name: Confirm and bind the G8-approved SHA (fail closed)
+        shell: bash
         run: |
+          set -euo pipefail
           if [ "${{ github.event.inputs.confirm }}" != "migrate-as-migrator" ]; then
             echo "::error::typed confirmation missing"
             exit 1
           fi
+          APPROVED="${{ github.event.inputs.approved_sha }}"
+          ACTUAL="${{ github.sha }}"
+          if [ "${#APPROVED}" -ne 40 ]; then
+            echo "::error::approved_sha must be the full 40-character commit SHA (got '${APPROVED}')"
+            exit 1
+          fi
+          if [ "$APPROVED" != "$ACTUAL" ]; then
+            echo "::error::dispatched ref HEAD ($ACTUAL) does not match approved_sha ($APPROVED) — re-dispatch from the approved commit"
+            exit 1
+          fi
+          echo "run bound to G8-approved SHA: $APPROVED"
+          echo "expected chain head: ${{ github.event.inputs.expected_head }}"
 
-      - name: Checkout
+      - name: Checkout (pinned to the approved SHA)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.approved_sha }}
 
       - name: Install Flyway CLI 11.7.2 (project-pinned version)
         shell: bash
@@ -63,61 +109,211 @@ jobs:
           fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
           mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
           /tmp/flyway/flyway -v | head -2
+          command -v psql >/dev/null 2>&1 || { echo "::error::psql client missing on runner"; exit 1; }
 
-      - name: Pre-flight assertions (fail closed)
+      - name: Pre-flight — secret presence + exact migrator identity (fail closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${FLYWAY_URL:-}" ]; then
+            echo "::error::PROD_JDBC_URL is not provisioned in the Production environment"
+            exit 1
+          fi
+          if [ -z "${FLYWAY_PASSWORD:-}" ]; then
+            echo "::error::PROD_FLYWAY_MIGRATOR_PASSWORD is not provisioned — provision it per docs/security/migrator-runtime-separation/RUNBOOK.md §2 before dispatching"
+            exit 1
+          fi
+          if [ "${FLYWAY_USER:-}" != "sanad_migrator" ]; then
+            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be exactly 'sanad_migrator' (got '${FLYWAY_USER:-unset}')"
+            exit 1
+          fi
+          echo "pre-flight: migrator identity pinned to sanad_migrator (exact match, fail closed)"
+
+      - name: "Pre-flight — catalog assertions (identity, role contract, membership isolation, separated topology — fail closed)"
         shell: bash
         env:
-          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
-          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
-          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+          PGUSER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          PGPASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
         run: |
           set -euo pipefail
-          [ -n "$FLYWAY_USER" ] && [ "$FLYWAY_USER" != "postgres" ] && [ "$FLYWAY_USER" != "sanad" ] || {
-            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be the dedicated sanad_migrator identity (got: ${FLYWAY_USER:-unset})"; exit 1; }
-          echo "pre-flight: migrator identity confirmed (not postgres, not the runtime role)"
+          PSQL_URL="${FLYWAY_URL/jdbc:postgresql:/postgresql:}"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -X <<'SQL'
+          DO $check$
+          DECLARE
+              v_superuser  BOOLEAN;
+              v_bypassrls  BOOLEAN;
+              v_createdb   BOOLEAN;
+              v_createrole BOOLEAN;
+              v_topology   TEXT;
+          BEGIN
+              -- (1) connected identity is exactly the dedicated migrator
+              IF current_user <> 'sanad_migrator' THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: connected as % — expected sanad_migrator', current_user;
+              END IF;
 
-      - name: Flyway info (before)
-        env:
-          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
-          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
-          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+              -- (2) migrator role contract: no superuser / bypassrls / createdb / createrole
+              SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
+                INTO v_superuser, v_bypassrls, v_createdb, v_createrole
+                FROM pg_roles WHERE rolname = 'sanad_migrator';
+              IF NOT FOUND THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: role sanad_migrator does not exist — provision per RUNBOOK §2(a)';
+              END IF;
+              IF v_superuser OR v_bypassrls OR v_createdb OR v_createrole THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: sanad_migrator violates the NO{SUPERUSER,BYPASSRLS,CREATEDB,CREATEROLE} contract';
+              END IF;
+
+              -- (3) runtime role exists and is restricted
+              SELECT rolsuper, rolbypassrls INTO v_superuser, v_bypassrls
+                FROM pg_roles WHERE rolname = 'sanad';
+              IF NOT FOUND THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: runtime role sanad does not exist';
+              END IF;
+              IF v_superuser OR v_bypassrls THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: runtime role sanad must be NOSUPERUSER NOBYPASSRLS';
+              END IF;
+
+              -- (4) no membership path (direct or inherited) from the runtime role
+              IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: sanad must NOT be a member of sanad_migrator';
+              END IF;
+
+              -- (5) the separated topology must be declared before the chain runs
+              v_topology := current_setting('sanad.deployment_topology', true);
+              IF coalesce(v_topology, '') <> 'separated' THEN
+                  RAISE EXCEPTION 'PRE-FLIGHT: sanad.deployment_topology is % — the production run requires ''separated'' (RUNBOOK §2(c): ALTER DATABASE postgres SET sanad.deployment_topology = ''separated'')', coalesce(v_topology, 'UNSET');
+              END IF;
+
+              RAISE NOTICE 'PRE-FLIGHT OK: identity / role contract / membership isolation / separated topology verified';
+          END $check$;
+          SQL
+
+      - name: Flyway info (before — record the pending state)
+        shell: bash
         run: |
           set -euo pipefail
-          MIG="apps/sanad-platform/src/main/resources/db/migration"
-          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
-          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
-            -locations="filesystem:$MIG,filesystem:$VEN" \
-            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history info
+          /tmp/flyway/flyway info
 
       - name: Flyway migrate (as sanad_migrator, validation STRICT)
-        env:
-          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
-          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
-          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
-          MIG="apps/sanad-platform/src/main/resources/db/migration"
-          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
           # NO baselineOnMigrate, NO repair, NO outOfOrder — strict certification semantics.
-          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
-            -locations="filesystem:$MIG,filesystem:$VEN" \
-            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history migrate
+          # Credentials come ONLY from the FLYWAY_* environment variables.
+          /tmp/flyway/flyway migrate
 
-      - name: Flyway validate + info (after)
-        env:
-          FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
-          FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
-          FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+      - name: Flyway validate + enforce the expected chain head (after)
+        shell: bash
         run: |
           set -euo pipefail
-          MIG="apps/sanad-platform/src/main/resources/db/migration"
-          VEN="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
-          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
-            -locations="filesystem:$MIG,filesystem:$VEN" \
-            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history validate
-          /tmp/flyway/flyway -url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" \
-            -locations="filesystem:$MIG,filesystem:$VEN" \
-            -validateOnMigrate=true -connectRetries=5 -table=flyway_schema_history info
-          if [ -n "${{ github.event.inputs.expected_head }}" ]; then
-            echo "expected_head input provided — post-merge production verification must confirm it (G10)."
+          /tmp/flyway/flyway validate
+          INFO_OUT="$(/tmp/flyway/flyway info 2>&1)" || { printf '%s\n' "$INFO_OUT"; echo "::error::flyway info failed"; exit 1; }
+          ACTUAL_HEAD="$(printf '%s\n' "$INFO_OUT" | sed -n 's/^Schema version:[[:space:]]*//p' | head -1)"
+          EXPECTED_HEAD="${{ github.event.inputs.expected_head }}"
+          echo "flyway chain head: '${ACTUAL_HEAD}' (expected '${EXPECTED_HEAD}')"
+          if [ -z "$ACTUAL_HEAD" ]; then
+            echo "::error::could not parse the schema version from flyway info"
+            exit 1
           fi
+          if [ "$ACTUAL_HEAD" != "$EXPECTED_HEAD" ]; then
+            echo "::error::chain head mismatch — actual=${ACTUAL_HEAD} expected=${EXPECTED_HEAD}"
+            exit 1
+          fi
+          echo "chain head verified: $ACTUAL_HEAD"
+
+      - name: "Post-flight — catalog assertions (ownership, append-only ledger, FORCE RLS, runtime denials — fail closed)"
+        shell: bash
+        env:
+          PGUSER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
+          PGPASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          PSQL_URL="${FLYWAY_URL/jdbc:postgresql:/postgresql:}"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -X <<'SQL'
+          DO $check$
+          DECLARE
+              v_bad   TEXT;
+              v_force BOOLEAN;
+              v_tbl   TEXT;
+          BEGIN
+              -- (1) every non-extension public relation is migrator-owned
+              --     (flyway_schema_history included — mirror of V20261103_2 §4.5)
+              SELECT string_agg(s.relname, ', ') INTO v_bad
+                FROM (SELECT c.relname
+                        FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                       WHERE n.nspname = 'public'
+                         AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+                         AND pg_get_userbyid(c.relowner) <> 'sanad_migrator'
+                         AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                                          WHERE d.objid = c.oid AND d.deptype = 'e')
+                       LIMIT 3) s;
+              IF v_bad IS NOT NULL THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: relations not owned by sanad_migrator: %', v_bad;
+              END IF;
+
+              -- (2) every non-extension public routine is migrator-owned
+              SELECT string_agg(s.proname, ', ') INTO v_bad
+                FROM (SELECT p.proname
+                        FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                       WHERE n.nspname = 'public'
+                         AND pg_get_userbyid(p.proowner) <> 'sanad_migrator'
+                         AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                                          WHERE d.objid = p.oid AND d.deptype = 'e')
+                       LIMIT 3) s;
+              IF v_bad IS NOT NULL THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: routines not owned by sanad_migrator: %', v_bad;
+              END IF;
+
+              -- (3) the runtime role owns nothing in public
+              IF EXISTS (SELECT 1 FROM pg_class c
+                          JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = 'public'
+                           AND pg_get_userbyid(c.relowner) = 'sanad') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: the runtime role sanad must own nothing in public';
+              END IF;
+
+              -- (4) runtime denials (RUNBOOK §6)
+              IF has_schema_privilege('sanad', 'public', 'CREATE') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: sanad must not hold CREATE on schema public';
+              END IF;
+              IF has_table_privilege('sanad', 'public.flyway_schema_history', 'SELECT') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: sanad must hold NO privilege on flyway_schema_history';
+              END IF;
+              IF has_table_privilege('sanad', 'public.subscription_commands', 'UPDATE')
+                 OR has_table_privilege('sanad', 'public.subscription_commands', 'DELETE') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: subscription_commands must remain append-only for sanad';
+              END IF;
+
+              -- (5) FORCE RLS stays on the guarded plane (V20261103_2 §4.4)
+              FOREACH v_tbl IN ARRAY ARRAY['users', 'refresh_tokens', 'password_reset_tokens',
+                                           'provisioning_jobs', 'provisioning_job_steps',
+                                           'subscription_commands'] LOOP
+                  SELECT c.relforcerowsecurity INTO v_force
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname = 'public' AND c.relname = v_tbl;
+                  IF v_force IS NOT TRUE THEN
+                      RAISE EXCEPTION 'POST-FLIGHT: % must remain FORCE ROW LEVEL SECURITY', v_tbl;
+                  END IF;
+              END LOOP;
+
+              -- (6) membership isolation still holds after the chain
+              IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT: sanad must NOT be a member of sanad_migrator';
+              END IF;
+
+              RAISE NOTICE 'POST-FLIGHT OK: ownership / ACL / append-only / FORCE RLS / membership verified';
+          END $check$;
+          SQL
+
+      - name: Evidence summary
+        shell: bash
+        run: |
+          echo "=== production migration evidence summary ==="
+          echo "approved_sha:    ${{ github.event.inputs.approved_sha }}"
+          echo "dispatched sha:  ${{ github.sha }}"
+          echo "expected head:   ${{ github.event.inputs.expected_head }}"
+          echo "flyway version:  11.7.2 (pinned)"
+          echo "identity:        sanad_migrator (exact-match pre-flight)"
+          echo "all pre/post catalog assertions: PASS (fail-closed)"
