@@ -232,6 +232,23 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -Atc "SELECT current_database() || '|' || current_user"
 
+      - name: Provision isolated P0 migrator role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles
+              WHERE rolname='sanad_migrator' AND NOT rolsuper AND NOT rolbypassrls
+              AND NOT rolcreatedb AND NOT rolcreaterole) THEN
+              RAISE EXCEPTION 'CI_MIGRATOR_ROLE_INVALID';
+            END IF;
+          END $$;
+          SQL
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

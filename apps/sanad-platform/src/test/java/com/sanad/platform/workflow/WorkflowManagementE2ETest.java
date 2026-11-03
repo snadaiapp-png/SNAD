@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.management.application.DecisionWorkflowIntegrationService;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.management.application.ExecutiveDecisionService;
 import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
@@ -75,16 +76,8 @@ class WorkflowManagementE2ETest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
-                + "workflow_step_instances, workflow_instances, workflow_steps, "
-                + "workflow_definitions RESTART IDENTITY CASCADE");
-        jdbc.execute("TRUNCATE TABLE management_audit_trail, escalations, executive_alerts, "
-                + "executive_insights, executive_health_snapshots, "
-                + "decision_actions, decision_participants, executive_decisions, "
-                + "risks, issues, "
-                + "strategic_initiatives, kpi_measurements, kpi_targets, "
-                + "kpi_definitions, key_results, strategic_objectives RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("workflow_transition_audit", "workflow_approval_requests", "workflow_step_instances", "workflow_instances", "workflow_steps", "workflow_definitions");
+        TestIsolation.truncateAll("management_audit_trail", "escalations", "executive_alerts", "executive_insights", "executive_health_snapshots", "decision_actions", "decision_participants", "executive_decisions", "risks", "issues", "strategic_initiatives", "kpi_measurements", "kpi_targets", "kpi_definitions", "key_results", "strategic_objectives");
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();
         requesterA = UUID.randomUUID();

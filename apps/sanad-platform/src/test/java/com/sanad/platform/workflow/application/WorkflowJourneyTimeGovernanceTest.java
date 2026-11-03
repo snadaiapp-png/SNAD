@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow.application;
 
 import org.junit.jupiter.api.AfterEach;
+import com.sanad.platform.test.TestIsolation;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -83,10 +84,10 @@ class WorkflowJourneyTimeGovernanceTest {
         // journey rows are DB-enforced append-only: TRUNCATE bypasses row-level
         // mutation triggers while keeping the test database clean (row triggers
         // are the production immutability mechanism, not a test concern).
-        jdbc.execute("TRUNCATE workflow_journey");
-        jdbc.execute("TRUNCATE workflow_timers");
-        jdbc.execute("TRUNCATE workflow_responsibility_segments");
-        jdbc.execute("TRUNCATE workflow_notification_intents");
+        TestIsolation.truncateAll("workflow_journey");
+        TestIsolation.truncateAll("workflow_timers");
+        TestIsolation.truncateAll("workflow_responsibility_segments");
+        TestIsolation.truncateAll("workflow_notification_intents");
         // workflow_instances / workflow_definitions / users are FORCE RLS:
         // per-tenant scoped deletes (bare deletes would silently match zero
         // rows and break the tenants delete via FK).

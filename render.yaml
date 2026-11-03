@@ -36,8 +36,16 @@ services:
         sync: false
       - key: JPA_DDL_AUTO
         value: validate
+      # P0 migrator/runtime separation (Issue #1462): the runtime service
+      # NEVER runs Flyway. Migrations are applied by the protected
+      # migrator workflow (GitHub Actions, Production environment,
+      # workflow_dispatch with explicit confirmation) using the dedicated
+      # sanad_migrator identity whose credentials live ONLY in the GitHub
+      # secret store (PROD_FLYWAY_MIGRATOR_USER / PROD_FLYWAY_MIGRATOR_PASSWORD).
+      # The runtime role (DATABASE_USERNAME=sanad) holds DML-only ACLs and
+      # cannot ALTER/DROP/TRUNCATE or touch flyway_schema_history.
       - key: FLYWAY_ENABLED
-        value: "true"
+        value: "false"
       - key: SANAD_CORS_ALLOWED_ORIGINS
         value: https://snad-app.vercel.app
       - key: BOOTSTRAP_ENABLED

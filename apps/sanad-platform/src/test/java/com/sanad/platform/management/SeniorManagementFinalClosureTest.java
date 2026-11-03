@@ -1,6 +1,7 @@
 package com.sanad.platform.management;
 
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.management.application.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -60,14 +61,7 @@ class SeniorManagementFinalClosureTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE management_audit_trail, escalations, executive_alerts, "
-                + "executive_insights, executive_health_snapshots, "
-                + "decision_actions, decision_participants, executive_decisions, "
-                + "risks, issues, "
-                + "strategic_initiatives, kpi_measurements, kpi_targets, "
-                + "kpi_definitions, key_results, strategic_objectives, "
-                + "governance_configurations RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("management_audit_trail", "escalations", "executive_alerts", "executive_insights", "executive_health_snapshots", "decision_actions", "decision_participants", "executive_decisions", "risks", "issues", "strategic_initiatives", "kpi_measurements", "kpi_targets", "kpi_definitions", "key_results", "strategic_objectives", "governance_configurations");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());

@@ -20,6 +20,30 @@ services:
     networks:
       - snad_internal
 
+  # One-shot migration runner (docker compose --profile migrate run --rm flyway-migrate).
+  # Runs BEFORE the first backend boot and whenever new migrations ship. Uses the
+  # dedicated sanad_migrator identity (docker/postgres-init/02 + SANAD_MIGRATOR_PASSWORD)
+  # - never the runtime role, never the bootstrap superuser.
+  flyway-migrate:
+    image: flyway/flyway:11.7.2
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
+      FLYWAY_USER: sanad_migrator
+      FLYWAY_PASSWORD: ${SANAD_MIGRATOR_PASSWORD:?SANAD_MIGRATOR_PASSWORD is required to run migrations}
+    volumes:
+      - ../../apps/sanad-platform/src/main/resources/db/migration:/flyway/sql/main:ro
+      - ../../apps/sanad-platform/src/main/resources/db/vendor/postgresql:/flyway/sql/vendor:ro
+    command:
+      - -locations=filesystem:/flyway/sql/main,filesystem:/flyway/sql/vendor
+      - -validateOnMigrate=true
+      - -connectRetries=10
+      - -table=flyway_schema_history
+      - migrate
+
   backend:
     build:
       context: ../../apps/sanad-platform
@@ -33,8 +57,10 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sanad}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-sanad}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # P0 migrator/runtime separation (Issue #1462): the backend connects as the
+      # restricted runtime role (DML-only, NOBYPASSRLS) and NEVER runs Flyway.
+      SPRING_DATASOURCE_USERNAME: ${DATABASE_USERNAME:-sanad}
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:?CRM_CUSTOM_FIELD_ENCRYPTION_KEY is required}
       SANAD_CORS_ALLOWED_ORIGINS: ${SANAD_CORS_ALLOWED_ORIGINS:-https://snad-app.vercel.app}
@@ -44,8 +70,9 @@ services:
       APPLICATION_BASE_URL: ${APPLICATION_BASE_URL:-https://snad-app.vercel.app}
       SERVER_PORT: "8080"
       MANAGEMENT_ENDPOINTS: health
-      FLYWAY_ENABLED: "true"
-      FLYWAY_VALIDATE_ON_MIGRATE: "true"
+      # Migrations run via the one-shot "migrate" profile service as sanad_migrator
+      # (see the flyway-migrate service below) - never at runtime startup.
+      FLYWAY_ENABLED: "false"
       JPA_DDL_AUTO: validate
       BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-false}
       SECURITY_NOTIFICATION_PROVIDER: ${SECURITY_NOTIFICATION_PROVIDER:-disabled}

@@ -129,7 +129,10 @@ class R0C13G02SchemaPostgresTest {
             // V20261102_1 (P0 G1 Phase 4) closes with the restricted runtime ACL for the
             // FORCE-RLS'd auth token tables; V20261102_2 (P0 G1 unified remediation) closes
             // with the restricted runtime ACL for the FORCE-RLS'd T2 batch 2 tables.
-            assertThat(rs.getString(1)).isEqualTo("20261102.2");
+            // V20261103_1 + V20261103_2 (P0 final remediation, Issue #1462 Article 3)
+            // close with the dedicated sanad_migrator role contract and the
+            // topology-gated ownership transfer + runtime ACL matrix (F-01 closed).
+            assertThat(rs.getString(1)).isEqualTo("20261103.2");
         }
     }
 

@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.workflow.application.*;
 import com.sanad.platform.workflow.domain.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,13 +60,7 @@ class WorkflowSlaSchedulerTest {
         // scheduler queries SELECT id FROM tenants WHERE status='ACTIVE'
         // and processes ALL active tenants — stale workflow data in tenants
         // created by other tests causes false breach counts.
-        jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
-                + "workflow_step_instances, workflow_instances, workflow_steps, "
-                + "workflow_definitions, escalations, executive_alerts, "
-                + "management_audit_trail, decision_actions, decision_participants, "
-                + "issues, risks, "
-                + "strategic_initiatives, kpi_measurements, kpi_targets "
-                + "RESTART IDENTITY CASCADE");
+        TestIsolation.truncateAll("workflow_transition_audit", "workflow_approval_requests", "workflow_step_instances", "workflow_instances", "workflow_steps", "workflow_definitions", "escalations", "executive_alerts", "management_audit_trail", "decision_actions", "decision_participants", "issues", "risks", "strategic_initiatives", "kpi_measurements", "kpi_targets");
         // Identity/CRM tables are NOT wiped here. The previous global
         // "TRUNCATE ... user_role_assignments, role_capabilities, roles,
         // users, tenants, refresh_tokens ... CASCADE" destroyed the canonical

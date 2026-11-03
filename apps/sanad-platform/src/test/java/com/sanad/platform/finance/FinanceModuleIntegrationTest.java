@@ -1,6 +1,7 @@
 package com.sanad.platform.finance;
 
 import com.sanad.platform.finance.application.FinanceAccountService;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.finance.application.FinanceInvoiceService;
 import com.sanad.platform.finance.application.FinancePaymentService;
 import com.sanad.platform.finance.domain.*;
@@ -46,9 +47,7 @@ class FinanceModuleIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("TRUNCATE TABLE finance_payments, finance_invoice_lines, finance_invoices, "
-                + "finance_journal_lines, finance_journal_entries, finance_accounts RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("finance_payments", "finance_invoice_lines", "finance_invoices", "finance_journal_lines", "finance_journal_entries", "finance_accounts");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = java.sql.Timestamp.from(java.time.Instant.now());

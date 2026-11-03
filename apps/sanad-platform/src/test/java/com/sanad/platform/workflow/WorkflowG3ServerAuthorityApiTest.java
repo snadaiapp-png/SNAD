@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.test.TestIsolation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,10 +45,7 @@ class WorkflowG3ServerAuthorityApiTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
-                + "workflow_step_instances, workflow_instances, workflow_steps, "
-                + "workflow_definitions RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("workflow_transition_audit", "workflow_approval_requests", "workflow_step_instances", "workflow_instances", "workflow_steps", "workflow_definitions");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());

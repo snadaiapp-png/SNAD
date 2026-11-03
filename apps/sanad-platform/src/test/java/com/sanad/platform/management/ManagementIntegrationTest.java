@@ -1,6 +1,7 @@
 package com.sanad.platform.management;
 
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.management.application.KpiService;
 import com.sanad.platform.management.application.StrategicInitiativeService;
 import com.sanad.platform.management.application.StrategicObjectiveService;
@@ -65,9 +66,7 @@ class ManagementIntegrationTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE strategic_initiatives, kpi_measurements, kpi_targets, "
-                + "kpi_definitions, key_results, strategic_objectives RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("strategic_initiatives", "kpi_measurements", "kpi_targets", "kpi_definitions", "key_results", "strategic_objectives");
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = java.sql.Timestamp.from(java.time.Instant.now());

@@ -1,6 +1,7 @@
 package com.sanad.platform.website;
 
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.website.application.*;
 import com.sanad.platform.website.api.WebsiteDtos.*;
@@ -61,11 +62,7 @@ class WebsiteModuleIntegrationTest {
         // Clean website tables to prevent stale domain hostname conflicts
         // from prior test runs. The test uses hardcoded hostnames like
         // "pub-test.example.com" which collide if stale rows persist.
-        jdbc.execute("TRUNCATE TABLE website_publications, website_pages, "
-                + "website_navigation_items, website_navigation, "
-                + "website_theme_settings, website_domains, websites "
-                + "RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("website_publications", "website_pages", "website_navigation_items", "website_navigation", "website_theme_settings", "website_domains", "websites");
         tenantId = UUID.randomUUID();
         // V20261029_1 FORCE-RLS: bind the SecurityContext tenant so
         // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside

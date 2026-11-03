@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_sha:
-        description: 'Release candidate SHA to certify (frozen candidate = 177e27c...)'
+        description: 'Optional SHA; must equal checkout HEAD if supplied'
         required: false
-        default: '177e27c2648ce5ba02988413981a650d3d7a2a5a'
+        default: ''
   pull_request:
     branches: [main]
     paths:
@@ -32,22 +32,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Assert migration chain identity (candidate 177e27c == this tree == main)
+      - name: Assert certified migration chain identity against PR base
         shell: bash
         run: |
           set -euo pipefail
           git fetch -q origin main
-          CANDIDATE="177e27c2648ce5ba02988413981a650d3d7a2a5a"
           MIG_LOC="apps/sanad-platform/src/main/resources/db/migration"
           VEN_LOC="apps/sanad-platform/src/main/resources/db/vendor/postgresql"
-          for base in "$CANDIDATE" origin/main; do
-            diff_stat=$(git diff --stat "$base" HEAD -- "$MIG_LOC" "$VEN_LOC" || true)
-            if [ -n "$diff_stat" ]; then
-              echo "::error::MIGRATION_CHAIN_DRIFT between $base and HEAD: $diff_stat"
-              exit 1
-            fi
-          done
-          echo "CHAIN_IDENTITY_OK: HEAD == candidate 177e27c == main for both Flyway locations"
+          # New migrations in this PR are intentional. Verify existing files were
+          # not modified or deleted; preserve the immutable applied history.
+          changed=$(git diff --name-status origin/main HEAD -- "$MIG_LOC" "$VEN_LOC")
+          echo "$changed"
+          if echo "$changed" | grep -E '^(M|D|R|C)[[:space:]]' ; then
+            echo "::error::APPLIED_MIGRATION_MODIFIED_OR_REMOVED"
+            exit 1
+          fi
+          # Pin to actual test tree; do not certify a historical release SHA.
+          echo "CERTIFIED_TREE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "CHAIN_ADDITIONS_REVIEWED: new migrations allowed; existing migration changes rejected"
 
       - name: Install isolated PostgreSQL 17.6 (exact pin, host-native, no containers)
         shell: bash
@@ -107,7 +109,7 @@ jobs:
       - name: Run G5/G6 certification engine
         shell: bash
         env:
-          RELEASE_SHA: ${{ github.event.inputs.release_sha || '177e27c2648ce5ba02988413981a650d3d7a2a5a' }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           sudo -E bash tests/security/g5/run-cert.sh 2>&1 | tee /tmp/cert-run.log

@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import com.sanad.platform.test.TestIsolation;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -120,7 +121,7 @@ final class WorkflowTenantFixtureSweeper {
             // harness-legal cleanup — same precedent as
             // WorkflowJourneyTimeGovernanceTest @AfterEach. The test database
             // is disposable and freshly migrated for every run.
-            jdbc.execute("TRUNCATE workflow_journey");
+            TestIsolation.truncateAll("workflow_journey");
             for (String table : SWEPT_TABLES) {
                 jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
             }

@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
@@ -79,10 +80,7 @@ class WorkflowSecurityNegativeTest {
         if (tx == null) {
             tx = new TransactionTemplate(transactionManager);
         }
-        jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
-                + "workflow_step_instances, workflow_instances, workflow_steps, "
-                + "workflow_definitions RESTART IDENTITY CASCADE");
-
+        TestIsolation.truncateAll("workflow_transition_audit", "workflow_approval_requests", "workflow_step_instances", "workflow_instances", "workflow_steps", "workflow_definitions");
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();
         userA = UUID.randomUUID();

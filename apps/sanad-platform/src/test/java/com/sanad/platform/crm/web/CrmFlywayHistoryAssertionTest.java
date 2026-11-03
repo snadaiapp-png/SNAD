@@ -353,6 +353,11 @@ class CrmFlywayHistoryAssertionTest {
             // SANAD P0 G1 unified remediation (Issue #1462, six-table matrix): the T2 batch 2
             // tables carried no `sanad` ACL either — restricted runtime grants, no weakening.
             , "20261102.2"   // T2 batch 2 restricted runtime ACL (six-table matrix finding)
+            // SANAD P0 FINAL REMEDIATION (Issue #1462, Article 3): dedicated
+            // sanad_migrator role contract + topology-gated ownership transfer and
+            // evidence-derived runtime ACL matrix (also closes F-01).
+            , "20261103.1"   // sanad_migrator role contract (migrator/runtime separation)
+            , "20261103.2"   // migrator ownership + runtime ACL matrix (F-01 closed)
     );
 
 
