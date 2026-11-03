@@ -56,6 +56,14 @@ class ProductionProfileTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"));
         registry.add("spring.datasource.password", () ->
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        // CI's existing single-role fixture is not proof of production role separation.
+        // Bind the prod-profile Flyway credentials explicitly for this fixture.
+        registry.add("spring.flyway.user", () ->
+                System.getenv().getOrDefault("FLYWAY_USER",
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad")));
+        registry.add("spring.flyway.password", () ->
+                System.getenv().getOrDefault("FLYWAY_PASSWORD",
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
     }
 
     @Autowired

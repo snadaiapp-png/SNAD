@@ -97,7 +97,16 @@ spring:
     show-sql: false
 
   flyway:
+    # SECURITY: production migrations use an independently provisioned migrator.
+    # FLYWAY_USER / FLYWAY_PASSWORD are mandatory when Flyway is enabled.
+    # Never set these to the runtime SPRING_DATASOURCE credentials.
+    # For an already-migrated deployment, explicitly set FLYWAY_ENABLED=false.
     enabled: ${FLYWAY_ENABLED:true}
+    # Spring Boot requires an explicit JDBC URL when Flyway credentials are
+    # provided; otherwise its separate DataSource cannot be constructed.
+    url: ${FLYWAY_URL:${SPRING_DATASOURCE_URL:${DATABASE_URL:}}}
+    user: ${FLYWAY_USER}
+    password: ${FLYWAY_PASSWORD}
     # Load BOTH the portable migrations and the vendor-specific ones (PostgreSQL
     # in production). The previous config dropped `db/vendor/{vendor}`, which
     # silently skipped reconciliation and vendor-only DDL such as
