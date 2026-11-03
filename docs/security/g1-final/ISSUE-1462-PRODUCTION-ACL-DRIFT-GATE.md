@@ -11,6 +11,28 @@ Production Flyway latest success: `20261021.1`; role `sanad_migrator` absent; `s
 - `V20261103_2`: ownership/runtime ACL separation and topology guard.
 - This PR adds `V20261103_3` as a **forward-only** correction. Never edit already-applied migration checksums.
 
+## v2 (2026-11-03, same PR): topology-aware guard
+The v1 precondition set (`runtime owns ledger; separation required`) failed closed in
+the CI `migration-fixture` topology, where Spring-Boot/Flyway contexts legitimately
+run the chain AS `sanad` (owner-as-runner) — P0001 in every context-dependent suite
+(Maven, PostgreSQL Acceptance, CRM Integration, g5-g6 and separation certs; CI runs
+2026-11-03, PR head 7ea40f3). v2 mirrors the `V20261103_2` topology model:
+
+- `separated`: original strict behaviour — ownership precondition + REVOKE +
+  EFFECTIVE-privilege postconditions (`has_table_privilege`).
+- `migration-fixture` / unset: loud `SANAD_TOPOLOGY_FIXTURE` WARNING, REVOKE still
+  normalizes the EXPLICIT ACL, postcondition asserts the EXPLICIT grant surface via
+  `aclexplode` (owner implicit privileges are not ACL-revocable by design — same
+  documented caveat as `V20261102_2`; this path is NOT a separation certification
+  path).
+- unknown topology value: fail closed (P0001 class guard, ERRCODE 22023).
+
+CI companion updates in this PR: expected chain heads `20261103.2 -> 20261103.3` in
+`tests/security/g5/run-cert.sh` (scenarios A/B/C) and
+`tests/security/migrator-separation/run-separation-cert.sh`; the scenario-C failure
+injection file moves to `V20261103_4__inject_failure.sql` (must sit numerically above
+the new chain head) and its no-history-row check now pins `20261103.4`.
+
 ## Execution order and hard stop
 1. Obtain independent reviewer approval of the **specific production change**, role and ownership topology, recovery prerequisites, and execution window.
 2. Run `flyway info` and `flyway validate` on the exact deployment artifact; reconcile the production history from `20261021.1` through `20261103_2` in a disposable PG17 database with matching topology. Never baseline, repair, or skip without a separately reviewed plan.
