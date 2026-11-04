@@ -285,6 +285,10 @@ expect_value S4_B_ROW_PRESERVED "$SEP_DB" "SELECT count(*) FROM public.users WHE
 expect_value S4_A_ROW_PRESERVED_AFTER_REASSIGN "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA' AND tenant_id='$TA'" "1" "$TA"
 expect_value S4_B_ROW_PRESERVED_AFTER_REASSIGN "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB' AND tenant_id='$TB'" "1" "$TB"
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
+# Cross-tenant INSERT must fail in both directions, and must leave no row.
+expect_deny S4_REVERSE_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','$TA','reverse@sepcert.test','ACTIVE',now(),now())" "$TB"
+expect_value S4_CROSS_INSERT_ABSENT "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='66666666-6666-6666-6666-666666666666'" "0" "$TB"
+expect_value S4_REVERSE_CROSS_INSERT_ABSENT "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'" "0" "$TA"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
 expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__EMPTY_GUC__"
 # Fail-closed isolation must cover writes, not only empty SELECT results.
