@@ -139,6 +139,8 @@ existing_roles=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE ro
 # Passwords are embedded in administrative SQL; accept only fixed-length hex.
 : "${SEP_MIG_PW:?SEP_MIG_PW must be supplied for disposable migrator provisioning}"
 [[ "$SEP_MIG_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_MIG_PW must be 48 hex characters"
+SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
+[[ "$SEP_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_RUN_PW must be 48 hex characters"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -153,8 +155,7 @@ admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NO
 # Ephemeral per-run runtime password (hex, never logged) — required on hosts
 # using password auth for TCP connections (GitHub runners use scram-sha-256;
 # trust-auth local clusters simply ignore it).
-SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
-[[ "$SEP_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_RUN_PW must be 48 hex characters"
+
 admin_secret "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW';" || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
 # Admin may connect via Unix socket while runtime uses TCP. Require both
