@@ -56,6 +56,8 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 
 # --- connection helpers -----------------------------------------------------
 admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
+# Never expose SQL containing ephemeral passwords in the psql -c process argv.
+admin_secret() { printf '%s\n' "$1" | $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   local guc_args=()
@@ -146,7 +148,7 @@ admin postgres postgres "DO \$\$ BEGIN
     CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
 END \$\$;" >/dev/null || die S0 "role provisioning failed"
-admin postgres postgres "ALTER ROLE sanad_migrator PASSWORD '$SEP_MIG_PW'" >/dev/null || die S0 "migrator password"
+admin_secret "ALTER ROLE sanad_migrator PASSWORD '$SEP_MIG_PW';" || die S0 "migrator password"
 admin postgres postgres "ALTER ROLE sanad_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS" >/dev/null || die S0 "migrator contract"
 admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS" >/dev/null || die S0 "runtime contract"
 # Ephemeral per-run runtime password (hex, never logged) — required on hosts
@@ -154,7 +156,7 @@ admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NO
 # trust-auth local clusters simply ignore it).
 SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
 [[ "$SEP_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_RUN_PW must be 48 hex characters"
-admin postgres postgres "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW'" >/dev/null || die S0 "runtime password"
+admin_secret "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW';" || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
 # Admin may connect via Unix socket while runtime uses TCP. Require both
 # connections to reach the same PostgreSQL postmaster before creating a DB.
