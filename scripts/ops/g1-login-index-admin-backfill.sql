@@ -29,7 +29,7 @@ AND NOT EXISTS (
 ON CONFLICT(kind,identifier,tenant_id) DO NOTHING;
 
 DO $verify$
-DECLARE missing_email bigint; missing_username bigint;
+DECLARE missing_email bigint; missing_username bigint; stale_index bigint; duplicate_index bigint;
 BEGIN
  SELECT count(*) INTO missing_email FROM public.users u
  WHERE NOT EXISTS (SELECT 1 FROM public.login_tenant_index i
@@ -38,7 +38,20 @@ BEGIN
  WHERE u.username IS NOT NULL AND u.username<>u.email
  AND NOT EXISTS (SELECT 1 FROM public.login_tenant_index i
    WHERE i.kind='username' AND i.identifier=u.username AND i.tenant_id=u.tenant_id);
- IF missing_email<>0 OR missing_username<>0 THEN
-   RAISE EXCEPTION 'G1_LOGIN_INDEX_BACKFILL_INCOMPLETE email=% username=%',missing_email,missing_username;
+ SELECT count(*) INTO stale_index FROM public.login_tenant_index i
+ WHERE NOT EXISTS (
+   SELECT 1 FROM public.users u
+   WHERE u.tenant_id=i.tenant_id
+     AND ((i.kind='email' AND u.email=i.identifier)
+       OR (i.kind='username' AND u.username=i.identifier AND u.username<>u.email))
+ );
+ SELECT count(*) INTO duplicate_index FROM (
+   SELECT tenant_id,kind,identifier FROM public.login_tenant_index
+   GROUP BY 1,2,3 HAVING count(*)>1
+ ) duplicated;
+ IF missing_email<>0 OR missing_username<>0 OR stale_index<>0 OR duplicate_index<>0 THEN
+   RAISE EXCEPTION 'G1_LOGIN_INDEX_RECONCILIATION_INCOMPLETE email=% username=% stale=% duplicates=%',
+     missing_email,missing_username,stale_index,duplicate_index;
  END IF;
+ RAISE NOTICE 'G1_LOGIN_INDEX_RECONCILIATION=PASS';
 END $verify$;
