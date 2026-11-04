@@ -271,6 +271,8 @@ expect_value S4_B_CANNOT_SEE_A "$SEP_DB" "SELECT count(*) FROM public.users WHER
 expect_value S4_A_SEES_TOTAL "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TA"
 expect_value S4_B_SEES_TOTAL "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TB"
 expect_value S4_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.users SET display_name='x' WHERE id='$UB' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
+# A/B isolation must also reject destructive cross-tenant operations.
+expect_value S4_CROSS_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.users WHERE id='$UB' RETURNING 1) SELECT count(*) FROM deleted" "0" "$TA"
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
 expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__EMPTY_GUC__"
