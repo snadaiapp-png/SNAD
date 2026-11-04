@@ -324,6 +324,17 @@ expect_value S5_REFRESH_UPD "$SEP_DB" "WITH changed AS (UPDATE public.refresh_to
 expect_value S5_REFRESH_DEL "$SEP_DB" "WITH deleted AS (DELETE FROM public.refresh_tokens WHERE id='$RT' RETURNING 1) SELECT count(*) FROM deleted" "1" "$TA"
 expect_pass S5_RESET_INS "$SEP_DB" "INSERT INTO public.password_reset_tokens (id,tenant_id,user_id,token_hash,expires_at,created_at) VALUES ('$PRT','$TA','$UC','sepcert-hash-2',now()+interval '1 hour',now())" "$TA"
 expect_value S5_RESET_DEL "$SEP_DB" "WITH deleted AS (DELETE FROM public.password_reset_tokens WHERE id='$PRT' RETURNING 1) SELECT count(*) FROM deleted" "1" "$TA"
+# Independently verify token deletion at the storage layer. A tenant-scoped
+# SELECT returning zero could otherwise be a false positive caused by RLS.
+s5_deleted_tokens=$(admin postgres "$SEP_DB" "SELECT
+  (SELECT count(*) FROM public.refresh_tokens WHERE id='$RT')||'|'||
+  (SELECT count(*) FROM public.password_reset_tokens WHERE id='$PRT')") || die S5 "admin token deletion inventory failed"
+if [ "$s5_deleted_tokens" = "0|0" ]; then
+  record S5_ADMIN_TOKEN_DELETION "0|0" "$s5_deleted_tokens" "admin-confirmed refresh/reset tokens removed"
+else
+  record S5_ADMIN_TOKEN_DELETION "0|0" "$s5_deleted_tokens" "token deletion integrity mismatch"
+  fail
+fi
 expect_pass S5_PREAUTH_RESOLVE "$SEP_DB" "SELECT count(*) FROM public.g1_resolve_login_tenants('a@sepcert.test','')"
 expect_pass S5_PREAUTH_INDEX "$SEP_DB" "SELECT count(*) FROM public.login_tenant_index"
 [ $FAILURES -eq 0 ] || die S5 "auth plane matrix failed"
