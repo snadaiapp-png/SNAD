@@ -156,6 +156,13 @@ SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
 [[ "$SEP_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_RUN_PW must be 48 hex characters"
 admin postgres postgres "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW'" >/dev/null || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
+# Admin may connect via Unix socket while runtime uses TCP. Require both
+# connections to reach the same PostgreSQL postmaster before creating a DB.
+admin_instance=$(admin postgres postgres "SELECT pg_postmaster_start_time()::text")
+runtime_instance=$(env -u PGOPTIONS psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d postgres -At -v ON_ERROR_STOP=1 -c "SELECT pg_postmaster_start_time()::text") || die S0 "runtime TCP identity check failed"
+[ -n "$admin_instance" ] && [ "$admin_instance" = "$runtime_instance" ] || die S0 "admin and runtime connections target different PostgreSQL postmasters"
+admin_port=$(admin postgres postgres "SHOW port")
+[ "$admin_port" = "$SEP_PGPORT" ] || die S0 "admin cluster port $admin_port differs from runtime port $SEP_PGPORT"
 admin postgres postgres "CREATE DATABASE $SEP_DB OWNER sanad_migrator" >/dev/null || die S0 "database creation"
 admin postgres "$SEP_DB" "ALTER DATABASE $SEP_DB SET sanad.deployment_topology = 'separated'" >/dev/null || die S0 "topology GUC"
 m_contract=$(admin postgres postgres "SELECT rolcanlogin||'|'||rolsuper||'|'||rolbypassrls||'|'||rolcreatedb||'|'||rolcreaterole FROM pg_roles WHERE rolname='sanad_migrator'")
