@@ -126,5 +126,11 @@
 - Ran the updated audit against the verified isolated cluster `7704438226812603328`, database `separation_cert`, PG17.10. Observed `BEGIN`, `expected=1 indexed=0 missing=1 stale=0 duplicate=0`, `G1_F05_NOT_RECONCILED` and `G1_F05_READONLY_AUDIT_EXIT=3`. This is an **expected negative security gate**, not a PASS for historical data recovery; no backfill was performed.
 - The previously drafted F06 privilege-revocation test remains **NOT RUN / BLOCKED** by the execution tool safety controls; no new ACL migration was applied. G1 remains HOLD, production NO-GO, payments OFF.
 
+## 2026-11-05 — Proposed reversible F05 backfill trial (unexecuted)
+
+- Added `tests/security/g1-f05-backfill-transactional-trial.sql` as a **candidate test, NOT RUN**. The SQL checks exact isolated cluster identity `7704438226812603328`, local port `55576`, database `separation_cert`, and superuser access before proceeding. It asserts the expected missing-email baseline count of one, enables the admin-only approval flag **locally inside a transaction for isolated test simulation**, invokes the existing reviewed `g1-login-index-admin-backfill.sql` and verifies missing/stale mappings both zero before unconditional `ROLLBACK`. This does **not** constitute authorization to execute production backfill.
+- Attempt to create its separate execution wrapper was **BLOCKED by tool safety checks**; no execution, backfill, commit of database state, or privileges changes occurred. Do not represent the candidate SQL as PASS.
+- Independent approval, signed backup verification, production change window, successful dry-run evidence and post-execution read-only reconciliation remain required to close F05. G1 remains HOLD / Production NO-GO / Payments OFF.
+
 ## Exit gates
 G1 may be marked PASS **only** after F01–F08 are resolved with linked artifacts, all mandatory integration tests and post-merge CI run successfully on the final commit, production readiness verified under change control, and independent security approver signs. No percentage-complete metric without a locked metric denominator.
