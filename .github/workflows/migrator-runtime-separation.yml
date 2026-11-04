@@ -96,6 +96,10 @@ jobs:
           test -s /tmp/flyway/drivers/postgresql-42.7.2.jar
           /tmp/flyway/flyway -v | head -2
 
+      - name: Verify cluster role mutation is blocked without approval
+        shell: bash
+        run: bash tests/security/migrator-separation/test-role-mutation-denial.sh
+
       - name: Run separation acceptance matrix
         shell: bash
         env:
@@ -103,6 +107,7 @@ jobs:
           SEP_PGPORT: '5432'
           SEP_FLYWAY: /tmp/flyway/flyway
           SEP_ADMIN_PSQL: sudo -u postgres psql
+          SEP_ROLE_MUTATION_APPROVED: isolated-certification-only
         run: |
           set -euo pipefail
           # Ephemeral per-run migrator password: generated at runtime, masked,

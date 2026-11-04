@@ -102,10 +102,17 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 # ============================================================================
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
+[ "${SEP_ROLE_MUTATION_APPROVED:-}" = "isolated-certification-only" ] || die S0 "BLOCKED: cluster-wide role changes require explicit isolated certification approval"
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
+# Cluster roles are global: refuse any cluster containing other application DBs.
+other_databases=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname<>'postgres'")
+[ "$other_databases" = "0" ] || die S0 "BLOCKED: shared PostgreSQL cluster has $other_databases non-template application databases"
 [[ "$SEP_DB" =~ ^(separation_cert|g1_sep_cert_[a-z0-9_]+)$ ]] || die S0 "unsafe certification database name: $SEP_DB"
 preexisting=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")
 [ "$preexisting" = "0" ] || die S0 "certification database already exists; refusing destructive reset: $SEP_DB"
+# Validate any injected credential BEFORE modifying global PostgreSQL roles.
+SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
+[[ "$SEP_RUN_PW" =~ ^[0-9a-f]{48}$ ]] || die S0 "BLOCKED: runtime credential must be 48 lowercase hex characters"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -119,7 +126,6 @@ admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NO
 # Ephemeral per-run runtime password (hex, never logged) — required on hosts
 # using password auth for TCP connections (GitHub runners use scram-sha-256;
 # trust-auth local clusters simply ignore it).
-SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
 admin postgres postgres "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW'" >/dev/null || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
 admin postgres postgres "CREATE DATABASE $SEP_DB OWNER sanad_migrator" >/dev/null || die S0 "database creation"
