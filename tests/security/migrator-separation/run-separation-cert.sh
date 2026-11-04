@@ -100,7 +100,11 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
-admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true
+# Never destroy a pre-existing database, even on a mistakenly targeted host.
+# Certification requires a fresh disposable database provisioned by this run.
+if [ "$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")" != "0" ]; then
+  die S0 "database $SEP_DB already exists; refusing destructive replacement"
+fi
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
