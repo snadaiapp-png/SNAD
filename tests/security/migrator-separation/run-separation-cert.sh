@@ -325,7 +325,6 @@ gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORC
 # ============================================================================
 # S8 — verdict
 # ============================================================================
-if [ "$SEP_KEEP_DB" != "1" ]; then admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true; fi
 {
   echo ""
   echo "## Separation acceptance matrix — $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -339,6 +338,11 @@ if [ "$SEP_KEEP_DB" != "1" ]; then admin postgres postgres "DROP DATABASE IF EXI
 
 if [ $FAILURES -gt 0 ]; then
   die VERDICT "$FAILURES probe(s) failed — see $TSV"
+fi
+# Only remove an explicitly created disposable database after every probe passes.
+# A cleanup failure is a failed certification step, never a silent success.
+if [ "$SEP_KEEP_DB" != "1" ]; then
+  admin postgres postgres "DROP DATABASE $SEP_DB" >/dev/null || die S8 "certification database cleanup failed"
 fi
 echo "=================================================================="
 echo "SEPARATION ACCEPTANCE MATRIX: ALL PROBES PASSED ($(wc -l < "$TSV") probes)"
