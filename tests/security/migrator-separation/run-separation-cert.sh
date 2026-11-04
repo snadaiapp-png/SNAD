@@ -355,7 +355,7 @@ gate S6 "subscription_commands append-only + provisioning as sanad"
 SC=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 SUB=dddddddd-dddd-dddd-dddd-dddddddddddd
 PLAN=$(admin postgres "$SEP_DB" "SELECT id FROM public.saas_plans LIMIT 1")
-PLANVER=$(admin postgres "$SEP_DB" "SELECT id FROM public.plan_versions LIMIT 1")
+PLANVER=$(admin postgres "$SEP_DB" "SELECT id FROM public.plan_versions WHERE plan_id='$PLAN' LIMIT 1") || die S6 "plan version lookup failed"
 [ -n "$PLAN" ] || die S6 "no SaaS plan available for subscription probe"
 [ -n "$PLANVER" ] || die S6 "no plan version available for subscription probe"
 # F-01 closure evidence: the runtime role itself creates the subscription row
