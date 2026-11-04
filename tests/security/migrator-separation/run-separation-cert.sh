@@ -299,6 +299,14 @@ expect_value S4_EMPTY_GUC_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.users
 expect_value S4_EMPTY_GUC_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.users WHERE id='$UB' RETURNING 1) SELECT count(*) FROM deleted" "0" "__EMPTY_GUC__"
 expect_value S4_A_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
 expect_value S4_B_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
+# Independently inspect the physical rows as admin: runtime RLS visibility
+# alone cannot prove that no hidden cross-tenant row was inserted or reassigned.
+s4_integrity=$(admin postgres "$SEP_DB" "SELECT
+  (SELECT count(*) FROM public.users WHERE id='$UA' AND tenant_id='$TA')||'|'||
+  (SELECT count(*) FROM public.users WHERE id='$UB' AND tenant_id='$TB')||'|'||
+  (SELECT count(*) FROM public.users WHERE id IN ('66666666-6666-6666-6666-666666666666','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'))") || die S4 "admin integrity inventory failed"
+[ "$s4_integrity" = "1|1|0" ] || die S4 "admin row-integrity mismatch: $s4_integrity (expected 1|1|0)"
+record S4_ADMIN_ROW_INTEGRITY "1|1|0" "$s4_integrity" "admin-confirmed ownership and no injected rows"
 [ $FAILURES -eq 0 ] || die S4 "tenant isolation matrix failed"
 gate S4 "PASS: Tenant A sees 1 (own) / 0 cross-tenant; cross-tenant INSERT 42501; no-GUC and empty-GUC fail-closed (0 rows)"
 
