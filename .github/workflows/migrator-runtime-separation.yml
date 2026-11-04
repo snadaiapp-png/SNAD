@@ -120,9 +120,13 @@ jobs:
           set -euo pipefail
           # Run only on the disposable separated-topology database from the
           # acceptance matrix. This is an inventory, not production proof.
-          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
+          if ! sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
             -f tests/security/rls_forensic_inventory.sql \
-            > /tmp/separation-forensic-inventory.log 2>&1
+            > /tmp/separation-forensic-inventory.log 2>&1; then
+            echo "::error::Forensic SQL failed; inspect the complete query error below."
+            cat /tmp/separation-forensic-inventory.log
+            exit 1
+          fi
           test -s /tmp/separation-forensic-inventory.log
           # A non-empty inventory is not proof of an append-only ledger.
           # Assert effective permissions in the same isolated DB as the audit.
