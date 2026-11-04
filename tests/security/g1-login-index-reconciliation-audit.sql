@@ -1,6 +1,8 @@
 -- G1 F05: READ-ONLY bidirectional reconciliation of the pre-auth lookup index.
 -- Never prints identifier or tenant data. Does not repair/remove rows.
 \set ON_ERROR_STOP on
+-- Both the displayed inventory and the fail-closed verdict use one MVCC snapshot.
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 WITH expected AS (
   SELECT tenant_id, 'email'::text AS kind, email::text AS identifier
   FROM public.users WHERE email IS NOT NULL
@@ -49,3 +51,4 @@ BEGIN
  END IF;
  RAISE NOTICE 'G1_F05_RECONCILED=PASS';
 END $audit$;
+COMMIT;

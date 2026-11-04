@@ -120,5 +120,11 @@
 - Source analysis confirms `V20261103_2` applies blanket `SELECT, INSERT, UPDATE, DELETE` to non-special public tables, including `service_callback_replay`. Runtime `CallbackReplayStore` only INSERTs and DELETEs, while `WorkflowCallbackSecurityPostgresTest` has a direct SELECT assertion. Any permanent narrowing needs a new forward-only Flyway migration plus compatible integration tests; do not edit the applied migration.
 - Completed targeted Maven run on local branch HEAD 2f631146 before evidence-only changes: `TenantRlsConnectionHandlerTest` **10 PASS**, `PreAuthTenantResolverTest` **2 PASS**, **12 run / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESS`, process exit 0. Local evidence: `Documents/SNAD-PR1474-EVIDENCE/g1-f05-f06-focused-maven-20261105.log`. These are focused tests only, not complete integration CI or independent G1 certification.
 
+## 2026-11-05 — Atomic read-only F05 audit
+
+- Improved `tests/security/g1-login-index-reconciliation-audit.sql` with `BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY` and a successful-verdict `COMMIT`, so the displayed mapping counts and the fail-closed verdict are derived from one PostgreSQL MVCC snapshot. On any error `ON_ERROR_STOP` stops the session and PostgreSQL rolls back the read-only transaction.
+- Ran the updated audit against the verified isolated cluster `7704438226812603328`, database `separation_cert`, PG17.10. Observed `BEGIN`, `expected=1 indexed=0 missing=1 stale=0 duplicate=0`, `G1_F05_NOT_RECONCILED` and `G1_F05_READONLY_AUDIT_EXIT=3`. This is an **expected negative security gate**, not a PASS for historical data recovery; no backfill was performed.
+- The previously drafted F06 privilege-revocation test remains **NOT RUN / BLOCKED** by the execution tool safety controls; no new ACL migration was applied. G1 remains HOLD, production NO-GO, payments OFF.
+
 ## Exit gates
 G1 may be marked PASS **only** after F01–F08 are resolved with linked artifacts, all mandatory integration tests and post-merge CI run successfully on the final commit, production readiness verified under change control, and independent security approver signs. No percentage-complete metric without a locked metric denominator.
