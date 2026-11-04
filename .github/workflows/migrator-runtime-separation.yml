@@ -63,14 +63,18 @@ jobs:
             if sudo apt-get install -y -qq --allow-downgrades "postgresql-17=$v" "postgresql-client-17=$v"; then PG_OK=yes; break; fi
           done
           if [ "$PG_OK" != "yes" ]; then
-            echo "GATE_NOTE=PG_17_6_UNAVAILABLE_DEVIATION_TO_LATEST_17X_DOCUMENTED" >> "$GITHUB_ENV"
-            sudo apt-get install -y -qq postgresql-17 postgresql-client-17
+            echo "::error::G1_BLOCKED: PostgreSQL 17.6 exact pin unavailable; certification must not silently use a different version"
+            exit 1
           fi
           sudo pg_dropcluster 16 main --stop 2>/dev/null || true
           sudo pg_dropcluster 17 main --stop 2>/dev/null || true
           sudo pg_createcluster 17 main --start >/dev/null
           sudo pg_lsclusters
           PGV=$(sudo -u postgres psql -Atqc "SHOW server_version;" | grep -oE '^17\.[0-9]+' | head -1)
+          if [ "$PGV" != "17.6" ]; then
+            echo "::error::G1_BLOCKED: PostgreSQL runtime version=$PGV, expected=17.6"
+            exit 1
+          fi
           echo "POSTGRES_VERSION=$PGV (server)" >> "$GITHUB_ENV"
           echo "TOOLCHAIN: PostgreSQL server $PGV / client $(psql --version | grep -oE '17\.[0-9]+' | head -1) (isolated host-native cluster)"
 
