@@ -129,6 +129,10 @@ other_dbs=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE dati
 if [ "$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")" != "0" ]; then
   die S0 "database $SEP_DB already exists; refusing destructive replacement"
 fi
+# An existing runtime role may belong to a different application database or
+# carry grants not visible from the database-count preflight. Never reset it.
+existing_runtime_role=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname='sanad'")
+[ "$existing_runtime_role" = "0" ] || die S0 "existing sanad role detected; refusing to alter shared cluster identity"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
