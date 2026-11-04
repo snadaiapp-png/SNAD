@@ -287,6 +287,14 @@ expect_value S4_B_ROW_PRESERVED_AFTER_REASSIGN "$SEP_DB" "SELECT count(*) FROM p
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
 expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__EMPTY_GUC__"
+# Fail-closed isolation must cover writes, not only empty SELECT results.
+# Use a CTE so the result reports affected-row counts without relying on psql tags.
+expect_value S4_NO_GUC_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.users SET display_name='no-guc' WHERE id='$UA' RETURNING 1) SELECT count(*) FROM changed" "0"
+expect_value S4_NO_GUC_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.users WHERE id='$UA' RETURNING 1) SELECT count(*) FROM deleted" "0"
+expect_value S4_EMPTY_GUC_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.users SET display_name='empty-guc' WHERE id='$UB' RETURNING 1) SELECT count(*) FROM changed" "0" "__EMPTY_GUC__"
+expect_value S4_EMPTY_GUC_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.users WHERE id='$UB' RETURNING 1) SELECT count(*) FROM deleted" "0" "__EMPTY_GUC__"
+expect_value S4_A_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
+expect_value S4_B_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
 [ $FAILURES -eq 0 ] || die S4 "tenant isolation matrix failed"
 gate S4 "PASS: Tenant A sees 1 (own) / 0 cross-tenant; cross-tenant INSERT 42501; no-GUC and empty-GUC fail-closed (0 rows)"
 
