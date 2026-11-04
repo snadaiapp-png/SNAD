@@ -233,6 +233,14 @@ expect_pass S2_SELECT "$SEP_DB" "SELECT count(*) FROM public.saas_plans"
 expect_pass S2_INSERT "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now())"
 expect_value S2_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.tenants SET name='Sep Cert Tenant 2' WHERE id='$T1' RETURNING 1) SELECT count(*) FROM changed" "1"
 expect_value S2_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.tenants WHERE id='$T1' RETURNING 1) SELECT count(*) FROM deleted" "1"
+# Confirm the row is absent in storage, not merely hidden by runtime policies.
+s2_remaining=$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.tenants WHERE id='$T1'") || die S2 "admin tenant deletion inventory failed"
+if [ "$s2_remaining" = "0" ]; then
+  record S2_ADMIN_TENANT_DELETION "0" "$s2_remaining" "admin-confirmed tenant removal"
+else
+  record S2_ADMIN_TENANT_DELETION "0" "$s2_remaining" "tenant deletion integrity mismatch"
+  fail
+fi
 [ $FAILURES -eq 0 ] || die S2 "positive DML matrix failed"
 gate S2 "PASS: SELECT/INSERT/UPDATE/DELETE as restricted runtime role"
 
