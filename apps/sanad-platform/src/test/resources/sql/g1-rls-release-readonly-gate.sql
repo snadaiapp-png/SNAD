@@ -58,3 +58,42 @@ BEGIN
     END IF;
     RAISE NOTICE 'G1_RELEASE_GATE_CATALOG_CHECK=PASS (behavioral tests still required)';
 END $g1_release_gate$;
+
+-- Fail closed for legacy CRM even if a policy is changed to USING (true):
+-- the generic IS NULL/OR heuristic above cannot detect arbitrary permissive
+-- policy regressions. Compare the deparsed expressions against the exact
+-- PostgreSQL 17 canonical form of the reviewed V20261104_2 policy.
+DO $g1_crm_policy_integrity$
+DECLARE
+  expected_expr text := $canonical$((tenant_id)::text = NULLIF(current_setting('app.tenant_id'::text, true), ''::text))$canonical$;
+  table_name text;
+  bad_count integer;
+  checked_count integer := 0;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'crm_assignment_rule_counters','crm_assignment_rule_versions',
+    'crm_customer_score_history','crm_customer_scores','crm_customer_segments',
+    'crm_integration_command_artifacts','crm_integration_command_executions',
+    'crm_integration_decisions','crm_integration_outbox','crm_integration_requests',
+    'crm_ownership_history','crm_queues','crm_scoring_models',
+    'crm_segment_memberships','crm_team_memberships','crm_territories',
+    'crm_territory_assignments','crm_territory_closure','crm_transfer_requests'
+  ] LOOP
+    SELECT count(*) INTO bad_count
+    FROM pg_class c
+    WHERE c.oid=to_regclass(format('public.%I',table_name))
+      AND c.relrowsecurity AND c.relforcerowsecurity
+      AND (SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid)=1
+      AND EXISTS (
+        SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid
+        AND p.polname='tenant_isolation' AND p.polcmd='*'
+        AND pg_get_expr(p.polqual,p.polrelid)=expected_expr
+        AND pg_get_expr(p.polwithcheck,p.polrelid)=expected_expr
+      );
+    IF bad_count<>1 THEN
+      RAISE EXCEPTION 'G1_CRM_POLICY_INTEGRITY_FAIL table=%',table_name;
+    END IF;
+    checked_count:=checked_count+1;
+  END LOOP;
+  RAISE NOTICE 'G1_CRM_POLICY_INTEGRITY=PASS tables=%',checked_count;
+END $g1_crm_policy_integrity$;
