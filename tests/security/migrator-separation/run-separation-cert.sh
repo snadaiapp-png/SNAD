@@ -137,7 +137,7 @@ expect_value() { # expect_value <id> <db> <sql> <expected> [guc]
 }
 expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibility)
   runtime_capture "$2" "$3" "${4:-}"
-  if [ $runtime_rc -eq 0 ] && [ "$runtime_out" = "UPDATE 0" -o "$runtime_out" = "DELETE 0" ]; then
+  if [ "$runtime_rc" -eq 0 ] && { [ "$runtime_out" = "UPDATE 0" ] || [ "$runtime_out" = "DELETE 0" ]; }; then
     record "$1" "ZERO_EFFECT" "$runtime_out" ok
   else record "$1" "ZERO_EFFECT" "FAIL(rc=$runtime_rc out='$runtime_out')" "$runtime_err"; fail; fi
 }
