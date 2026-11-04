@@ -111,7 +111,7 @@ jobs:
           END \$r\$;
           ALTER ROLE sanad_migrator PASSWORD '$mig_pw';
           SQL
-          SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+          SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
 
       - name: Capture read-only RLS and SECURITY DEFINER forensic inventory
         if: success()
