@@ -362,6 +362,7 @@ else
   printf 'S8_DATABASE_CLEANUP=SKIPPED_BY_SEP_KEEP_DB\nS8_ROLE_CLEANUP=NOT_PERFORMED\n' >> "$SUMMARY"
 fi
 echo "=================================================================="
-echo "SEPARATION ACCEPTANCE MATRIX: ALL PROBES PASSED ($(wc -l < "$TSV") probes)"
+echo "SEPARATION PROBES: PASSED ($(wc -l < "$TSV") probes); CLUSTER CLEANUP: INCOMPLETE"
+echo "Certification is NOT a production authorization; ephemeral roles remain pending isolated-cluster disposal."
 echo "Artifacts: $ART (matrix.tsv, S1-migrate.log, S1-validate.log, summary.md)"
 echo "=================================================================="
