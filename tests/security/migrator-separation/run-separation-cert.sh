@@ -356,6 +356,8 @@ SC=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 SUB=dddddddd-dddd-dddd-dddd-dddddddddddd
 PLAN=$(admin postgres "$SEP_DB" "SELECT id FROM public.saas_plans LIMIT 1")
 PLANVER=$(admin postgres "$SEP_DB" "SELECT id FROM public.plan_versions LIMIT 1")
+[ -n "$PLAN" ] || die S6 "no SaaS plan available for subscription probe"
+[ -n "$PLANVER" ] || die S6 "no plan version available for subscription probe"
 # F-01 closure evidence: the runtime role itself creates the subscription row
 expect_pass S6_TENANT_SUB_INS "$SEP_DB" "INSERT INTO public.tenant_subscriptions (id,tenant_id,plan_id,plan_version_id,status,billing_cycle,seat_quantity,credit_balance_minor,started_at,current_period_start,current_period_end,cancel_at_period_end,created_at,updated_at) VALUES ('$SUB','$TA','$PLAN','$PLANVER','TRIALING','MONTHLY',1,0,now(),now(),now()+interval '30 days',false,now(),now())" "$TA"
 expect_pass S6_SUB_INS "$SEP_DB" "INSERT INTO public.subscription_commands (id,subscription_id,tenant_id,command,from_status,to_status,reason,created_at) VALUES ('$SC','$SUB','$TA','CHANGE_PLAN','TRIALING','ACTIVE','separation-cert probe',now())" "$TA"
