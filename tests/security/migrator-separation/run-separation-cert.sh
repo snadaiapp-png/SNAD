@@ -33,7 +33,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261103.2"
+EXPECTED_HEAD="20261104.1"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 mkdir -p "$ART"
 TSV="$ART/matrix.tsv"; : > "$TSV"
@@ -100,7 +100,9 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
-admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true
+[[ "$SEP_DB" =~ ^(separation_cert|g1_sep_cert_[a-z0-9_]+)$ ]] || die S0 "unsafe certification database name: $SEP_DB"
+preexisting=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")
+[ "$preexisting" = "0" ] || die S0 "certification database already exists; refusing destructive reset: $SEP_DB"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -187,7 +189,8 @@ admin postgres "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,c
 admin postgres "$SEP_DB" "SET app.tenant_id='$TA'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
 admin postgres "$SEP_DB" "SET app.tenant_id='$TB'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
 expect_value S4_A_SEES_A "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TA"
-expect_value S4_A_SEES_TOTAL "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TA"
+expect_value S4_B_SEES_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
+expect_value S4_B_CANNOT_SEE_A "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "0" "$TB"
 expect_value S4_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.users SET display_name='x' WHERE id='$UB' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
@@ -209,8 +212,8 @@ expect_pass S5_REFRESH_UPD "$SEP_DB" "UPDATE public.refresh_tokens SET status='R
 expect_pass S5_REFRESH_DEL "$SEP_DB" "DELETE FROM public.refresh_tokens WHERE id='$RT'" "$TA"
 expect_pass S5_RESET_INS "$SEP_DB" "INSERT INTO public.password_reset_tokens (id,tenant_id,user_id,token_hash,expires_at,created_at) VALUES ('$PRT','$TA','$UC','sepcert-hash-2',now()+interval '1 hour',now())" "$TA"
 expect_pass S5_RESET_DEL "$SEP_DB" "DELETE FROM public.password_reset_tokens WHERE id='$PRT'" "$TA"
-expect_pass S5_PREAUTH_RESOLVE "$SEP_DB" "SELECT count(*) FROM public.g1_resolve_login_tenants('a@sepcert.test','')"
-expect_pass S5_PREAUTH_INDEX "$SEP_DB" "SELECT count(*) FROM public.login_tenant_index"
+expect_value S5_PREAUTH_RESOLVE "$SEP_DB" "SELECT count(*) FROM public.g1_resolve_login_tenants('email','a@sepcert.test')" "1"
+expect_value S5_PREAUTH_INDEX "$SEP_DB" "SELECT count(*) FROM public.login_tenant_index WHERE kind='email' AND identifier='a@sepcert.test' AND tenant_id='$TA'" "1"
 [ $FAILURES -eq 0 ] || die S5 "auth plane matrix failed"
 gate S5 "PASS: user creation, refresh/reset token lifecycle, trigger-maintained pre-auth index, pre-auth resolver (no GUC)"
 
@@ -243,6 +246,10 @@ runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','
 [ "$runtime_create" = "f" ] || die S7 "sanad still holds CREATE on public"
 rls_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('users','refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands') AND NOT (relrowsecurity AND relforcerowsecurity)")
 [ "$rls_bad" = "0" ] || die S7 "FORCE RLS missing on $rls_bad guarded tables"
+tenant_force_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid AND a.attname='tenant_id' WHERE c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p') AND c.relrowsecurity AND NOT c.relforcerowsecurity")
+[ "$tenant_force_bad" = "0" ] || die S7 "tenant-scoped tables missing FORCE RLS: $tenant_force_bad"
+failopen_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relnamespace='public'::regnamespace AND c.relrowsecurity AND (pg_get_expr(p.polqual,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%' OR pg_get_expr(p.polwithcheck,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%')")
+[ "$failopen_bad" = "0" ] || die S7 "fail-open tenant policies detected: $failopen_bad"
 seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT (has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'USAGE') AND has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'SELECT'))")
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
