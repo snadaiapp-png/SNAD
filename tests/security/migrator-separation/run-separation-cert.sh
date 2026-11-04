@@ -351,6 +351,13 @@ fi
 # A cleanup failure is a failed certification step, never a silent success.
 if [ "$SEP_KEEP_DB" != "1" ]; then
   admin postgres postgres "DROP DATABASE $SEP_DB" >/dev/null || die S8 "certification database cleanup failed"
+  # The database is removed, but cluster-wide login roles are intentionally
+  # NOT deleted by this script. Do not misrepresent this as full cleanup.
+  remaining_roles=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator')") || die S8 "unable to inventory retained roles"
+  printf 'S8_DATABASE_CLEANUP=COMPLETED\nS8_ROLE_CLEANUP=NOT_PERFORMED\nS8_RETAINED_ROLE_COUNT=%s\n' "$remaining_roles" >> "$SUMMARY"
+  echo "::warning::S8: database removed; $remaining_roles certification login roles remain and require isolated-cluster disposal" >&2
+else
+  printf 'S8_DATABASE_CLEANUP=SKIPPED_BY_SEP_KEEP_DB\nS8_ROLE_CLEANUP=NOT_PERFORMED\n' >> "$SUMMARY"
 fi
 echo "=================================================================="
 echo "SEPARATION ACCEPTANCE MATRIX: ALL PROBES PASSED ($(wc -l < "$TSV") probes)"
