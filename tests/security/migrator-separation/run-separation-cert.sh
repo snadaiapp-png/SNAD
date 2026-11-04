@@ -207,8 +207,18 @@ expect_value S4_NO_GUC_EFFECTIVE "$SEP_DB" "SELECT CASE WHEN current_setting('ap
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
 expect_value S4_EMPTY_GUC_EFFECTIVE "$SEP_DB" "SELECT CASE WHEN current_setting('app.tenant_id',true)='' THEN 'EXPLICIT_EMPTY' ELSE 'UNEXPECTED' END" "EXPLICIT_EMPTY" "__G1_EXPLICIT_EMPTY_GUC__"
 expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__G1_EXPLICIT_EMPTY_GUC__"
+# Regression for the CRM tables that historically used fail-open tenant policies.
+# Fixture INSERT is performed by the isolated cluster's admin; assertions are
+# performed through a separate restricted runtime connection.
+admin postgres "$SEP_DB" "INSERT INTO public.crm_customer_segments(tenant_id,segment_code,segment_name,segment_type) VALUES ('$TA','g1-cert-segment-a','G1 cert segment A','MANUAL'),('$TB','g1-cert-segment-b','G1 cert segment B','MANUAL')" >/dev/null || die S4 "CRM A/B fixture seed failed"
+expect_value S4_CRM_A_OWN "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code='g1-cert-segment-a'" "1" "$TA"
+expect_value S4_CRM_A_CANNOT_SEE_B "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code='g1-cert-segment-b'" "0" "$TA"
+expect_value S4_CRM_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.crm_customer_segments SET segment_name='G1 unauthorized' WHERE segment_code='g1-cert-segment-b' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
+expect_deny S4_CRM_CROSS_INSERT "$SEP_DB" "INSERT INTO public.crm_customer_segments (tenant_id,segment_code,segment_name,segment_type) VALUES ('$TB','g1-cert-cross-insert','G1 blocked','MANUAL')" "$TA"
+expect_value S4_CRM_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code IN ('g1-cert-segment-a','g1-cert-segment-b')" "0"
+expect_value S4_CRM_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code IN ('g1-cert-segment-a','g1-cert-segment-b')" "0" "__G1_EXPLICIT_EMPTY_GUC__"
 [ $FAILURES -eq 0 ] || die S4 "tenant isolation matrix failed"
-gate S4 "PASS: Tenant A sees 1 (own) / 0 cross-tenant; cross-tenant INSERT 42501; no-GUC and empty-GUC fail-closed (0 rows)"
+gate S4 "PASS: Users + CRM Tenant A/B access isolated; denied cross-tenant INSERT; missing/empty-GUC both fail-closed"
 
 # ============================================================================
 # S5 — auth plane: user + refresh tokens + trigger + password reset + pre-auth
