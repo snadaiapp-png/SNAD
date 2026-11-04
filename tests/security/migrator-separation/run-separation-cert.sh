@@ -112,7 +112,18 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 # ============================================================================
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
+# This script changes cluster-wide roles and passwords. Refuse execution unless
+# explicitly authorized for an isolated, disposable PostgreSQL cluster.
+[ "${SEP_ISOLATED_CLUSTER:-0}" = "1" ] || die S0 "SEP_ISOLATED_CLUSTER=1 required before cluster-wide role changes"
+case "$SEP_PGHOST" in
+  127.0.0.1|localhost|::1) ;;
+  *) die S0 "refusing role mutations on non-loopback SEP_PGHOST=$SEP_PGHOST" ;;
+esac
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
+# A disposable certification cluster must have no other user databases.
+# Check this BEFORE touching existing roles, even when SEP_DB is absent.
+other_dbs=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname <> 'postgres'")
+[ "$other_dbs" = "0" ] || die S0 "cluster contains $other_dbs non-system database(s); refusing role mutations"
 # Never destroy a pre-existing database, even on a mistakenly targeted host.
 # Certification requires a fresh disposable database provisioned by this run.
 if [ "$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")" != "0" ]; then
