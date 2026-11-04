@@ -75,9 +75,8 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   runtime_err=$(cat "$ART/last-err.txt")
   runtime_sqlstate=$(printf '%s' "$runtime_err" | grep -oE 'ERROR: [0-9A-Z]{5}:' | head -1 | grep -oE '[0-9A-Z]{5}')
   [ -z "$runtime_sqlstate" ] && runtime_sqlstate=$(printf '%s' "$runtime_err" | grep -oE 'SQLSTATE: [0-9A-Z]+' | head -1 | sed 's/SQLSTATE: //')
-  [ -z "$runtime_sqlstate" ] && printf '%s' "$runtime_err" | grep -q "permission denied" && runtime_sqlstate=42501
-  [ -z "$runtime_sqlstate" ] && printf '%s' "$runtime_err" | grep -q "must be owner" && runtime_sqlstate=42501
-  [ -z "$runtime_sqlstate" ] && printf '%s' "$runtime_err" | grep -q "violates row-level security" && runtime_sqlstate=42501
+  # Never infer SQLSTATE from localized/free-form error messages.
+  # A negative security probe passes only with a real PostgreSQL SQLSTATE.
 }
 
 record() { # record <id> <expected> <actual_outcome> <detail>
