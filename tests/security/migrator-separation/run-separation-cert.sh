@@ -354,7 +354,7 @@ gate S5 "PASS: user creation, refresh/reset token lifecycle, trigger-maintained 
 gate S6 "subscription_commands append-only + provisioning as sanad"
 SC=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 SUB=dddddddd-dddd-dddd-dddd-dddddddddddd
-PLAN=$(admin postgres "$SEP_DB" "SELECT id FROM public.saas_plans LIMIT 1")
+PLAN=$(admin postgres "$SEP_DB" "SELECT p.id FROM public.saas_plans p WHERE EXISTS (SELECT 1 FROM public.plan_versions v WHERE v.plan_id=p.id) ORDER BY p.id LIMIT 1") || die S6 "plan fixture lookup failed"
 PLANVER=$(admin postgres "$SEP_DB" "SELECT id FROM public.plan_versions WHERE plan_id='$PLAN' LIMIT 1") || die S6 "plan version lookup failed"
 [ -n "$PLAN" ] || die S6 "no SaaS plan available for subscription probe"
 [ -n "$PLANVER" ] || die S6 "no plan version available for subscription probe"
