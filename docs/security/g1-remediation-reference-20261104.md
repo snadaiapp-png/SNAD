@@ -37,6 +37,7 @@
 - 2026-11-04: hardened SQL release gate now raises `G1_RELEASE_GATE_FAIL nonforced=19 failopen_policies=19 runtime_owner_or_truncate=321`; `G1_SQL_AUDIT_EXIT=3` proves fail-closed gate behavior. Query runs against local V3 only.
 - 2026-11-04: focused Maven `TenantRlsConnectionHandlerTest`: 10 tests, 0 failures, 0 errors, 0 skips; BUILD SUCCESS. Not a substitute for direct PostgreSQL Tenant A/B acceptance.
 - 2026-11-04: attempted to author a forward-only 19-table RLS policy/ FORCE remediation but remote tool safety blocked the write. No policy change was committed or applied. Status BLOCKED.
+- 2026-11-04 continuation: checked the repository runbook `docs/security/migrator-runtime-separation/RUNBOOK.md`, the one-time ownership transfer SQL `scripts/ops/migrator-separation/transfer-ownership-to-migrator.sql`, and the 35-probe workflow `.github/workflows/migrator-runtime-separation.yml`. These are source artifacts, not executed certification evidence on this branch. Never run migration clean/reset tests against restore V3; create a new disposable database with recorded identity first.
 - Current scope: all additional findings require dedicated tests; there is no production certification.
 
 ## Exit gates
