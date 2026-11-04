@@ -135,7 +135,7 @@ jobs:
                    has_table_privilege('sanad',c.oid,'TRUNCATE')::text
             FROM pg_class c
             WHERE c.oid=to_regclass('public.subscription_commands');")"
-          printf 'LEDGER_EFFECTIVE_ACL=%s\\n' "$ledger_acl" | tee -a /tmp/separation-forensic-inventory.log
+          printf '%s\n' "LEDGER_EFFECTIVE_ACL=$ledger_acl" | tee -a /tmp/separation-forensic-inventory.log
           test "$ledger_acl" = "true|true|true|false|false|false"
           echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
 
