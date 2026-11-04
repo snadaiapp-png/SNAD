@@ -382,9 +382,9 @@ own_stats=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(c.relowner)||':'||c
 echo "OWNERSHIP: $own_stats" >> "$SUMMARY"
 runtime_owned=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') AND pg_get_userbyid(c.relowner)='sanad'") || die S7 "runtime ownership inventory failed"
 [ "$runtime_owned" = "0" ] || die S7 "runtime role owns $runtime_owned public objects: $own_stats"
-hist_owner=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.flyway_schema_history'::regclass")
+hist_owner=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.flyway_schema_history'::regclass") || die S7 "Flyway history ownership query failed"
 [ "$hist_owner" = "sanad_migrator" ] || die S7 "flyway_schema_history owner=$hist_owner"
-runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','public','CREATE')")
+runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','public','CREATE')") || die S7 "runtime schema CREATE privilege query failed"
 [ "$runtime_create" = "f" ] || die S7 "sanad still holds CREATE on public"
 public_create=$(admin postgres "$SEP_DB" "SELECT EXISTS (SELECT 1 FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='CREATE')") || die S7 "PUBLIC CREATE privilege check failed"
 [ "$public_create" = "f" ] || die S7 "PUBLIC has CREATE privilege on public schema"
