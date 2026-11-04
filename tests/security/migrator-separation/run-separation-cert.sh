@@ -49,10 +49,13 @@ admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   local guc_args=()
-  if [ $# -ge 3 ] && [ -n "$3" ]; then
+  if [ $# -ge 3 ] && [ "$3" = "__G1_EXPLICIT_EMPTY_GUC__" ]; then
+    guc_args=(PGOPTIONS="-c app.tenant_id=")
+  elif [ $# -ge 3 ] && [ -n "$3" ]; then
     guc_args=(PGOPTIONS="-c app.tenant_id=$3")
   fi
-  runtime_out=$(env "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+  # Clear inherited PGOPTIONS so missing-GUC and explicit-empty-GUC probes differ.
+  runtime_out=$(env -u PGOPTIONS "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
@@ -194,7 +197,7 @@ expect_value S4_B_CANNOT_SEE_A "$SEP_DB" "SELECT count(*) FROM public.users WHER
 expect_value S4_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.users SET display_name='x' WHERE id='$UB' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
-expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" ""
+expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__G1_EXPLICIT_EMPTY_GUC__"
 [ $FAILURES -eq 0 ] || die S4 "tenant isolation matrix failed"
 gate S4 "PASS: Tenant A sees 1 (own) / 0 cross-tenant; cross-tenant INSERT 42501; no-GUC and empty-GUC fail-closed (0 rows)"
 

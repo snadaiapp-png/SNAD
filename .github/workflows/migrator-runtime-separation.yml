@@ -21,6 +21,8 @@ on:
     paths:
       - '.github/workflows/migrator-runtime-separation.yml'
       - 'tests/security/migrator-separation/**'
+      - 'tests/security/g1-*'
+      - 'scripts/ops/g1-login-index-admin-backfill.sql'
       - 'apps/sanad-platform/src/main/resources/db/**'
   workflow_dispatch:
 
