@@ -39,6 +39,11 @@ if [[ "$SEP_KEEP_DB" != "0" && "$SEP_KEEP_DB" != "1" ]]; then
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Serialize invocations of this checkout before touching cluster-wide roles.
+# Lock the existing script inode (read-only) rather than a writable /tmp path.
+command -v flock >/dev/null 2>&1 || { echo "::error::flock is required" >&2; exit 1; }
+exec 9< "${BASH_SOURCE[0]}" || exit 1
+flock -n 9 || { echo "::error::Another certification is running from this checkout" >&2; exit 1; }
 SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
