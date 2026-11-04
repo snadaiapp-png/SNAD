@@ -144,7 +144,7 @@ BEGIN
  RAISE NOTICE 'G1_A_B=PASS own=% foreign=%',own_count,foreign_count;
 END $a$;
 DO $write_denial$
-DECLARE foreign_changed integer; error_code text; own_changed integer;
+DECLARE foreign_changed integer; foreign_deleted integer; error_code text; own_changed integer;
 BEGIN
  WITH changed AS (
   UPDATE public.crm_customer_segments SET segment_name='G1 forbidden update'
@@ -152,6 +152,13 @@ BEGIN
  ) SELECT count(*) INTO foreign_changed FROM changed;
  IF foreign_changed<>0 THEN
    RAISE EXCEPTION 'G1_CROSS_UPDATE=FAIL changed=%',foreign_changed;
+ END IF;
+ WITH deleted AS (
+  DELETE FROM public.crm_customer_segments
+  WHERE segment_code='g1-fix-tenant-b' RETURNING 1
+ ) SELECT count(*) INTO foreign_deleted FROM deleted;
+ IF foreign_deleted<>0 THEN
+   RAISE EXCEPTION 'G1_CROSS_DELETE=FAIL deleted=%',foreign_deleted;
  END IF;
  BEGIN
    INSERT INTO public.crm_customer_segments(tenant_id,segment_code,segment_name,segment_type)
@@ -168,8 +175,19 @@ BEGIN
  IF own_changed<>1 THEN
    RAISE EXCEPTION 'G1_OWN_UPDATE=FAIL changed=%',own_changed;
  END IF;
- RAISE NOTICE 'G1_WRITES=PASS foreign_update=0 cross_insert=denied_42501 own_update=1';
+ RAISE NOTICE 'G1_WRITES=PASS foreign_update=0 foreign_delete=0 cross_insert=denied_42501 own_update=1';
 END $write_denial$;
+SELECT set_config('app.tenant_id','22222222-2222-2222-2222-222222222272',true);
+DO $b$
+DECLARE own_count integer; foreign_count integer;
+BEGIN
+ SELECT count(*) INTO own_count FROM public.crm_customer_segments WHERE segment_code='g1-fix-tenant-b';
+ SELECT count(*) INTO foreign_count FROM public.crm_customer_segments WHERE segment_code='g1-fix-tenant-a';
+ IF own_count<>1 OR foreign_count<>0 THEN
+   RAISE EXCEPTION 'G1_B_A=FAIL own=% foreign=%',own_count,foreign_count;
+ END IF;
+ RAISE NOTICE 'G1_B_A=PASS own=% foreign=%',own_count,foreign_count;
+END $b$;
 SELECT set_config('app.tenant_id','',true);
 DO $empty$
 DECLARE visible integer;
