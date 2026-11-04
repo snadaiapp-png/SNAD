@@ -45,7 +45,18 @@ VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 EXPECTED_HEAD="20261103.3"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
-mkdir -p "$ART"
+# Evidence must be isolated to this run; never follow an existing symlink
+# or overwrite previous certification evidence on a reused host.
+umask 077
+[ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }
+if [ -e "$ART" ]; then
+  [ -d "$ART" ] && [ -z "$(ls -A "$ART")" ] || {
+    echo "::error::Evidence directory already contains data; choose a fresh SEP_ARTIFACTS" >&2
+    exit 1
+  }
+else
+  mkdir -m 700 -p "$ART" || exit 1
+fi
 TSV="$ART/matrix.tsv"; : > "$TSV"
 SUMMARY="$ART/summary.md"
 FAILURES=0
