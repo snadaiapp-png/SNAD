@@ -74,6 +74,8 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 on_exit() {
   local status=$?
   trap - EXIT
+  # S1 can exit before its normal unset; clear Flyway credentials on all exits.
+  unset FLYWAY_PASSWORD
   if [ "$status" -ne 0 ]; then
     # A failure can occur before provisioning; do not claim resources exist.
     printf 'EXIT_STATUS=%s\nAUTO_CLEANUP_ON_FAILURE=SKIPPED\nRESOURCE_EXISTENCE=UNVERIFIED\n' "$status" >> "$SUMMARY"
