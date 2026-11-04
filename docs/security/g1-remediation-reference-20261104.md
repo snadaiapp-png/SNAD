@@ -9,19 +9,19 @@
 
 | ID | Severity | Evidence | Required acceptance | Current state |
 |---|---|---|---|---|
-| F01 | High | Tenant transfer retained 2 stale login index entries under old tenant (transactional test EXIT 3). | New migration tested via actual Flyway + inserted/updated/transferred/deleted fixture under transaction. No old mappings. | Candidate V20261104_1 tested using psql transaction; not deployed or CI-integrated. |
-| F02 | Critical | Under sanad, RLS inactive on 19 CRM tables; all 19 `tenant_isolation` policies also allow NULL `app.tenant_id`, so FORCE alone is insufficient. | Both FORCE RLS and fail-closed USING/WITH CHECK, plus A/B and absent-GUC tests, direct PostgreSQL. | CANDIDATE TESTED on shadow under ROLLBACK — V20261104_2; direct A/B and missing/empty GUC plus negative writes PASS; not applied, merged, or Flyway-validated |
-| F03 | Critical | `sanad` owns public tables and has implicit TRUNCATE privileges including CRM and login index. | Separated ownership and runtime no TRUNCATE/DDL verified after *Flyway running in separated topology* on restored scratch DB. | OPEN |
-| F04 | High | `sanad` owns flyway_schema_history; SELECT and TRUNCATE are true in fixture DB. | Runtime cannot access/alter Flyway ledger; migration runner separated; verify PostgreSQL denies. | OPEN |
+| F01 | High | Original V3 tenant transfer left stale old-tenant login-index mappings. | Apply forward migration and rerun tenant transfer business flow with A/B isolation. | Migration V20261104.1 applied in fresh separated PG17.10 full Flyway chain; prior direct rollback transfer regression PASS. Post-Flyway real-connection transfer regression and production deployment remain OPEN. |
+| F02 | Critical | V3 baseline: sanad can view other tenants; 19 CRM policies fail open when `app.tenant_id` is absent. | FORCE RLS, fail-closed policy, actual A/B tests and separated ownership. | DIAGNOSTIC PASS on fresh separate PG17.10: Flyway V20261104.2 applied, strict catalog gate and 8 direct runtime A/B probes PASS; production deployment and pinned PG17.6 CI still OPEN. |
+| F03 | Critical | Original shared V3 had `sanad` ownership and implicit TRUNCATE on public tables. | Migration-owned objects and runtime DDL/TRUNCATE denial after real separated Flyway. | DIAGNOSTIC PASS: fresh PG17.10 has 321/321 public tables owned by `sanad_migrator`, 7/7 direct runtime privilege denials on original and restored databases; production still OPEN. |
+| F04 | High | In original shared V3, `sanad` owned and could read/truncate Flyway history. | Runtime must not read or tamper with migration ledger. | DIAGNOSTIC PASS: direct `sanad` read/write and TRUNCATE denials demonstrated on fresh migrated and restored PG17.10 databases; production still OPEN. |
 | F05 | High/Operational | 1 users row and 0 login index rows; count missing mappings=1 in both source and restore. Pre-auth migration documents need for historical backfill. | Idempotent, independently reviewed backfill with reconciled counts and zero unexpected mappings. | OPEN |
 | F06 | High | Four indexed/replay tables have tenant_id with RLS disabled. | Document trust boundary and caller-level ACL; protect raw access while preserving pre-auth discovery. | REVIEW |
-| F07 | Release blocker | No independently verified production security or A/B acceptance or signed security review. | Post-merge SHA, CI, backup/restore, rollback, direct RLS proof, independent sign-off. | BLOCKED |
+| F07 | Release blocker | No signed independent production security clearance or post-merge CI on the final SHA. | Pinned PG17.6 CI, signed review, full-stack E2E, production change controls and recovery proofs. | BLOCKED: fresh PG17.10 full Flyway + database-level backup/restore tests PASS, but pinned CI, global-role recovery, post-merge and independent approval remain OPEN. |
 | F08 | Disproven in tested scenario | Attempted same-tenant duplicate username insert was rejected by `uk_users_tenant_username_ci` (psql EXIT 3, expected unique violation). | Preserve unique constraint; add regression covering duplicate rejection and no orphaned state. | DISPROVEN for direct duplicate insertion; broad race scenarios not tested |
 
 ## Non-negotiable rules
 1. Never edit previously applied Flyway migration files. Forward-only migration names, checksum verification, explicit topology guard.
 2. No production write, PAYMENTS toggle, deploy, merge, or G1 sign-off without evidence and approvals.
-3. Exact local cluster/database validation before writes. All exploratory writes inside BEGIN/ROLLBACK on isolated restored fixtures.
+3. Exact local cluster/database validation before writes. The old V3 shadow probes use BEGIN/ROLLBACK. Fresh migrated PG17.10 certification databases are isolated, persisted test-only environments; fixtures are removed and independently checked after direct connection probes.
 4. Privileged postgres tests do not prove runtime RLS; require separate non-owner runtime test and least-privilege proof.
 5. RLS-disabled pre-auth index is *intentional*; no blanket FORCE RLS there without redesign. Do not expose identifiers to untrusted clients.
 6. Record tests with date, HEAD, database cluster ID, test command, exit code, actual results; report skips or failures explicitly.
@@ -69,6 +69,30 @@
 - 2026-11-05 additional bidirectional A/B proof: extended reversible `tests/security/g1-shadow-crm-rls-rollback.sql` to verify tenant B sees exactly one own CRM segment and zero tenant A segments (`G1_B_A=PASS own=1 foreign=0`) and a tenant A-context DELETE targeting tenant B affects zero rows (`G1_WRITES=PASS foreign_update=0 foreign_delete=0 cross_insert=denied_42501 own_update=1`). Whole isolated combined SQL test passed after policy-integrity guard, `G1_SHADOW_CRM_FIX_EXIT=0`; separate post-ROLLBACK check `SHADOW_POSTROLLBACK_EXIT=0`, no trial rows or FORCE residue persisted. These are concrete fixtures in crm_customer_segments; per-table A/B DML on the other 18 historical CRM tables and full fresh Flyway/CI are still outstanding.
 - 2026-11-05 CI acceptance integration: found separated certification S7 previously inspected FORCE-RLS and a narrow fail-open SQL-text heuristic, but did not execute the versioned `g1-rls-release-readonly-gate.sql` with strict exact CRM policy expressions. Added `admin_file` helper (psql -X -v ON_ERROR_STOP=1 -f) and mandatory S7_G1_RELEASE_CATALOG invocation that logs to S7-g1-release-catalog.log and blocks the verdict on any failure. Updated GitHub Actions pull-request path triggers to include this release SQL and `scripts/ops/migrator-separation/**` bootstrap changes. Executed local `bash -n` syntax check EXIT 0, denial tests `ROLE_MUTATION_DENIAL=PASS`, `AUTO_DELETION_DENIAL=PASS`, and `git diff --check` clean. No new full CI/Flyway acceptance matrix run; no role or production changes. Previously established shadow red/green evidence for the underlying SQL remains separate.
 - Current scope: all additional findings require dedicated tests; there is no production certification.
+
+## 2026-11-05 — Fresh isolated Flyway and recovery evidence
+
+**Execution provenance:** local repo branch `fix/g1-forensic-closure-20261104` at starting HEAD `3406199de45bc15589456b3a1e0d144e41ca4e92` (verify final HEAD separately); new local PostgreSQL cluster `7704438226812603328`, listening only on `127.0.0.1:55576`, server **17.10**. Neither original shared cluster `7703842253085562712` nor production were changed. New disposable database `separation_cert` created with `sanad_migrator` as owner, `sanad` as restricted runtime, SCRAM credentials stored user-encrypted and never printed. Credentials and log files are outside the Git repository under `Documents/SNAD-PR1474-EVIDENCE/g1-pg17-dedicated-20261105/`.
+
+| Evidence | Actual result | Limit |
+|---|---|---|
+| Maven Flyway 11.7.2 `info` | Exit 0, 20261104.1 and 20261104.2 pending before migration | Diagnostic PG17.10, not CI pin 17.6 |
+| `migrate` as real `sanad_migrator` DB connection | Exit 0; **254 migrations applied**, head **20261104.2** | Not merged or deployed |
+| `validate` as migrator | Exit 0 / BUILD SUCCESS | PG17.10 only |
+| Post-migration direct catalog check | 321 public ordinary/partitioned tables owned by `sanad_migrator`; runtime cannot SELECT/TRUNCATE `flyway_schema_history`, but may SELECT CRM subject to RLS | Other schemas/extensions need their own inventory |
+| Strict release catalog SQL | Exit 0, `G1_RELEASE_GATE_CATALOG_CHECK=PASS`, `G1_CRM_POLICY_INTEGRITY=PASS tables=19` | Behavioral A/B separately required |
+| **Eight direct connections as `sanad`** | A→B and B→A both own=1 foreign=0; missing-GUC and empty-GUC both 0 rows; foreign UPDATE/DELETE both 0 rows; foreign INSERT rejected with SQLSTATE 42501; own UPDATE 1 row | Concrete CRM segment fixture, other 18 CRM tables not fixture-tested |
+| Fixture cleanup after direct A/B | `DIRECT_FIXTURE_RESIDUE=0` | Test data only |
+| **Seven runtime privilege denials** on original dedicated DB | 7/7 PASS, SQLSTATE 42501: Flyway SELECT/UPDATE, DDL, CRM TRUNCATE, SET ROLE, BYPASSRLS, CREATE TABLE | Restricted role real connections |
+| `pg_dump -Fc` database backup | Exit 0; file size **1,830,859 bytes** | Database dump, not globals/cluster snapshot |
+| `pg_restore --exit-on-error` into new `separation_restore_cert` | Exit 0, 254 successful migration entries, head 20261104.2, 321 tables owned by `sanad_migrator` | Database-level topology setting reapplied explicitly on destination |
+| Strict G1 SQL on restored database | Exit 0; 19 exact CRM policies pass | Does not prove full disaster recovery |
+| Flyway `validate` against restored database | Exit 0 / BUILD SUCCESS | Same local cluster and roles |
+| Seven restricted runtime privilege denials on restored database | 7/7 PASS, SQLSTATE 42501 | Restored data/ACL test only |
+
+**Corrected test-harness false negative:** the first direct foreign INSERT produced correct `42501` but the standalone `psql -c` returned process exit 1, not the harness's assumed exit 3. The harness was corrected to demand a nonzero exit **and** SQLSTATE 42501, then the full eight-probe set was rerun and passed; both runs cleaned up fixture rows.
+
+**Outstanding release requirements:** exact PostgreSQL 17.6 isolated CI job; full repository CI / Maven / E2E and post-merge final SHA; independent backup of global roles, PostgreSQL authentication/settings and full restore on a different cluster; historical login-index backfill review and rollout; F06 trust-boundary review; independent security approver's dated signoff. No authorization for production or payments.
 
 ## Exit gates
 G1 may be marked PASS **only** after F01–F08 are resolved with linked artifacts, all mandatory integration tests and post-merge CI run successfully on the final commit, production readiness verified under change control, and independent security approver signs. No percentage-complete metric without a locked metric denominator.
