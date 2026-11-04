@@ -65,7 +65,9 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   elif [ $# -ge 3 ] && [ -n "$3" ]; then
     guc_args=(PGOPTIONS="-c app.tenant_id=$3")
   fi
-  runtime_out=$(env "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+  # Never inherit an ambient PGOPTIONS tenant context into an unset-GUC probe.
+  # Explicit tenant probes supply their own controlled PGOPTIONS value.
+  runtime_out=$(env -u PGOPTIONS "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
