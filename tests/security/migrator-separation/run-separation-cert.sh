@@ -46,6 +46,9 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 
 # --- connection helpers -----------------------------------------------------
 admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
+admin_file() { # admin_file <database> <SQL file>, explicit noninteractive exit check
+  $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$1" -f "$2"
+}
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   local guc_args=()
@@ -273,6 +276,16 @@ tenant_force_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOI
 [ "$tenant_force_bad" = "0" ] || die S7 "tenant-scoped tables missing FORCE RLS: $tenant_force_bad"
 failopen_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relnamespace='public'::regnamespace AND c.relrowsecurity AND (pg_get_expr(p.polqual,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%' OR pg_get_expr(p.polwithcheck,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%')")
 [ "$failopen_bad" = "0" ] || die S7 "fail-open tenant policies detected: $failopen_bad"
+# S7 must use the same strict release policy contract as the shadow red/green
+# acceptance test, not only the heuristic for the old IS NULL OR expression.
+G1_RELEASE_SQL="$SEP_REPO/apps/sanad-platform/src/test/resources/sql/g1-rls-release-readonly-gate.sql"
+[ -f "$G1_RELEASE_SQL" ] || die S7 "missing versioned G1 release SQL: $G1_RELEASE_SQL"
+if admin_file "$SEP_DB" "$G1_RELEASE_SQL" > "$ART/S7-g1-release-catalog.log" 2>&1; then
+  record S7_G1_RELEASE_CATALOG PASS PASS "19 CRM policy definitions and owner/ACL checks validated"
+else
+  record S7_G1_RELEASE_CATALOG PASS FAIL "see $ART/S7-g1-release-catalog.log"
+  die S7 "G1 release catalog gate failed (see $ART/S7-g1-release-catalog.log)"
+fi
 seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT (has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'USAGE') AND has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'SELECT'))")
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"

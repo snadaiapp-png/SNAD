@@ -23,6 +23,8 @@ on:
       - 'tests/security/migrator-separation/**'
       - 'tests/security/g1-*'
       - 'scripts/ops/g1-login-index-admin-backfill.sql'
+      - 'scripts/ops/migrator-separation/**'
+      - 'apps/sanad-platform/src/test/resources/sql/g1-rls-release-readonly-gate.sql'
       - 'apps/sanad-platform/src/main/resources/db/**'
   workflow_dispatch:
 
