@@ -101,6 +101,9 @@ jobs:
           set -euo pipefail
           # Ephemeral per-run migrator password: generated at runtime, masked,
           # never a repository literal (cluster is destroyed with the runner).
+          # The following ALTER ROLE is cluster-wide: refuse any shared cluster.
+          other_dbs="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname <> 'postgres'")"
+          test "$other_dbs" = "0" || { echo "::error::Non-disposable PostgreSQL cluster; refusing role mutation"; exit 1; }
           mig_pw="$(openssl rand -hex 24)"
           echo "::add-mask::$mig_pw"
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
@@ -111,7 +114,7 @@ jobs:
           END \$r\$;
           ALTER ROLE sanad_migrator PASSWORD '$mig_pw';
           SQL
-          SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+          SEP_ISOLATED_CLUSTER=1 SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
 
       - name: Capture read-only RLS and SECURITY DEFINER forensic inventory
         if: success()
