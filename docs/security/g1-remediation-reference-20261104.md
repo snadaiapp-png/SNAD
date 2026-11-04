@@ -132,5 +132,12 @@
 - Attempt to create its separate execution wrapper was **BLOCKED by tool safety checks**; no execution, backfill, commit of database state, or privileges changes occurred. Do not represent the candidate SQL as PASS.
 - Independent approval, signed backup verification, production change window, successful dry-run evidence and post-execution read-only reconciliation remain required to close F05. G1 remains HOLD / Production NO-GO / Payments OFF.
 
+## 2026-11-05 — CI preflight evidence integrity (static only)
+
+- Added `tests/security/g1-release-evidence-static-guard.sh` and an early fail-closed preflight step in `.github/workflows/migrator-runtime-separation.yml`. The script checks the versioned F05 dry-run retains the explicit dedicated-cluster guard, test-scoped approval flag, existing admin backfill reference, and rollback; it checks the PG17.6 pin, strict S7 catalog test, and the explicit G1 HOLD and NOT RUN evidence statements.
+- The F06 draft is **untracked** by design because prior privileged-execution safety checks blocked running it. The static guard inspects the draft if present but does not mistake its absence in CI checkout for successful remediation.
+- Local Bash syntax and static preflight command returned exit 0: `G1_STATIC_EVIDENCE_GUARD=PASS (static only; F05/F06 NOT RUN)`; `git diff --check` was clean. **No GitHub Actions execution was performed**, and the branch did not previously exist on origin. This static check cannot establish SQL transaction semantics, PostgreSQL ACL security, historical backfill correctness, or independent approval.
+- F05 historical reconciliation remains RED (missing=1); F06 policy reduction remains BLOCKED/NOT RUN. Production remains NO-GO / Payments OFF / G1 HOLD.
+
 ## Exit gates
 G1 may be marked PASS **only** after F01–F08 are resolved with linked artifacts, all mandatory integration tests and post-merge CI run successfully on the final commit, production readiness verified under change control, and independent security approver signs. No percentage-complete metric without a locked metric denominator.

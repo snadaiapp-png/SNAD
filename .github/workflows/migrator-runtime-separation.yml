@@ -46,6 +46,10 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Verify static G1 evidence safeguards (no database changes)
+        shell: bash
+        run: bash tests/security/g1-release-evidence-static-guard.sh
+
       - name: Install isolated PostgreSQL 17.6 (exact pin, host-native, no containers)
         shell: bash
         run: |
