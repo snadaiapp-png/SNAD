@@ -18,6 +18,9 @@ SET LOCAL sanad.deployment_topology='separated';
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
 -- Replay exact forward migration to verify idempotent DDL on the same snapshot.
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
+-- The official catalog gate must not raise while the corrected ACL/RLS
+-- state is visible in this transaction (not a production release decision).
+\ir ../../apps/sanad-platform/src/test/resources/sql/g1-rls-release-readonly-gate.sql
 DO $ownership$
 DECLARE owner_name text; truncate_grants integer;
 BEGIN
