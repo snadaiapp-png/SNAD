@@ -97,7 +97,7 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   fi
   # Never inherit an ambient PGOPTIONS tenant context into an unset-GUC probe.
   # Explicit tenant probes supply their own controlled PGOPTIONS value.
-  runtime_out=$(env -u PGOPTIONS PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+  runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
@@ -189,7 +189,7 @@ admin_secret "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW';" || die S0 "runtime passw
 # Admin may connect via Unix socket while runtime uses TCP. Require both
 # connections to reach the same PostgreSQL postmaster before creating a DB.
 admin_instance=$(admin postgres postgres "SELECT pg_postmaster_start_time()::text")
-runtime_instance=$(env -u PGOPTIONS PGPASSWORD="$SEP_RUN_PW" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d postgres -At -v ON_ERROR_STOP=1 -c "SELECT pg_postmaster_start_time()::text") || die S0 "runtime TCP identity check failed"
+runtime_instance=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d postgres -At -v ON_ERROR_STOP=1 -c "SELECT pg_postmaster_start_time()::text") || die S0 "runtime TCP identity check failed"
 [ -n "$admin_instance" ] && [ "$admin_instance" = "$runtime_instance" ] || die S0 "admin and runtime connections target different PostgreSQL postmasters"
 admin_port=$(admin postgres postgres "SHOW port")
 [ "$admin_port" = "$SEP_PGPORT" ] || die S0 "admin cluster port $admin_port differs from runtime port $SEP_PGPORT"
