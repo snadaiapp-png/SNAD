@@ -28,6 +28,16 @@ SEP_FLYWAY="${SEP_FLYWAY:-/tmp/flyway/flyway}"
 SEP_ADMIN_PSQL="${SEP_ADMIN_PSQL:-psql -h ${SEP_PGHOST} -p ${SEP_PGPORT} -U postgres}"
 SEP_DB="${SEP_DB:-separation_cert}"
 SEP_KEEP_DB="${SEP_KEEP_DB:-0}"
+# The database name is interpolated into administrative SQL statements.
+# Reject arbitrary SQL fragments and non-certification database names.
+if [[ ! "$SEP_DB" =~ ^separation_cert(_[a-z0-9_]+)?$ ]] || [ "${#SEP_DB}" -gt 63 ]; then
+  echo "::error::Unsafe SEP_DB: expected separation_cert or separation_cert_<suffix>" >&2
+  exit 1
+fi
+if [[ "$SEP_KEEP_DB" != "0" && "$SEP_KEEP_DB" != "1" ]]; then
+  echo "::error::SEP_KEEP_DB must be 0 or 1" >&2
+  exit 1
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
