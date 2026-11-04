@@ -131,8 +131,11 @@ if [ "$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname=
 fi
 # An existing runtime role may belong to a different application database or
 # carry grants not visible from the database-count preflight. Never reset it.
-existing_runtime_role=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname='sanad'")
-[ "$existing_runtime_role" = "0" ] || die S0 "existing sanad role detected; refusing to alter shared cluster identity"
+existing_roles=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator')")
+[ "$existing_roles" = "0" ] || die S0 "existing sanad or sanad_migrator role detected; refusing shared cluster identity changes"
+# Passwords are embedded in administrative SQL; accept only fixed-length hex.
+: "${SEP_MIG_PW:?SEP_MIG_PW must be supplied for disposable migrator provisioning}"
+[[ "$SEP_MIG_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_MIG_PW must be 48 hex characters"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -141,12 +144,14 @@ admin postgres postgres "DO \$\$ BEGIN
     CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
 END \$\$;" >/dev/null || die S0 "role provisioning failed"
+admin postgres postgres "ALTER ROLE sanad_migrator PASSWORD '$SEP_MIG_PW'" >/dev/null || die S0 "migrator password"
 admin postgres postgres "ALTER ROLE sanad_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS" >/dev/null || die S0 "migrator contract"
 admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS" >/dev/null || die S0 "runtime contract"
 # Ephemeral per-run runtime password (hex, never logged) — required on hosts
 # using password auth for TCP connections (GitHub runners use scram-sha-256;
 # trust-auth local clusters simply ignore it).
 SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
+[[ "$SEP_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_RUN_PW must be 48 hex characters"
 admin postgres postgres "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW'" >/dev/null || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
 admin postgres postgres "CREATE DATABASE $SEP_DB OWNER sanad_migrator" >/dev/null || die S0 "database creation"
