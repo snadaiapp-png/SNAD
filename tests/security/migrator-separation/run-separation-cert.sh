@@ -386,7 +386,7 @@ hist_owner=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(relowner) FROM pg_
 [ "$hist_owner" = "sanad_migrator" ] || die S7 "flyway_schema_history owner=$hist_owner"
 runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','public','CREATE')")
 [ "$runtime_create" = "f" ] || die S7 "sanad still holds CREATE on public"
-public_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('public','public','CREATE')") || die S7 "PUBLIC CREATE privilege check failed"
+public_create=$(admin postgres "$SEP_DB" "SELECT EXISTS (SELECT 1 FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='CREATE')") || die S7 "PUBLIC CREATE privilege check failed"
 [ "$public_create" = "f" ] || die S7 "PUBLIC has CREATE privilege on public schema"
 rls_coverage=$(admin postgres "$SEP_DB" "SELECT count(*)||'|'||count(*) FILTER (WHERE c.relrowsecurity AND c.relforcerowsecurity) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relname IN ('users','refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands')")
 [ "$rls_coverage" = "6|6" ] || die S7 "expected six existing FORCE RLS tables; observed $rls_coverage"
