@@ -10,9 +10,27 @@ INSERT INTO public.crm_customer_segments(tenant_id,segment_code,segment_name,seg
 VALUES
 ('11111111-1111-1111-1111-111111111171','g1-fix-tenant-a','G1 fix A','MANUAL'),
 ('22222222-2222-2222-2222-222222222272','g1-fix-tenant-b','G1 fix B','MANUAL');
+-- Reconstruct the upgrade ordering on a fully reversible shadow fixture:
+-- ownership bootstrap -> separated-mode ACL migration -> new CRM policy repair.
+\ir ../../scripts/ops/migrator-separation/transfer-ownership-to-migrator.sql
+SET LOCAL sanad.deployment_topology='separated';
+\ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261103_2__migrator_ownership_and_runtime_acl.sql
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
--- Exercise the exact forward migration twice to detect non-idempotent DDL.
+-- Replay exact forward migration to verify idempotent DDL on the same snapshot.
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
+DO $ownership$
+DECLARE owner_name text; truncate_grants integer;
+BEGIN
+ SELECT pg_get_userbyid(relowner) INTO owner_name FROM pg_class
+ WHERE oid='public.crm_customer_segments'::regclass;
+ SELECT count(*) INTO truncate_grants FROM pg_class c
+ WHERE c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p')
+ AND has_table_privilege('sanad',c.oid,'TRUNCATE');
+ IF owner_name <> 'sanad_migrator' OR truncate_grants<>0 THEN
+   RAISE EXCEPTION 'G1_OWNERSHIP_SEPARATION=FAIL owner=% runtime_truncate=%',owner_name,truncate_grants;
+ END IF;
+ RAISE NOTICE 'G1_OWNERSHIP_SEPARATION=PASS owner=% runtime_truncate=%',owner_name,truncate_grants;
+END $ownership$;
 -- Separate runtime check before assigning tenant context in this session.
 SET LOCAL ROLE sanad;
 DO $missing$
@@ -29,6 +47,36 @@ BEGIN
  END IF;
  RAISE NOTICE 'G1_MISSING_GUC=PASS visible=%',visible;
 END $missing$;
+-- All 19 CRM tables must actually enforce RLS for the non-owner runtime role;
+-- checking only relforcerowsecurity in the catalog is not sufficient.
+DO $every_crm$
+DECLARE tbl text; visible bigint; verified int:=0;
+BEGIN
+ FOR tbl IN
+   SELECT unnest(ARRAY[
+    'crm_assignment_rule_counters','crm_assignment_rule_versions',
+    'crm_customer_score_history','crm_customer_scores','crm_customer_segments',
+    'crm_integration_command_artifacts','crm_integration_command_executions',
+    'crm_integration_decisions','crm_integration_outbox','crm_integration_requests',
+    'crm_ownership_history','crm_queues','crm_scoring_models','crm_segment_memberships',
+    'crm_team_memberships','crm_territories','crm_territory_assignments',
+    'crm_territory_closure','crm_transfer_requests'
+   ])
+ LOOP
+   IF NOT row_security_active(format('public.%I',tbl)::regclass)
+     OR NOT has_table_privilege(current_user, format('public.%I',tbl), 'SELECT')
+     OR has_table_privilege(current_user, format('public.%I',tbl), 'TRUNCATE') THEN
+       RAISE EXCEPTION 'G1_CRM_RUNTIME_CATALOG_FAIL table=%',tbl;
+   END IF;
+   EXECUTE format('SELECT count(*) FROM public.%I',tbl) INTO visible;
+   IF visible<>0 THEN
+     RAISE EXCEPTION 'G1_CRM_NO_GUC_READ_FAIL table=% visible=%',tbl,visible;
+   END IF;
+   verified:=verified+1;
+ END LOOP;
+ IF verified<>19 THEN RAISE EXCEPTION 'G1_CRM_COUNT_FAIL count=%',verified; END IF;
+ RAISE NOTICE 'G1_CRM_ALL_19_RUNTIME=PASS active_rls=19 no_guc_rows=0 runtime_truncate=0';
+END $every_crm$;
 RESET ROLE;
 DO $catalog$
 DECLARE n integer;
