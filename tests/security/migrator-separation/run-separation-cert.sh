@@ -370,7 +370,8 @@ gate S6 "PASS: subscription_commands INSERT ok; UPDATE/DELETE DENIED (append-onl
 gate S7 "catalog snapshot: ownership + effective ACL + FORCE RLS"
 own_stats=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(c.relowner)||':'||count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') GROUP BY pg_get_userbyid(c.relowner) ORDER BY count(*) DESC" | tr '\n' ' ')
 echo "OWNERSHIP: $own_stats" >> "$SUMMARY"
-echo "$own_stats" | grep -q "sanad:" && die S7 "runtime role still owns objects: $own_stats"
+runtime_owned=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') AND pg_get_userbyid(c.relowner)='sanad'") || die S7 "runtime ownership inventory failed"
+[ "$runtime_owned" = "0" ] || die S7 "runtime role owns $runtime_owned public objects: $own_stats"
 hist_owner=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.flyway_schema_history'::regclass")
 [ "$hist_owner" = "sanad_migrator" ] || die S7 "flyway_schema_history owner=$hist_owner"
 runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','public','CREATE')")
