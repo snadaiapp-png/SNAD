@@ -70,8 +70,9 @@ on_exit() {
   local status=$?
   trap - EXIT
   if [ "$status" -ne 0 ]; then
-    printf 'EXIT_STATUS=%s\nFORENSIC_RESOURCES_PRESERVED=YES\n' "$status" >> "$SUMMARY"
-    printf '::error::Separation certification exited %s; database/roles retained for investigation\n' "$status" >&2
+    # A failure can occur before provisioning; do not claim resources exist.
+    printf 'EXIT_STATUS=%s\nAUTO_CLEANUP_ON_FAILURE=SKIPPED\nRESOURCE_EXISTENCE=UNVERIFIED\n' "$status" >> "$SUMMARY"
+    printf '::error::Separation certification exited %s; no automatic cleanup attempted; inspect resources before recovery\n' "$status" >&2
   fi
 }
 trap on_exit EXIT
