@@ -378,7 +378,7 @@ gate S6 "PASS: subscription_commands INSERT ok; UPDATE/DELETE DENIED (append-onl
 # S7 — ownership + privilege snapshot (catalog-level evidence)
 # ============================================================================
 gate S7 "catalog snapshot: ownership + effective ACL + FORCE RLS"
-own_stats=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(c.relowner)||':'||count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') GROUP BY pg_get_userbyid(c.relowner) ORDER BY count(*) DESC" | tr '\n' ' ')
+own_stats=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(c.relowner)||':'||count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') GROUP BY pg_get_userbyid(c.relowner) ORDER BY count(*) DESC" | tr '\n' ' ') || die S7 "ownership summary query failed"
 echo "OWNERSHIP: $own_stats" >> "$SUMMARY"
 runtime_owned=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m') AND pg_get_userbyid(c.relowner)='sanad'") || die S7 "runtime ownership inventory failed"
 [ "$runtime_owned" = "0" ] || die S7 "runtime role owns $runtime_owned public objects: $own_stats"
