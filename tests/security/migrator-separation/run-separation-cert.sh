@@ -101,8 +101,10 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
-  runtime_sqlstate=$(printf '%s' "$runtime_err" | grep -oE 'ERROR: [0-9A-Z]{5}:' | head -1 | grep -oE '[0-9A-Z]{5}')
-  [ -z "$runtime_sqlstate" ] && runtime_sqlstate=$(printf '%s' "$runtime_err" | grep -oE 'SQLSTATE: [0-9A-Z]+' | head -1 | sed 's/SQLSTATE: //')
+  # VERBOSITY=verbose emits "ERROR:  42501: ..."; whitespace varies.
+  # Extract only an explicit five-character SQLSTATE attached to ERROR.
+  runtime_sqlstate=$(printf '%s\n' "$runtime_err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
+  [ -z "$runtime_sqlstate" ] && runtime_sqlstate=$(printf '%s\n' "$runtime_err" | sed -nE 's/^.*SQLSTATE:[[:space:]]*([0-9A-Z]{5})([^0-9A-Z]|$).*$/\1/p' | head -1)
   # Never infer SQLSTATE from localized/free-form error messages.
   # A negative security probe passes only with a real PostgreSQL SQLSTATE.
 }
