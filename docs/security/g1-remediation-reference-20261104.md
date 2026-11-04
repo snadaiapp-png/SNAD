@@ -31,9 +31,12 @@
 - Prior: historical login index mismatch documented.
 - Prior: baseline tenant-transfer test FAIL old mappings 2; candidate forward migration transaction PASS four scenarios; ROLLBACK.
 - Post-rollback: users=1, login index=0, function original MD5 unchanged.
-- 2026-11-04: read-only release gate executed on V3: 19 non-FORCE tenant tables; 19 CRM policies with absent-GUC OR branch; 321 runtime-owned/TRUNCATE-privileged public tables. Query execution EXIT 0 (the security gate itself remains FAIL).
+- 2026-11-04: initial read-only inventory executed on V3: 19 non-FORCE tenant tables; 19 CRM policies with absent-GUC OR branch; 321 runtime-owned/TRUNCATE-privileged public tables. Inventory SQL execution EXIT 0 was NOT a security acceptance PASS; subsequently converted to an explicit failing gate.
 - 2026-11-04: same-tenant duplicate username rejected by actual database unique constraint `uk_users_tenant_username_ci` (expected SQLSTATE 23505; prior SQL runner exited 3). No claim of successful collision scenario.
 - 2026-11-04: Maven compile of apps/sanad-platform completed with BUILD SUCCESS from its own pom.xml; previous root -pl attempt FAILED (project absent). Compile is not tests.
+- 2026-11-04: hardened SQL release gate now raises `G1_RELEASE_GATE_FAIL nonforced=19 failopen_policies=19 runtime_owner_or_truncate=321`; `G1_SQL_AUDIT_EXIT=3` proves fail-closed gate behavior. Query runs against local V3 only.
+- 2026-11-04: focused Maven `TenantRlsConnectionHandlerTest`: 10 tests, 0 failures, 0 errors, 0 skips; BUILD SUCCESS. Not a substitute for direct PostgreSQL Tenant A/B acceptance.
+- 2026-11-04: attempted to author a forward-only 19-table RLS policy/ FORCE remediation but remote tool safety blocked the write. No policy change was committed or applied. Status BLOCKED.
 - Current scope: all additional findings require dedicated tests; there is no production certification.
 
 ## Exit gates
