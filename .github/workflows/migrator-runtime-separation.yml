@@ -113,6 +113,19 @@ jobs:
           SQL
           SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
 
+      - name: Capture read-only RLS and SECURITY DEFINER forensic inventory
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run only on the disposable separated-topology database from the
+          # acceptance matrix. This is an inventory, not production proof.
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
+            -f tests/security/rls_forensic_inventory.sql \
+            > /tmp/separation-forensic-inventory.log 2>&1
+          test -s /tmp/separation-forensic-inventory.log
+          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -120,6 +133,7 @@ jobs:
           name: migrator-runtime-separation-evidence
           path: |
             /tmp/separation-run.log
+            /tmp/separation-forensic-inventory.log
             /tmp/separation-cert-artifacts/
           if-no-files-found: warn
           retention-days: 30
