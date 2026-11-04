@@ -18,6 +18,44 @@ SET LOCAL sanad.deployment_topology='separated';
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
 -- Replay exact forward migration to verify idempotent DDL on the same snapshot.
 \ir ../../apps/sanad-platform/src/main/resources/db/migration/V20261104_2__crm_rls_fail_closed_force.sql
+-- Each of the 19 tables must have exactly one tenant_isolation policy
+-- with both USING and WITH CHECK identical to the verified reference policy.
+DO $crm_policy_contract$
+DECLARE ref_using text; ref_check text; mismatch_count integer;
+BEGIN
+ SELECT pg_get_expr(p.polqual,p.polrelid),pg_get_expr(p.polwithcheck,p.polrelid)
+ INTO ref_using,ref_check FROM pg_policy p
+ WHERE p.polrelid='public.crm_customer_segments'::regclass
+ AND p.polname='tenant_isolation' AND p.polcmd='*';
+ IF ref_using IS NULL OR ref_check IS NULL OR
+    position('current_setting' in ref_using)=0 OR
+    position('tenant_id' in ref_using)=0 OR
+    position('NULLIF' in ref_using)=0 OR
+    position(' OR ' in ref_using)>0 OR
+    ref_using<>ref_check
+ THEN RAISE EXCEPTION 'G1_CRM_POLICY_REFERENCE_INVALID'; END IF;
+ WITH expected(name) AS (
+  SELECT unnest(ARRAY[
+   'crm_assignment_rule_counters','crm_assignment_rule_versions',
+   'crm_customer_score_history','crm_customer_scores','crm_customer_segments',
+   'crm_integration_command_artifacts','crm_integration_command_executions',
+   'crm_integration_decisions','crm_integration_outbox','crm_integration_requests',
+   'crm_ownership_history','crm_queues','crm_scoring_models','crm_segment_memberships',
+   'crm_team_memberships','crm_territories','crm_territory_assignments',
+   'crm_territory_closure','crm_transfer_requests'
+  ])
+ )
+ SELECT count(*) INTO mismatch_count FROM expected e
+ LEFT JOIN pg_class c ON c.oid=to_regclass(format('public.%I',e.name))
+ WHERE c.oid IS NULL OR NOT c.relrowsecurity OR NOT c.relforcerowsecurity OR
+       (SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid)<>1 OR
+       NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid
+       AND p.polname='tenant_isolation' AND p.polcmd='*'
+       AND pg_get_expr(p.polqual,p.polrelid)=ref_using
+       AND pg_get_expr(p.polwithcheck,p.polrelid)=ref_check);
+ IF mismatch_count<>0 THEN RAISE EXCEPTION 'G1_CRM_POLICY_CONTRACT_FAIL count=%',mismatch_count; END IF;
+ RAISE NOTICE 'G1_CRM_POLICY_CONTRACT=PASS tables=19 using_and_with_check_equal';
+END $crm_policy_contract$;
 -- The official catalog gate must not raise while the corrected ACL/RLS
 -- state is visible in this transaction (not a production release decision).
 \ir ../../apps/sanad-platform/src/test/resources/sql/g1-rls-release-readonly-gate.sql
