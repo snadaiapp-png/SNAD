@@ -64,6 +64,17 @@ FAILURES=0
 gate() { echo "GATE [$1] $2"; echo "GATE [$1] $2" >> "$SUMMARY"; }
 die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$SUMMARY";
          echo "FAILURES=$FAILURES" >> "$SUMMARY"; exit 1; }
+# On any failure preserve the isolated database and all evidence for forensics.
+# Never attempt automatic role/database cleanup: it can erase the root cause.
+on_exit() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    printf 'EXIT_STATUS=%s\nFORENSIC_RESOURCES_PRESERVED=YES\n' "$status" >> "$SUMMARY"
+    printf '::error::Separation certification exited %s; database/roles retained for investigation\n' "$status" >&2
+  fi
+}
+trap on_exit EXIT
 
 # --- connection helpers -----------------------------------------------------
 admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
