@@ -94,7 +94,7 @@ WHERE c.oid=to_regclass('public.subscription_commands');
 SELECT p.oid::regprocedure AS routine,
        pg_catalog.pg_get_userbyid(p.proowner) AS owner_name,
        p.proconfig AS routine_config,
-       has_function_privilege('PUBLIC',p.oid,'EXECUTE') AS public_execute,
+       EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) AS acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute,
        CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='anon')
             THEN has_function_privilege('anon',p.oid,'EXECUTE') END AS anon_execute,
        CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='authenticated')
