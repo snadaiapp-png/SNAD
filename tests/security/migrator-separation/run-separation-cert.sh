@@ -17,7 +17,7 @@
 #   SEP_FLYWAY (/tmp/flyway/flyway)  SEP_REPO (repo root, auto-detected)
 #   SEP_ADMIN_PSQL (psql command with superuser access; default
 #                   "psql -h $SEP_PGHOST -p $SEP_PGPORT -U postgres")
-#   SEP_KEEP_DB=1 to keep the certification database for inspection.
+#   SEP_KEEP_DB=1 (mandatory; certification DB is retained for forensic inspection).
 # ============================================================================
 set -uo pipefail
 export LC_ALL=C.UTF-8
@@ -27,7 +27,7 @@ SEP_PGPORT="${SEP_PGPORT:-55432}"
 SEP_FLYWAY="${SEP_FLYWAY:-/tmp/flyway/flyway}"
 SEP_ADMIN_PSQL="${SEP_ADMIN_PSQL:-psql -h ${SEP_PGHOST} -p ${SEP_PGPORT} -U postgres}"
 SEP_DB="${SEP_DB:-separation_cert}"
-SEP_KEEP_DB="${SEP_KEEP_DB:-0}"
+SEP_KEEP_DB="${SEP_KEEP_DB:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
@@ -103,6 +103,7 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
 [ "${SEP_ROLE_MUTATION_APPROVED:-}" = "isolated-certification-only" ] || die S0 "BLOCKED: cluster-wide role changes require explicit isolated certification approval"
+[ "$SEP_KEEP_DB" = "1" ] || die S0 "BLOCKED: automatic database deletion is disabled; SEP_KEEP_DB must be 1"
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
 # Cluster roles are global: refuse any cluster containing other application DBs.
 other_databases=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname<>'postgres'")
@@ -269,7 +270,8 @@ gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORC
 # ============================================================================
 # S8 — verdict
 # ============================================================================
-if [ "$SEP_KEEP_DB" != "1" ]; then admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true; fi
+[ "$SEP_KEEP_DB" = "1" ] || die S8 "BLOCKED: automatic database deletion disabled; preserve forensic evidence and clean up separately after review"
+echo "EVIDENCE_DATABASE_RETAINED=$SEP_DB" >> "$SUMMARY"
 {
   echo ""
   echo "## Separation acceptance matrix — $(date -u +'%Y-%m-%dT%H:%M:%SZ')"

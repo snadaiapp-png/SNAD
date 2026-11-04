@@ -19,3 +19,14 @@ if ! grep -Fq "BLOCKED: cluster-wide role changes require explicit isolated cert
   exit 1
 fi
 echo "ROLE_MUTATION_DENIAL=PASS (expected runner exit=1 before database or role mutations)"
+set +e
+SEP_ROLE_MUTATION_APPROVED=isolated-certification-only SEP_KEEP_DB=0 SEP_ARTIFACTS="$TMP/evidence-no-cleanup" \
+  bash "$ROOT/tests/security/migrator-separation/run-separation-cert.sh" \
+  >"$TMP/no-cleanup-output.txt" 2>&1
+CLEANUP_RC=$?
+set -e
+if [ "$CLEANUP_RC" -ne 1 ] || ! grep -Fq "BLOCKED: automatic database deletion is disabled" "$TMP/no-cleanup-output.txt"; then
+  echo "AUTO_DELETION_DENIAL=FAIL (exit=$CLEANUP_RC)"
+  exit 1
+fi
+echo "AUTO_DELETION_DENIAL=PASS (blocked before any database changes)"
