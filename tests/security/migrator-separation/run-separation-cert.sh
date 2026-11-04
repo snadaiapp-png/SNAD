@@ -363,7 +363,12 @@ expect_value S6_SUB_PRESENT "$SEP_DB" "SELECT count(*) FROM public.subscription_
 expect_deny  S6_SUB_UPD "$SEP_DB" "UPDATE public.subscription_commands SET reason='FORCED' WHERE id='$SC'" "$TA"
 expect_deny  S6_SUB_DEL "$SEP_DB" "DELETE FROM public.subscription_commands WHERE id='$SC'" "$TA"
 ledger_rows=$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.subscription_commands WHERE id='$SC' AND subscription_id='$SUB' AND tenant_id='$TA' AND reason='separation-cert probe'") || die S6 "ledger verification query failed"
-[ "$ledger_rows" = "1" ] || die S6 "ledger integrity check failed: $ledger_rows"
+if [ "$ledger_rows" = "1" ]; then
+  record S6_ADMIN_LEDGER_INTEGRITY "1" "$ledger_rows" "admin-confirmed original subscription command preserved"
+else
+  record S6_ADMIN_LEDGER_INTEGRITY "1" "$ledger_rows" "subscription command missing or modified"
+  fail
+fi
 [ $FAILURES -eq 0 ] || die S6 "subscription plane matrix failed"
 gate S6 "PASS: subscription_commands INSERT ok; UPDATE/DELETE DENIED (append-only enforced for runtime)"
 
