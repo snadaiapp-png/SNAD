@@ -293,8 +293,8 @@ hist_owner=$(admin postgres "$SEP_DB" "SELECT pg_get_userbyid(relowner) FROM pg_
 [ "$hist_owner" = "sanad_migrator" ] || die S7 "flyway_schema_history owner=$hist_owner"
 runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','public','CREATE')")
 [ "$runtime_create" = "f" ] || die S7 "sanad still holds CREATE on public"
-rls_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('users','refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands') AND NOT (relrowsecurity AND relforcerowsecurity)")
-[ "$rls_bad" = "0" ] || die S7 "FORCE RLS missing on $rls_bad guarded tables"
+rls_coverage=$(admin postgres "$SEP_DB" "SELECT count(*)||'|'||count(*) FILTER (WHERE c.relrowsecurity AND c.relforcerowsecurity) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relname IN ('users','refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands')")
+[ "$rls_coverage" = "6|6" ] || die S7 "expected six existing FORCE RLS tables; observed $rls_coverage"
 seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT (has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'USAGE') AND has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'SELECT'))")
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
