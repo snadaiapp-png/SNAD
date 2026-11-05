@@ -142,7 +142,7 @@ class AssignmentRuleUseCasesPostgresTest {
         AssignmentRuleVersion active = tx(() -> useCases.activateVersion(
                 tenantId, actorId, lowPriority.id(), 2));
         assertThat(active.version()).isEqualTo(2);
-        assertThat(ruleRepository.findActiveVersion(tenantId, lowPriority.id()))
+        assertThat(tx(() -> ruleRepository.findActiveVersion(tenantId, lowPriority.id())))
                 .get().extracting(AssignmentRuleVersion::version).isEqualTo(2);
         assertThat(tx(() -> useCases.listVersions(tenantId, lowPriority.id())))
                 .extracting(AssignmentRuleVersion::version).containsExactly(2, 1);
@@ -160,14 +160,14 @@ class AssignmentRuleUseCasesPostgresTest {
         AssignmentDecision simulationOne = tx(() -> useCases.simulate(tenantId, input()));
         AssignmentDecision simulationTwo = tx(() -> useCases.simulate(tenantId, input()));
         assertThat(simulationTwo.ownerId()).isEqualTo(simulationOne.ownerId());
-        assertThat(ruleRepository.findCounter(tenantId, rule.id())).isEmpty();
+        assertThat(tx(() -> ruleRepository.findCounter(tenantId, rule.id()))).isEmpty();
 
         AssignmentDecision first = tx(() -> useCases.decide(tenantId, input()));
         AssignmentDecision second = tx(() -> useCases.decide(tenantId, input()));
         AssignmentDecision third = tx(() -> useCases.decide(tenantId, input()));
         assertThat(first.ownerId()).isNotEqualTo(second.ownerId());
         assertThat(third.ownerId()).isEqualTo(first.ownerId());
-        assertThat(ruleRepository.findCounter(tenantId, rule.id())).get()
+        assertThat(tx(() -> ruleRepository.findCounter(tenantId, rule.id()))).get()
                 .extracting(AssignmentRuleCounter::counter).isEqualTo(3L);
     }
 

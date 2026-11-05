@@ -78,9 +78,9 @@ class TerritoryUseCasesPostgresTest {
         Territory child = tx(() -> create("CHILD", root.id(), 20));
         Territory grandchild = tx(() -> create("GRAND", child.id(), 30));
 
-        assertThat(territoryRepository.findAncestors(tenantId, grandchild.id()))
+        assertThat(tx(() -> territoryRepository.findAncestors(tenantId, grandchild.id())))
                 .extracting(Territory::id).containsExactly(root.id(), child.id());
-        assertThat(territoryRepository.findDescendants(tenantId, root.id()))
+        assertThat(tx(() -> territoryRepository.findDescendants(tenantId, root.id())))
                 .extracting(Territory::id).contains(child.id(), grandchild.id());
 
         Territory updated = tx(() -> useCases.update(
@@ -94,7 +94,7 @@ class TerritoryUseCasesPostgresTest {
 
         Territory moved = tx(() -> useCases.move(tenantId, actorId, grandchild.id(), root.id()));
         assertThat(moved.parentId()).isEqualTo(root.id());
-        assertThat(territoryRepository.findAncestors(tenantId, grandchild.id()))
+        assertThat(tx(() -> territoryRepository.findAncestors(tenantId, grandchild.id())))
                 .extracting(Territory::id).containsExactly(root.id());
 
         assertThatThrownBy(() -> tx(() -> useCases.move(
@@ -139,7 +139,7 @@ class TerritoryUseCasesPostgresTest {
                         AssigneeType.TEAM, team.id(), TerritoryAssignmentRole.PRIMARY,
                         200, null, null)));
 
-        assertThat(useCases.resolve(tenantId, List.of(first.id(), second.id())))
+        assertThat(tx(() -> useCases.resolve(tenantId, List.of(first.id(), second.id()))))
                 .contains(teamAssignment);
 
         TerritoryAssignment equalUser = tx(() -> useCases.assign(
@@ -148,11 +148,11 @@ class TerritoryUseCasesPostgresTest {
                         AssigneeType.USER, userId, TerritoryAssignmentRole.BACKUP,
                         200, null, null)));
         assertThat(equalUser.priority()).isEqualTo(200);
-        assertThatThrownBy(() -> useCases.resolve(tenantId, List.of(first.id(), second.id())))
+        assertThatThrownBy(() -> tx(() -> useCases.resolve(tenantId, List.of(first.id(), second.id()))))
                 .isInstanceOf(TerritoryAssignmentAmbiguityException.class);
 
         tx(() -> useCases.deactivate(tenantId, actorId, first.id(), equalUser.id()));
-        assertThat(useCases.resolve(tenantId, List.of(first.id(), second.id())))
+        assertThat(tx(() -> useCases.resolve(tenantId, List.of(first.id(), second.id()))))
                 .contains(teamAssignment);
 
         assertThatThrownBy(() -> tx(() -> useCases.archive(tenantId, actorId, first.id())))
@@ -177,7 +177,7 @@ class TerritoryUseCasesPostgresTest {
                 .isInstanceOf(OwnershipDomainException.class)
                 .hasMessageContaining("same tenant");
 
-        Territory otherTerritory = tx(() -> new TerritoryUseCases(
+        Territory otherTerritory = tx(otherTenant, () -> new TerritoryUseCases(
                 territoryRepository, assignmentRepository, teamRepository,
                 new JdbcOwnershipUserValidationAdapter(jdbc),
                 (t,a,ac,ty,id,ch,at) -> {},
@@ -241,6 +241,10 @@ class TerritoryUseCasesPostgresTest {
     }
 
     private <T> T tx(java.util.concurrent.Callable<T> callable) {
+        return tx(tenantId, callable);
+    }
+
+    private <T> T tx(UUID scopedTenantId, java.util.concurrent.Callable<T> callable) {
         return transactions.execute(status -> {
             // FORCE RLS on public.users (V20261011_3) — service-layer queries
             // that validate user existence are filtered by RLS unless
@@ -248,7 +252,7 @@ class TerritoryUseCasesPostgresTest {
             // at the start of every tx block so all queries within this
             // transaction see the tenant context.
             jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                    new MapSqlParameterSource().addValue("t", tenantId.toString()), String.class);
+                    new MapSqlParameterSource().addValue("t", scopedTenantId.toString()), String.class);
             try { return callable.call(); }
             catch (RuntimeException runtime) { throw runtime; }
             catch (Exception checked) { throw new IllegalStateException(checked); }
