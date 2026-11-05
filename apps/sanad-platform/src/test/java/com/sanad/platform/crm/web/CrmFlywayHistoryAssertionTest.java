@@ -358,6 +358,11 @@ class CrmFlywayHistoryAssertionTest {
             // evidence-derived runtime ACL matrix (also closes F-01).
             , "20261103.1"   // sanad_migrator role contract (migrator/runtime separation)
             , "20261103.2"   // migrator ownership + runtime ACL matrix (F-01 closed)
+            , "20261104.1"   // login tenant index transfer consistency
+            , "20261104.2"   // CRM FORCE RLS fail-closed
+            , "20261105.1"   // callback replay runtime update denial
+            , "20261105.2"   // workflow preauth index runtime read-only
+            , "20261105.3"   // tenant-consistent subscription composite foreign keys
     );
 
 
