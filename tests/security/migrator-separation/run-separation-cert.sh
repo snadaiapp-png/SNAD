@@ -297,6 +297,12 @@ callback_acl=$(admin postgres "$SEP_DB" "SELECT has_table_privilege('sanad','pub
 [ "$callback_acl" = "false|true|true|true" -o "$callback_acl" = "f|t|t|t" ] || die S7 "F06 callback ACL incorrect: $callback_acl"
 expect_deny S7_CALLBACK_UPDATE_DENIED "$SEP_DB" "UPDATE public.service_callback_replay SET correlation_id='forbidden' WHERE FALSE"
 record S7_F06_CALLBACK_ACL "f|t|t|t" "$callback_acl" "UPDATE denied; SELECT/INSERT/DELETE retained"
+# These non-RLS pre-auth pointer tables are internal by design. A grant to
+# PUBLIC (grantee OID 0) would expose the cross-tenant pointer surface.
+# This guard does NOT resolve the broader unscoped SELECT risk for sanad.
+public_pointer_acl=$(admin postgres "$SEP_DB" "WITH target(name) AS (VALUES ('auth_token_tenant_index'),('login_tenant_index'),('service_callback_replay'),('workflow_external_action_token_index')) SELECT count(*) FROM target t LEFT JOIN pg_class c ON c.oid=to_regclass('public.'||t.name) LEFT JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) acl ON true WHERE c.oid IS NULL OR acl.grantee=0")
+[ "$public_pointer_acl" = "0" ] || die S7 "F06 PUBLIC pointer table exposure or missing table count=$public_pointer_acl"
+record S7_F06_PUBLIC_POINTER_ACL "0" "$public_pointer_acl" "four internal pointer/replay tables reject PUBLIC grants"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
 gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORCE RLS 6/6; sequences OK"
 
