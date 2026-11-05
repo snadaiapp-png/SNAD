@@ -78,9 +78,9 @@ class TerritoryUseCasesPostgresTest {
         Territory child = tx(() -> create("CHILD", root.id(), 20));
         Territory grandchild = tx(() -> create("GRAND", child.id(), 30));
 
-        assertThat(territoryRepository.findAncestors(tenantId, grandchild.id()))
+        assertThat(tx(() -> territoryRepository.findAncestors(tenantId, grandchild.id())))
                 .extracting(Territory::id).containsExactly(root.id(), child.id());
-        assertThat(territoryRepository.findDescendants(tenantId, root.id()))
+        assertThat(tx(() -> territoryRepository.findDescendants(tenantId, root.id())))
                 .extracting(Territory::id).contains(child.id(), grandchild.id());
 
         Territory updated = tx(() -> useCases.update(
@@ -94,7 +94,7 @@ class TerritoryUseCasesPostgresTest {
 
         Territory moved = tx(() -> useCases.move(tenantId, actorId, grandchild.id(), root.id()));
         assertThat(moved.parentId()).isEqualTo(root.id());
-        assertThat(territoryRepository.findAncestors(tenantId, grandchild.id()))
+        assertThat(tx(() -> territoryRepository.findAncestors(tenantId, grandchild.id())))
                 .extracting(Territory::id).containsExactly(root.id());
 
         assertThatThrownBy(() -> tx(() -> useCases.move(
