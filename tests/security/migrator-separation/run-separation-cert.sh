@@ -17,7 +17,7 @@
 #   SEP_FLYWAY (/tmp/flyway/flyway)  SEP_REPO (repo root, auto-detected)
 #   SEP_ADMIN_PSQL (psql command with superuser access; default
 #                   "psql -h $SEP_PGHOST -p $SEP_PGPORT -U postgres")
-#   SEP_KEEP_DB=1 to keep the certification database for inspection.
+#   SEP_KEEP_DB=1 (mandatory; certification DB is retained for forensic inspection).
 # ============================================================================
 set -uo pipefail
 export LC_ALL=C.UTF-8
@@ -27,13 +27,13 @@ SEP_PGPORT="${SEP_PGPORT:-55432}"
 SEP_FLYWAY="${SEP_FLYWAY:-/tmp/flyway/flyway}"
 SEP_ADMIN_PSQL="${SEP_ADMIN_PSQL:-psql -h ${SEP_PGHOST} -p ${SEP_PGPORT} -U postgres}"
 SEP_DB="${SEP_DB:-separation_cert}"
-SEP_KEEP_DB="${SEP_KEEP_DB:-0}"
+SEP_KEEP_DB="${SEP_KEEP_DB:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261103.2"
+EXPECTED_HEAD="20261105.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 mkdir -p "$ART"
 TSV="$ART/matrix.tsv"; : > "$TSV"
@@ -46,13 +46,22 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 
 # --- connection helpers -----------------------------------------------------
 admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
+admin_file() { # admin_file <database> <SQL file>, explicit noninteractive exit check
+  # Open the versioned SQL as the checkout user. In CI, the PostgreSQL OS
+  # account cannot traverse the runner's private workspace directory.
+  # Pass the bytes over stdin instead of asking postgres to open -f <path>.
+  $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$1" < "$2"
+}
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   local guc_args=()
-  if [ $# -ge 3 ] && [ -n "$3" ]; then
+  if [ $# -ge 3 ] && [ "$3" = "__G1_EXPLICIT_EMPTY_GUC__" ]; then
+    guc_args=(PGOPTIONS="-c app.tenant_id=")
+  elif [ $# -ge 3 ] && [ -n "$3" ]; then
     guc_args=(PGOPTIONS="-c app.tenant_id=$3")
   fi
-  runtime_out=$(env "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+  # Clear inherited PGOPTIONS so missing-GUC and explicit-empty-GUC probes differ.
+  runtime_out=$(env -u PGOPTIONS "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
@@ -99,8 +108,18 @@ expect_zero_effect() { # DML that must affect ZERO rows (fail-closed invisibilit
 # ============================================================================
 : > "$SUMMARY"
 gate S0 "provision sanad_migrator + restricted sanad + database $SEP_DB (separated topology)"
+[ "${SEP_ROLE_MUTATION_APPROVED:-}" = "isolated-certification-only" ] || die S0 "BLOCKED: cluster-wide role changes require explicit isolated certification approval"
+[ "$SEP_KEEP_DB" = "1" ] || die S0 "BLOCKED: automatic database deletion is disabled; SEP_KEEP_DB must be 1"
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || die S0 "admin psql unavailable: $SEP_ADMIN_PSQL"
-admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true
+# Cluster roles are global: refuse any cluster containing other application DBs.
+other_databases=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname<>'postgres'")
+[ "$other_databases" = "0" ] || die S0 "BLOCKED: shared PostgreSQL cluster has $other_databases non-template application databases"
+[[ "$SEP_DB" =~ ^(separation_cert|g1_sep_cert_[a-z0-9_]+)$ ]] || die S0 "unsafe certification database name: $SEP_DB"
+preexisting=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$SEP_DB'")
+[ "$preexisting" = "0" ] || die S0 "certification database already exists; refusing destructive reset: $SEP_DB"
+# Validate any injected credential BEFORE modifying global PostgreSQL roles.
+SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
+[[ "$SEP_RUN_PW" =~ ^[0-9a-f]{48}$ ]] || die S0 "BLOCKED: runtime credential must be 48 lowercase hex characters"
 admin postgres postgres "DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
     CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -114,7 +133,6 @@ admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NO
 # Ephemeral per-run runtime password (hex, never logged) — required on hosts
 # using password auth for TCP connections (GitHub runners use scram-sha-256;
 # trust-auth local clusters simply ignore it).
-SEP_RUN_PW="${SEP_RUN_PW:-$(openssl rand -hex 24)}"
 admin postgres postgres "ALTER ROLE sanad PASSWORD '$SEP_RUN_PW'" >/dev/null || die S0 "runtime password"
 export PGPASSWORD="$SEP_RUN_PW"
 admin postgres postgres "CREATE DATABASE $SEP_DB OWNER sanad_migrator" >/dev/null || die S0 "database creation"
@@ -152,9 +170,9 @@ record FLYWAY_AS_MIGRATOR PASS PASS "head=$head_now"
 gate S2 "runtime DML on the general set (as sanad)"
 T1=11111111-1111-1111-1111-111111111111
 expect_pass S2_SELECT "$SEP_DB" "SELECT count(*) FROM public.saas_plans"
-expect_pass S2_INSERT "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now())"
-expect_pass S2_UPDATE "$SEP_DB" "UPDATE public.tenants SET name='Sep Cert Tenant 2' WHERE id='$T1'"
-expect_pass S2_DELETE "$SEP_DB" "DELETE FROM public.tenants WHERE id='$T1'"
+expect_value S2_INSERT "$SEP_DB" "WITH inserted AS (INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now()) RETURNING 1) SELECT count(*) FROM inserted" "1"
+expect_value S2_UPDATE "$SEP_DB" "WITH updated AS (UPDATE public.tenants SET name='Sep Cert Tenant 2' WHERE id='$T1' RETURNING 1) SELECT count(*) FROM updated" "1"
+expect_value S2_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.tenants WHERE id='$T1' RETURNING 1) SELECT count(*) FROM deleted" "1"
 [ $FAILURES -eq 0 ] || die S2 "positive DML matrix failed"
 gate S2 "PASS: SELECT/INSERT/UPDATE/DELETE as restricted runtime role"
 
@@ -187,13 +205,26 @@ admin postgres "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,c
 admin postgres "$SEP_DB" "SET app.tenant_id='$TA'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
 admin postgres "$SEP_DB" "SET app.tenant_id='$TB'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
 expect_value S4_A_SEES_A "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TA"
-expect_value S4_A_SEES_TOTAL "$SEP_DB" "SELECT count(*) FROM public.users" "1" "$TA"
+expect_value S4_B_SEES_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
+expect_value S4_B_CANNOT_SEE_A "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "0" "$TB"
 expect_value S4_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.users SET display_name='x' WHERE id='$UB' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
 expect_deny S4_CROSS_INSERT "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('66666666-6666-6666-6666-666666666666','$TB','c@sepcert.test','ACTIVE',now(),now())" "$TA"
+expect_value S4_NO_GUC_EFFECTIVE "$SEP_DB" "SELECT CASE WHEN current_setting('app.tenant_id',true) IS NULL THEN 'ABSENT' ELSE 'UNEXPECTED' END" "ABSENT"
 expect_value S4_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0"
-expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" ""
+expect_value S4_EMPTY_GUC_EFFECTIVE "$SEP_DB" "SELECT CASE WHEN current_setting('app.tenant_id',true)='' THEN 'EXPLICIT_EMPTY' ELSE 'UNEXPECTED' END" "EXPLICIT_EMPTY" "__G1_EXPLICIT_EMPTY_GUC__"
+expect_value S4_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.users" "0" "__G1_EXPLICIT_EMPTY_GUC__"
+# Regression for the CRM tables that historically used fail-open tenant policies.
+# Fixture INSERT is performed by the isolated cluster's admin; assertions are
+# performed through a separate restricted runtime connection.
+admin postgres "$SEP_DB" "INSERT INTO public.crm_customer_segments(tenant_id,segment_code,segment_name,segment_type) VALUES ('$TA','g1-cert-segment-a','G1 cert segment A','MANUAL'),('$TB','g1-cert-segment-b','G1 cert segment B','MANUAL')" >/dev/null || die S4 "CRM A/B fixture seed failed"
+expect_value S4_CRM_A_OWN "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code='g1-cert-segment-a'" "1" "$TA"
+expect_value S4_CRM_A_CANNOT_SEE_B "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code='g1-cert-segment-b'" "0" "$TA"
+expect_value S4_CRM_CROSS_UPDATE "$SEP_DB" "WITH upd AS (UPDATE public.crm_customer_segments SET segment_name='G1 unauthorized' WHERE segment_code='g1-cert-segment-b' RETURNING 1) SELECT count(*) FROM upd" "0" "$TA"
+expect_deny S4_CRM_CROSS_INSERT "$SEP_DB" "INSERT INTO public.crm_customer_segments (tenant_id,segment_code,segment_name,segment_type) VALUES ('$TB','g1-cert-cross-insert','G1 blocked','MANUAL')" "$TA"
+expect_value S4_CRM_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code IN ('g1-cert-segment-a','g1-cert-segment-b')" "0"
+expect_value S4_CRM_EMPTY_GUC "$SEP_DB" "SELECT count(*) FROM public.crm_customer_segments WHERE segment_code IN ('g1-cert-segment-a','g1-cert-segment-b')" "0" "__G1_EXPLICIT_EMPTY_GUC__"
 [ $FAILURES -eq 0 ] || die S4 "tenant isolation matrix failed"
-gate S4 "PASS: Tenant A sees 1 (own) / 0 cross-tenant; cross-tenant INSERT 42501; no-GUC and empty-GUC fail-closed (0 rows)"
+gate S4 "PASS: Users + CRM Tenant A/B access isolated; denied cross-tenant INSERT; missing/empty-GUC both fail-closed"
 
 # ============================================================================
 # S5 — auth plane: user + refresh tokens + trigger + password reset + pre-auth
@@ -205,12 +236,12 @@ PRT=99999999-9999-9999-9999-999999999999
 expect_pass S5_USER_CREATE "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UC','$TA','u2@sepcert.test','ACTIVE',now(),now())" "$TA"
 expect_pass S5_REFRESH_INS "$SEP_DB" "INSERT INTO public.refresh_tokens (id,tenant_id,user_id,token_hash,status,expires_at,created_at) VALUES ('$RT','$TA','$UC','sepcert-hash-1','ACTIVE',now()+interval '1 day',now())" "$TA"
 expect_value S5_TRIGGER_INDEX "$SEP_DB" "SELECT count(*) FROM public.auth_token_tenant_index WHERE token_hash='sepcert-hash-1' AND tenant_id='$TA'" "1"
-expect_pass S5_REFRESH_UPD "$SEP_DB" "UPDATE public.refresh_tokens SET status='REVOKED' WHERE id='$RT'" "$TA"
-expect_pass S5_REFRESH_DEL "$SEP_DB" "DELETE FROM public.refresh_tokens WHERE id='$RT'" "$TA"
+expect_value S5_REFRESH_UPD "$SEP_DB" "WITH updated AS (UPDATE public.refresh_tokens SET status='REVOKED' WHERE id='$RT' RETURNING 1) SELECT count(*) FROM updated" "1" "$TA"
+expect_value S5_REFRESH_DEL "$SEP_DB" "WITH deleted AS (DELETE FROM public.refresh_tokens WHERE id='$RT' RETURNING 1) SELECT count(*) FROM deleted" "1" "$TA"
 expect_pass S5_RESET_INS "$SEP_DB" "INSERT INTO public.password_reset_tokens (id,tenant_id,user_id,token_hash,expires_at,created_at) VALUES ('$PRT','$TA','$UC','sepcert-hash-2',now()+interval '1 hour',now())" "$TA"
-expect_pass S5_RESET_DEL "$SEP_DB" "DELETE FROM public.password_reset_tokens WHERE id='$PRT'" "$TA"
-expect_pass S5_PREAUTH_RESOLVE "$SEP_DB" "SELECT count(*) FROM public.g1_resolve_login_tenants('a@sepcert.test','')"
-expect_pass S5_PREAUTH_INDEX "$SEP_DB" "SELECT count(*) FROM public.login_tenant_index"
+expect_value S5_RESET_DEL "$SEP_DB" "WITH deleted AS (DELETE FROM public.password_reset_tokens WHERE id='$PRT' RETURNING 1) SELECT count(*) FROM deleted" "1" "$TA"
+expect_value S5_PREAUTH_RESOLVE "$SEP_DB" "SELECT count(*) FROM public.g1_resolve_login_tenants('email','a@sepcert.test')" "1"
+expect_value S5_PREAUTH_INDEX "$SEP_DB" "SELECT count(*) FROM public.login_tenant_index WHERE kind='email' AND identifier='a@sepcert.test' AND tenant_id='$TA'" "1"
 [ $FAILURES -eq 0 ] || die S5 "auth plane matrix failed"
 gate S5 "PASS: user creation, refresh/reset token lifecycle, trigger-maintained pre-auth index, pre-auth resolver (no GUC)"
 
@@ -222,9 +253,10 @@ SC=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 SUB=dddddddd-dddd-dddd-dddd-dddddddddddd
 PLAN=$(admin postgres "$SEP_DB" "SELECT id FROM public.saas_plans LIMIT 1")
 PLANVER=$(admin postgres "$SEP_DB" "SELECT id FROM public.plan_versions LIMIT 1")
+[ -n "$PLAN" ] && [ -n "$PLANVER" ] || die S6 "BLOCKED: plan and plan-version fixtures must exist before subscription acceptance"
 # F-01 closure evidence: the runtime role itself creates the subscription row
-expect_pass S6_TENANT_SUB_INS "$SEP_DB" "INSERT INTO public.tenant_subscriptions (id,tenant_id,plan_id,plan_version_id,status,billing_cycle,seat_quantity,credit_balance_minor,started_at,current_period_start,current_period_end,cancel_at_period_end,created_at,updated_at) VALUES ('$SUB','$TA','$PLAN','$PLANVER','TRIALING','MONTHLY',1,0,now(),now(),now()+interval '30 days',false,now(),now())" "$TA"
-expect_pass S6_SUB_INS "$SEP_DB" "INSERT INTO public.subscription_commands (id,subscription_id,tenant_id,command,from_status,to_status,reason,created_at) VALUES ('$SC','$SUB','$TA','CHANGE_PLAN','TRIALING','ACTIVE','separation-cert probe',now())" "$TA"
+expect_value S6_TENANT_SUB_INS "$SEP_DB" "WITH created AS (INSERT INTO public.tenant_subscriptions (id,tenant_id,plan_id,plan_version_id,status,billing_cycle,seat_quantity,credit_balance_minor,started_at,current_period_start,current_period_end,cancel_at_period_end,created_at,updated_at) VALUES ('$SUB','$TA','$PLAN','$PLANVER','TRIALING','MONTHLY',1,0,now(),now(),now()+interval '30 days',false,now(),now()) RETURNING 1) SELECT count(*) FROM created" "1" "$TA"
+expect_value S6_SUB_INS "$SEP_DB" "WITH created AS (INSERT INTO public.subscription_commands (id,subscription_id,tenant_id,command,from_status,to_status,reason,created_at) VALUES ('$SC','$SUB','$TA','CHANGE_PLAN','TRIALING','ACTIVE','separation-cert probe',now()) RETURNING 1) SELECT count(*) FROM created" "1" "$TA"
 expect_deny  S6_SUB_UPD "$SEP_DB" "UPDATE public.subscription_commands SET reason='FORCED' WHERE id='$SC'" "$TA"
 expect_deny  S6_SUB_DEL "$SEP_DB" "DELETE FROM public.subscription_commands WHERE id='$SC'" "$TA"
 [ $FAILURES -eq 0 ] || die S6 "subscription plane matrix failed"
@@ -243,15 +275,63 @@ runtime_create=$(admin postgres "$SEP_DB" "SELECT has_schema_privilege('sanad','
 [ "$runtime_create" = "f" ] || die S7 "sanad still holds CREATE on public"
 rls_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('users','refresh_tokens','password_reset_tokens','provisioning_jobs','provisioning_job_steps','subscription_commands') AND NOT (relrowsecurity AND relforcerowsecurity)")
 [ "$rls_bad" = "0" ] || die S7 "FORCE RLS missing on $rls_bad guarded tables"
+tenant_force_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid AND a.attname='tenant_id' WHERE c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p') AND c.relrowsecurity AND NOT c.relforcerowsecurity")
+[ "$tenant_force_bad" = "0" ] || die S7 "tenant-scoped tables missing FORCE RLS: $tenant_force_bad"
+failopen_bad=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relnamespace='public'::regnamespace AND c.relrowsecurity AND (pg_get_expr(p.polqual,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%' OR pg_get_expr(p.polwithcheck,p.polrelid) LIKE '%current_setting(''app.tenant_id''%IS NULL) OR%')")
+[ "$failopen_bad" = "0" ] || die S7 "fail-open tenant policies detected: $failopen_bad"
+# S7 must use the same strict release policy contract as the shadow red/green
+# acceptance test, not only the heuristic for the old IS NULL OR expression.
+G1_RELEASE_SQL="$SEP_REPO/apps/sanad-platform/src/test/resources/sql/g1-rls-release-readonly-gate.sql"
+[ -f "$G1_RELEASE_SQL" ] || die S7 "missing versioned G1 release SQL: $G1_RELEASE_SQL"
+if admin_file "$SEP_DB" "$G1_RELEASE_SQL" > "$ART/S7-g1-release-catalog.log" 2>&1; then
+  record S7_G1_RELEASE_CATALOG PASS PASS "19 CRM policy definitions and owner/ACL checks validated"
+else
+  record S7_G1_RELEASE_CATALOG PASS FAIL "see $ART/S7-g1-release-catalog.log"
+  die S7 "G1 release catalog gate failed (see $ART/S7-g1-release-catalog.log)"
+fi
 seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT (has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'USAGE') AND has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'SELECT'))")
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
+# F06: only remove the unnecessary UPDATE capability, retaining callback
+# consumption and expiry-cleanup capabilities. This is not full F06 closure.
+callback_acl=$(admin postgres "$SEP_DB" "SELECT has_table_privilege('sanad','public.service_callback_replay','UPDATE')||'|'||has_table_privilege('sanad','public.service_callback_replay','SELECT')||'|'||has_table_privilege('sanad','public.service_callback_replay','INSERT')||'|'||has_table_privilege('sanad','public.service_callback_replay','DELETE')")
+[ "$callback_acl" = "false|true|true|true" -o "$callback_acl" = "f|t|t|t" ] || die S7 "F06 callback ACL incorrect: $callback_acl"
+expect_deny S7_CALLBACK_UPDATE_DENIED "$SEP_DB" "UPDATE public.service_callback_replay SET correlation_id='forbidden' WHERE FALSE"
+record S7_F06_CALLBACK_ACL "f|t|t|t" "$callback_acl" "UPDATE denied; SELECT/INSERT/DELETE retained"
+# These non-RLS pre-auth pointer tables are internal by design. A grant to
+# PUBLIC (grantee OID 0) would expose the cross-tenant pointer surface.
+# This guard does NOT resolve the broader unscoped SELECT risk for sanad.
+public_pointer_acl=$(admin postgres "$SEP_DB" "WITH target(name) AS (VALUES ('auth_token_tenant_index'),('login_tenant_index'),('service_callback_replay'),('workflow_external_action_token_index')) SELECT count(*) FROM target t LEFT JOIN pg_class c ON c.oid=to_regclass('public.'||t.name) LEFT JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) acl ON true WHERE c.oid IS NULL OR acl.grantee=0")
+[ "$public_pointer_acl" = "0" ] || die S7 "F06 PUBLIC pointer table exposure or missing table count=$public_pointer_acl"
+record S7_F06_PUBLIC_POINTER_ACL "0" "$public_pointer_acl" "four internal pointer/replay tables reject PUBLIC grants"
+# F06 workflow pointer: lookup is allowed, direct mutations are not. The
+# migrator-owned SECURITY DEFINER trigger must retain its sync authority.
+workflow_acl=$(admin postgres "$SEP_DB" "SELECT has_table_privilege('sanad','public.workflow_external_action_token_index','SELECT')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','INSERT')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','UPDATE')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','DELETE')")
+[ "$workflow_acl" = "true|false|false|false" -o "$workflow_acl" = "t|f|f|f" ] || die S7 "F06 workflow pointer ACL incorrect: $workflow_acl"
+expect_deny S7_WORKFLOW_POINTER_INS_DENIED "$SEP_DB" "INSERT INTO public.workflow_external_action_token_index(token_hash,action_id,tenant_id) SELECT 'x', gen_random_uuid(),gen_random_uuid() WHERE FALSE"
+expect_deny S7_WORKFLOW_POINTER_UPD_DENIED "$SEP_DB" "UPDATE public.workflow_external_action_token_index SET tenant_id=tenant_id WHERE FALSE"
+expect_deny S7_WORKFLOW_POINTER_DEL_DENIED "$SEP_DB" "DELETE FROM public.workflow_external_action_token_index WHERE FALSE"
+workflow_trigger=$(admin postgres "$SEP_DB" "SELECT (p.prosecdef AND pg_get_userbyid(p.proowner)='sanad_migrator' AND t.tgenabled='O') FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid='public.workflow_external_actions'::regclass AND t.tgname='wf_ext_actions_sync_token_index' AND NOT t.tgisinternal")
+[ "$workflow_trigger" = "t" ] || die S7 "F06 workflow sync trigger not trusted: $workflow_trigger"
+record S7_F06_WORKFLOW_POINTER_ACL "t|f|f|f" "$workflow_acl" "runtime lookup kept, direct mutation denied, owner trigger verified"
+# Positive functional check: genuine restricted-role DML on authoritative
+# workflow actions must still synchronize the pointer through owner trigger.
+# SQL script begins a transaction and always rolls back all test fixtures.
+WF_LIFECYCLE_SQL="$SEP_REPO/tests/security/migrator-separation/workflow-pointer-lifecycle.sql"
+[ -f "$WF_LIFECYCLE_SQL" ] || die S7 "missing workflow pointer lifecycle SQL"
+if admin_file "$SEP_DB" "$WF_LIFECYCLE_SQL" > "$ART/S7-workflow-pointer-lifecycle.log" 2>&1; then
+  record S7_WORKFLOW_POINTER_LIFECYCLE PASS PASS "insert/update/delete trigger sync as sanad within rollback transaction"
+else
+  record S7_WORKFLOW_POINTER_LIFECYCLE PASS FAIL "see $ART/S7-workflow-pointer-lifecycle.log"
+  die S7 "workflow pointer lifecycle failed (see $ART/S7-workflow-pointer-lifecycle.log)"
+fi
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
 gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORCE RLS 6/6; sequences OK"
 
 # ============================================================================
 # S8 — verdict
 # ============================================================================
-if [ "$SEP_KEEP_DB" != "1" ]; then admin postgres postgres "DROP DATABASE IF EXISTS $SEP_DB" >/dev/null 2>&1 || true; fi
+[ "$SEP_KEEP_DB" = "1" ] || die S8 "BLOCKED: automatic database deletion disabled; preserve forensic evidence and clean up separately after review"
+echo "EVIDENCE_DATABASE_RETAINED=$SEP_DB" >> "$SUMMARY"
 {
   echo ""
   echo "## Separation acceptance matrix — $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
