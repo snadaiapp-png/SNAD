@@ -33,7 +33,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261104.2"
+EXPECTED_HEAD="20261105.1"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 mkdir -p "$ART"
 TSV="$ART/matrix.tsv"; : > "$TSV"
@@ -291,6 +291,12 @@ else
 fi
 seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT (has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'USAGE') AND has_sequence_privilege('sanad',quote_ident(n.nspname)||'.'||quote_ident(c.relname),'SELECT'))")
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
+# F06: only remove the unnecessary UPDATE capability, retaining callback
+# consumption and expiry-cleanup capabilities. This is not full F06 closure.
+callback_acl=$(admin postgres "$SEP_DB" "SELECT has_table_privilege('sanad','public.service_callback_replay','UPDATE')||'|'||has_table_privilege('sanad','public.service_callback_replay','SELECT')||'|'||has_table_privilege('sanad','public.service_callback_replay','INSERT')||'|'||has_table_privilege('sanad','public.service_callback_replay','DELETE')")
+[ "$callback_acl" = "false|true|true|true" -o "$callback_acl" = "f|t|t|t" ] || die S7 "F06 callback ACL incorrect: $callback_acl"
+expect_deny S7_CALLBACK_UPDATE_DENIED "$SEP_DB" "UPDATE public.service_callback_replay SET correlation_id='forbidden' WHERE FALSE"
+record S7_F06_CALLBACK_ACL "f|t|t|t" "$callback_acl" "UPDATE denied; SELECT/INSERT/DELETE retained"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
 gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORCE RLS 6/6; sequences OK"
 
