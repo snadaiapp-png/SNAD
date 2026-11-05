@@ -303,7 +303,30 @@ jobs:
                   RAISE EXCEPTION 'POST-FLIGHT: sanad must NOT be a member of sanad_migrator';
               END IF;
 
-              RAISE NOTICE 'POST-FLIGHT OK: ownership / ACL / append-only / FORCE RLS / membership verified';
+              -- F06: assert the effective runtime ACLs after forward-only migrations.
+              -- A successfully recorded migration is not sufficient evidence of
+              -- privilege revocation when a topology-dependent DO block is skipped.
+              IF has_table_privilege('sanad', 'public.service_callback_replay', 'UPDATE')
+                 OR NOT has_table_privilege('sanad', 'public.service_callback_replay', 'SELECT')
+                 OR NOT has_table_privilege('sanad', 'public.service_callback_replay', 'INSERT')
+                 OR NOT has_table_privilege('sanad', 'public.service_callback_replay', 'DELETE') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT F06: callback replay runtime ACL mismatch';
+              END IF;
+              IF NOT has_table_privilege('sanad', 'public.workflow_external_action_token_index', 'SELECT')
+                 OR has_table_privilege('sanad', 'public.workflow_external_action_token_index', 'INSERT')
+                 OR has_table_privilege('sanad', 'public.workflow_external_action_token_index', 'UPDATE')
+                 OR has_table_privilege('sanad', 'public.workflow_external_action_token_index', 'DELETE') THEN
+                  RAISE EXCEPTION 'POST-FLIGHT F06: workflow preauth pointer runtime ACL mismatch';
+              END IF;
+              IF EXISTS (
+                  SELECT 1 FROM pg_class c
+                  WHERE c.oid = 'public.workflow_external_actions'::regclass
+                    AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)
+              ) THEN
+                  RAISE EXCEPTION 'POST-FLIGHT F06: workflow external actions must enforce RLS';
+              END IF;
+
+              RAISE NOTICE 'POST-FLIGHT OK: ownership / ACL / append-only / FORCE RLS / membership / F06 verified';
           END $check$;
           SQL
 
