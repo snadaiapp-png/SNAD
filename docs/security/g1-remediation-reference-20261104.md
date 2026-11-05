@@ -148,5 +148,14 @@
 - This corrects the earlier `S7-g1-release-catalog.log` runner file access error (`Permission denied`) by passing versioned SQL from checkout-user stdin to PostgreSQL. Prior run `41929415028` FAILED; the new pinned isolated run PASSED. No release-signoff inference.
 - Open blockers: F05 historical admin backfill NOT RUN, F06 pre-auth/replay ACL risk OPEN, complete recovery/configuration evidence and independent review OPEN, post-merge main CI NOT RUN. **G1 remains HOLD / Production NO-GO / Payments OFF.**
 
+## 2026-11-05 — F05/F06 rollback-only dedicated PG17.10 verification
+
+- Dedicated test-only cluster was initially stopped; checked its data directory via `pg_controldata`: system ID `7704438226812603328`, clean `shut down`, port `55576`, then started ONLY that isolated cluster with `pg_ctl` (exit 0); connection verified as `postgres|postgres|17.10|7704438226812603328|3`.
+- Re-executed read-only F05 reconciliation: `expected_mappings=1 indexed_mappings=0 missing_mappings=1 stale_mappings=0 duplicate_mappings=0`; deliberate fail-closed audit `EXIT=3`. No pre-existing missing mapping was silently reclassified as fixed.
+- Real transactional F05 rehearsal: `tests/security/g1-f05-backfill-transactional-trial.sql`, guarded by database/port/cluster/superuser, ran the existing admin reconciliation within `BEGIN ... ROLLBACK`; `G1_F05_TRIAL_BASELINE=CONFIRMED missing=1`, `G1_LOGIN_INDEX_RECONCILIATION=PASS`, `G1_F05_TRIAL_POST_BACKFILL=PASS missing=0 stale=0`, psql `EXIT=0`. **Permanent backfill NOT RUN; F05 OPEN.**
+- Real transactional F06 restricted-ACL rehearsal: `tests/security/g1-callback-replay-minimal-acl-rollback.sql`, target identity guard, `REVOKE UPDATE ... FROM sanad` inside transaction; `G1_CALLBACK_ACL_CONTRACT=PASS`, actual runtime-role DML proof `G1_CALLBACK_RUNTIME=PASS select=1 insert=1 update=denied delete=1`, `ROLLBACK`, psql `EXIT=0`. This addresses only UPDATE on `service_callback_replay`; other unscoped SELECT grants and complete integration behavior are NOT certified. **F06 OPEN.**
+- Independent post-rollback read: `G1_POSTROLLBACK_VALUES=7704438226812603328|1|0|0|t`; confirms the original missing index remains, test tenant and callback fixtures are absent, and `sanad` UPDATE privilege was restored. `G1_F05_F06_POSTROLLBACK=PASS`. Evidence scripts and logs retained locally in `C:\\Users\\SNADA\\Documents\\SNAD-PR1474-EVIDENCE`; no production changes, no secrets printed.
+- Approval prerequisites and broader behavioral/full-stack tests remain necessary before any permanent backfill or ACL migration. G1 remains HOLD, production NO-GO and payments OFF.
+
 ## Exit gates
 G1 may be marked PASS **only** after F01–F08 are resolved with linked artifacts, all mandatory integration tests and post-merge CI run successfully on the final commit, production readiness verified under change control, and independent security approver signs. No percentage-complete metric without a locked metric denominator.
