@@ -608,6 +608,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(D6_T2_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_SEPARATION_ROLE_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION),
+                        MigrationVersion.fromVersion("20261103.3"), // append-only ledger runtime ACL
+                        MigrationVersion.fromVersion("20261104.1"), // login tenant index transfer consistency
+                        MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
+                        MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
+                        MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -862,6 +867,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(D6_T2_RUNTIME_GRANTS_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_SEPARATION_ROLE_VERSION),
                         MigrationVersion.fromVersion(MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION),
+                        MigrationVersion.fromVersion("20261103.3"), // append-only ledger runtime ACL
+                        MigrationVersion.fromVersion("20261104.1"), // login tenant index transfer consistency
+                        MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
+                        MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
+                        MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
