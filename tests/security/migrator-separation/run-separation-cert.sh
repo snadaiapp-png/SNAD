@@ -33,7 +33,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261105.1"
+EXPECTED_HEAD="20261105.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 mkdir -p "$ART"
 TSV="$ART/matrix.tsv"; : > "$TSV"
@@ -303,6 +303,16 @@ record S7_F06_CALLBACK_ACL "f|t|t|t" "$callback_acl" "UPDATE denied; SELECT/INSE
 public_pointer_acl=$(admin postgres "$SEP_DB" "WITH target(name) AS (VALUES ('auth_token_tenant_index'),('login_tenant_index'),('service_callback_replay'),('workflow_external_action_token_index')) SELECT count(*) FROM target t LEFT JOIN pg_class c ON c.oid=to_regclass('public.'||t.name) LEFT JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) acl ON true WHERE c.oid IS NULL OR acl.grantee=0")
 [ "$public_pointer_acl" = "0" ] || die S7 "F06 PUBLIC pointer table exposure or missing table count=$public_pointer_acl"
 record S7_F06_PUBLIC_POINTER_ACL "0" "$public_pointer_acl" "four internal pointer/replay tables reject PUBLIC grants"
+# F06 workflow pointer: lookup is allowed, direct mutations are not. The
+# migrator-owned SECURITY DEFINER trigger must retain its sync authority.
+workflow_acl=$(admin postgres "$SEP_DB" "SELECT has_table_privilege('sanad','public.workflow_external_action_token_index','SELECT')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','INSERT')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','UPDATE')||'|'||has_table_privilege('sanad','public.workflow_external_action_token_index','DELETE')")
+[ "$workflow_acl" = "true|false|false|false" -o "$workflow_acl" = "t|f|f|f" ] || die S7 "F06 workflow pointer ACL incorrect: $workflow_acl"
+expect_deny S7_WORKFLOW_POINTER_INS_DENIED "$SEP_DB" "INSERT INTO public.workflow_external_action_token_index(token_hash,action_id,tenant_id) SELECT 'x', gen_random_uuid(),gen_random_uuid() WHERE FALSE"
+expect_deny S7_WORKFLOW_POINTER_UPD_DENIED "$SEP_DB" "UPDATE public.workflow_external_action_token_index SET tenant_id=tenant_id WHERE FALSE"
+expect_deny S7_WORKFLOW_POINTER_DEL_DENIED "$SEP_DB" "DELETE FROM public.workflow_external_action_token_index WHERE FALSE"
+workflow_trigger=$(admin postgres "$SEP_DB" "SELECT (p.prosecdef AND pg_get_userbyid(p.proowner)='sanad_migrator' AND t.tgenabled='O') FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid='public.workflow_external_actions'::regclass AND t.tgname='wf_ext_actions_sync_token_index' AND NOT t.tgisinternal")
+[ "$workflow_trigger" = "t" ] || die S7 "F06 workflow sync trigger not trusted: $workflow_trigger"
+record S7_F06_WORKFLOW_POINTER_ACL "t|f|f|f" "$workflow_acl" "runtime lookup kept, direct mutation denied, owner trigger verified"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
 gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORCE RLS 6/6; sequences OK"
 
