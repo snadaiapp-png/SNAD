@@ -47,7 +47,10 @@ die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$
 # --- connection helpers -----------------------------------------------------
 admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 admin_file() { # admin_file <database> <SQL file>, explicit noninteractive exit check
-  $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$1" -f "$2"
+  # Open the versioned SQL as the checkout user. In CI, the PostgreSQL OS
+  # account cannot traverse the runner's private workspace directory.
+  # Pass the bytes over stdin instead of asking postgres to open -f <path>.
+  $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$1" < "$2"
 }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
