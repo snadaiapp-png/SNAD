@@ -5,8 +5,9 @@ BEGIN;
 SET LOCAL ROLE sanad;
 SELECT set_config('app.tenant_id','22222222-2222-2222-2222-222222222222',true);
 INSERT INTO public.workflow_definitions
-(id,tenant_id,code,name,created_by,created_at,updated_at)
+(id,tenant_id,definition_family_id,code,name,created_by,created_at,updated_at)
 VALUES ('e1010101-0101-0101-0101-010101010101','22222222-2222-2222-2222-222222222222',
+'e1010101-0101-0101-0101-010101010101',
 'g1-wf-pointer-lifecycle','G1 pointer verification','44444444-4444-4444-4444-444444444444',now(),now());
 INSERT INTO public.workflow_instances
 (id,tenant_id,workflow_definition_id,workflow_version,business_entity_type,business_entity_id,
