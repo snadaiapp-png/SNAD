@@ -67,8 +67,14 @@ class WorkflowR2ExternalPortalTest {
                     .migrate();
             postgresAvailable = true;
         } catch (Exception unavailable) {
+            if (com.sanad.platform.crm.integration.Crm009TestEnvironment.isCiEnvironment()) {
+                throw new IllegalStateException(
+                        "WorkflowR2ExternalPortalTest requires PostgreSQL Direct in CI; "
+                                + "a migration/connectivity failure must not be marked SKIPPED",
+                        unavailable);
+            }
             System.err.println("[WorkflowR2ExternalPortalTest] PostgreSQL Direct "
-                    + "unavailable, skipping: " + unavailable);
+                    + "unavailable, skipping in local development only: " + unavailable);
             postgresAvailable = false;
         }
         org.junit.jupiter.api.Assumptions.assumeTrue(postgresAvailable,
