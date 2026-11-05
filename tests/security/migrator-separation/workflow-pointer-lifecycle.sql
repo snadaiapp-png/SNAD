@@ -24,12 +24,12 @@ INSERT INTO public.workflow_external_actions
 (id,tenant_id,workflow_instance_id,participant_id,action_type,token_hash,idempotency_key)
 VALUES ('e6060606-0606-0606-0606-060606060606','22222222-2222-2222-2222-222222222222',
 'e2020202-0202-0202-0202-020202020202','e4040404-0404-0404-0404-040404040404',
-'ACKNOWLEDGE','g1-pointer-probe-261105','g1-pointer-probe-261105');
+'ACKNOWLEDGE',md5('g1 workflow pointer fixture'),md5('g1 workflow pointer fixture'));
 DO $g1$
 DECLARE hits integer;
 BEGIN
  SELECT count(*) INTO hits FROM public.workflow_external_action_token_index
- WHERE token_hash='g1-pointer-probe-261105'
+ WHERE token_hash=md5('g1 workflow pointer fixture')
  AND action_id='e6060606-0606-0606-0606-060606060606'
  AND tenant_id='22222222-2222-2222-2222-222222222222';
  IF hits<>1 THEN RAISE EXCEPTION 'G1_WORKFLOW_POINTER_INSERT_SYNC_FAILED count=%',hits; END IF;
@@ -41,7 +41,7 @@ DO $g1$
 DECLARE hits integer;
 BEGIN
  SELECT count(*) INTO hits FROM public.workflow_external_action_token_index
- WHERE token_hash='g1-pointer-probe-261105'
+ WHERE token_hash=md5('g1 workflow pointer fixture')
  AND action_id='e6060606-0606-0606-0606-060606060606';
  IF hits<>1 THEN RAISE EXCEPTION 'G1_WORKFLOW_POINTER_UPDATE_SYNC_FAILED count=%',hits; END IF;
  RAISE NOTICE 'G1_WORKFLOW_POINTER_UPDATE_SYNC=PASS';
@@ -51,7 +51,7 @@ DO $g1$
 DECLARE hits integer;
 BEGIN
  SELECT count(*) INTO hits FROM public.workflow_external_action_token_index
- WHERE token_hash='g1-pointer-probe-261105';
+ WHERE token_hash=md5('g1 workflow pointer fixture');
  IF hits<>0 THEN RAISE EXCEPTION 'G1_WORKFLOW_POINTER_DELETE_SYNC_FAILED count=%',hits; END IF;
  RAISE NOTICE 'G1_WORKFLOW_POINTER_DELETE_SYNC=PASS';
 END $g1$;
