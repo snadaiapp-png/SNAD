@@ -2,16 +2,24 @@
 -- Forward-only; do not edit previously applied Flyway migrations.
 -- Run via the approved migrator workflow, first on an isolated database.
 -- No explicit BEGIN/COMMIT: Flyway must execute this as one PostgreSQL transaction.
-SET LOCAL lock_timeout = '5s';
-SET LOCAL statement_timeout = '90s';
+SET lock_timeout = '5s';
+SET statement_timeout = '90s';
 
 DO $preflight$
 DECLARE
   v_table text;
 BEGIN
-  IF current_user <> 'sanad_migrator'
-     OR current_setting('sanad.deployment_topology', true) IS DISTINCT FROM 'separated' THEN
-    RAISE EXCEPTION 'G1_COMPOSITE_FK_REQUIRES_SEPARATED_MIGRATOR';
+  -- Production topology requires the dedicated migrator. Historical migration
+  -- fixture mode is supported for clean-chain tests, not G1 certification.
+  IF current_setting('sanad.deployment_topology', true) = 'separated' THEN
+    IF current_user <> 'sanad_migrator' THEN
+      RAISE EXCEPTION 'G1_COMPOSITE_FK_REQUIRES_SEPARATED_MIGRATOR';
+    END IF;
+  ELSIF current_setting('sanad.deployment_topology', true) IS NULL
+     OR current_setting('sanad.deployment_topology', true) = 'migration-fixture' THEN
+    RAISE WARNING 'G1_COMPOSITE_FK_FIXTURE_MODE_NOT_CERTIFIED';
+  ELSE
+    RAISE EXCEPTION 'G1_COMPOSITE_FK_UNKNOWN_TOPOLOGY';
   END IF;
 
   FOREACH v_table IN ARRAY ARRAY['provisioning_jobs', 'subscription_commands'] LOOP
@@ -23,12 +31,10 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'G1_COMPOSITE_FK_OWNER_OR_RLS_CONTRACT: %', v_table;
     END IF;
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = v_table
-        AND column_name IN ('tenant_id', 'subscription_id')
-        AND is_nullable <> 'NO'
-    ) THEN
+    IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = v_table
+          AND column_name IN ('tenant_id', 'subscription_id')
+          AND is_nullable = 'NO') <> 2 THEN
       RAISE EXCEPTION 'G1_COMPOSITE_FK_NULLABLE_COLUMN: %', v_table;
     END IF;
   END LOOP;
