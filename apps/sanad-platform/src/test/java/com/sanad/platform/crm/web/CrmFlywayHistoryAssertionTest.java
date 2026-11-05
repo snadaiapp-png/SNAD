@@ -359,6 +359,11 @@ class CrmFlywayHistoryAssertionTest {
             , "20261103.1"   // sanad_migrator role contract (migrator/runtime separation)
             , "20261103.2"   // migrator ownership + runtime ACL matrix (F-01 closed)
             , "20261103.3"   // append-only ledger runtime ACL correction (Issue #1462, separated topology)
+            , "20261104.1"   // login tenant-index transfer consistency
+            , "20261104.2"   // CRM fail-closed FORCE RLS
+            , "20261105.1"   // callback replay runtime UPDATE denial
+            , "20261105.2"   // workflow pre-auth pointer runtime read-only
+            , "20261105.3"   // tenant-subscription composite foreign keys
     );
 
 
