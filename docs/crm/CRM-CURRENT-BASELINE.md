@@ -523,3 +523,5 @@ production data are modified by this reconciliation.
 This section exists specifically so the governance drift gate can reconcile the
 current on-disk CRM migration inventory without weakening the gate or editing
 any applied migration.
+
+| `20261104.2` | `V20261104_2__crm_rls_fail_closed_force.sql` | G1 remediation for 19 historical CRM tables: tenant_isolation FOR ALL and FORCE RLS; requires A/B and independent security acceptance | IMPLEMENTED IN PR #1477; G1 HOLD |
