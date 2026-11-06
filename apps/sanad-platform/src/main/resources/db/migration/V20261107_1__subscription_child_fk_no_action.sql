@@ -34,8 +34,33 @@ BEGIN
       RAISE EXCEPTION 'G1_NO_ACTION_UNEXPECTED_EXISTING_FK: %', v_name;
     END IF;
   END LOOP;
+  IF (SELECT count(*) FROM pg_constraint
+      WHERE (conrelid='public.provisioning_jobs'::regclass AND conname='fk_prov_jobs_subscription'
+             OR conrelid='public.subscription_commands'::regclass AND conname='fk_sub_commands_subscription')
+        AND contype='f' AND convalidated AND confdeltype='c'
+        AND confrelid='public.tenant_subscriptions'::regclass) <> 2 THEN
+    RAISE EXCEPTION 'G1_NO_ACTION_UNEXPECTED_LEGACY_FK';
+  END IF;
 END
 $pre$;
+
+-- Both legacy single-column CASCADE FKs must also be replaced;
+-- otherwise a parent deletion could still cascade despite the composite NO ACTION FKs.
+ALTER TABLE public.provisioning_jobs
+  DROP CONSTRAINT fk_prov_jobs_subscription;
+ALTER TABLE public.provisioning_jobs
+  ADD CONSTRAINT fk_prov_jobs_subscription
+  FOREIGN KEY (subscription_id)
+  REFERENCES public.tenant_subscriptions (id)
+  ON DELETE NO ACTION NOT VALID;
+
+ALTER TABLE public.subscription_commands
+  DROP CONSTRAINT fk_sub_commands_subscription;
+ALTER TABLE public.subscription_commands
+  ADD CONSTRAINT fk_sub_commands_subscription
+  FOREIGN KEY (subscription_id)
+  REFERENCES public.tenant_subscriptions (id)
+  ON DELETE NO ACTION NOT VALID;
 
 ALTER TABLE public.provisioning_jobs
   DROP CONSTRAINT fk_prov_jobs_tenant_subscription;
@@ -54,6 +79,10 @@ ALTER TABLE public.subscription_commands
   ON DELETE NO ACTION NOT VALID;
 
 ALTER TABLE public.provisioning_jobs
+  VALIDATE CONSTRAINT fk_prov_jobs_subscription;
+ALTER TABLE public.subscription_commands
+  VALIDATE CONSTRAINT fk_sub_commands_subscription;
+ALTER TABLE public.provisioning_jobs
   VALIDATE CONSTRAINT fk_prov_jobs_tenant_subscription;
 ALTER TABLE public.subscription_commands
   VALIDATE CONSTRAINT fk_sub_commands_tenant_subscription;
@@ -61,10 +90,11 @@ ALTER TABLE public.subscription_commands
 DO $post$
 BEGIN
   IF (SELECT count(*) FROM pg_constraint
-      WHERE conname IN ('fk_prov_jobs_tenant_subscription','fk_sub_commands_tenant_subscription')
+      WHERE conname IN ('fk_prov_jobs_tenant_subscription','fk_sub_commands_tenant_subscription',
+                       'fk_prov_jobs_subscription','fk_sub_commands_subscription')
         AND conrelid IN ('public.provisioning_jobs'::regclass,'public.subscription_commands'::regclass)
         AND confrelid='public.tenant_subscriptions'::regclass
-        AND contype='f' AND convalidated AND confdeltype='a') <> 2 THEN
+        AND contype='f' AND convalidated AND confdeltype='a') <> 4 THEN
     RAISE EXCEPTION 'G1_NO_ACTION_POSTCONDITION_FAILED';
   END IF;
 END
