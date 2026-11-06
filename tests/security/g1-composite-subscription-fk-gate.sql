@@ -35,7 +35,19 @@ BEGIN
        ) THEN
       RAISE EXCEPTION 'G1_COMPOSITE_FK_INVALID table=% expected=%',v_child,v_name;
     END IF;
-    RAISE NOTICE 'PASS: G1_COMPOSITE_FK_VALIDATED table=%',v_child;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint k
+      WHERE k.conrelid=v_child AND k.confrelid=v_referenced
+        AND k.conname=CASE WHEN v_name='fk_prov_jobs_tenant_subscription'
+                           THEN 'fk_prov_jobs_subscription'
+                           ELSE 'fk_sub_commands_subscription' END
+        AND k.contype='f' AND k.convalidated AND k.confdeltype='a'
+        AND k.conkey=ARRAY[v_child_attnums[2]]::smallint[]
+        AND k.confkey=ARRAY[v_parent_attnums[2]]::smallint[]
+    ) THEN
+      RAISE EXCEPTION 'G1_LEGACY_FK_MUST_BE_NO_ACTION table=%',v_child;
+    END IF;
+    RAISE NOTICE 'PASS: G1_COMPOSITE_AND_LEGACY_FKS_NO_ACTION table=%',v_child;
   END LOOP;
 END
 $g1$;
