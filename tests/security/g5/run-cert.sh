@@ -73,9 +73,9 @@ fw sanad migrate | tee "$ART/A-migrate.log"
 fw sanad validate | tee "$ART/A-validate.log"
 T1=$(date +%s)
 head=$(history_head sanad)
-[ "$head" = "20261105.3" ] || die A "fresh-DB head=$head, expected 20261105.3"
+[ "$head" = "20261107.1" ] || die A "fresh-DB head=$head, expected 20261107.1"
 tables=$(psql -At -U sanad -d sanad -c "SELECT count(*) FROM pg_tables WHERE schemaname='public';")
-gate A "PASS: head=20261105.3, public tables=$tables, chain window $((T1-T0))s"
+gate A "PASS: head=20261107.1, public tables=$tables, chain window $((T1-T0))s"
 
 rls_fresh=$(psql -At -U sanad -d sanad -c "$sql_rls" | tee "$ART/A-rls-catalog.txt")
 echo "$rls_fresh" | grep -q '^refresh_tokens:11$' || die A "refresh_tokens not ENABLE+FORCE"
@@ -126,7 +126,7 @@ gate B "checksum join at watermark: 100% match with production ledger"
 fw upgrade_hist migrate | tee "$ART/B-migrate-upgrade.log"
 fw upgrade_hist validate | tee "$ART/B-validate-upgrade.log"
 head_b2=$(history_head upgrade_hist)
-[ "$head_b2" = "20261105.3" ] || die B "upgraded head=$head_b2, expected 20261105.3"
+[ "$head_b2" = "20261107.1" ] || die B "upgraded head=$head_b2, expected 20261107.1"
 applied_new=$(psql -At -U sanad -d upgrade_hist -c "SELECT string_agg(version, ',' ORDER BY installed_rank) FROM flyway_schema_history WHERE success=true AND version > '20261021.1';")
 gate B "PASS: upgrade applied [$applied_new], validate OK"
 
@@ -186,7 +186,7 @@ gate C "c2 PASS: checksum tamper -> validate FAILED (fail-closed)"
 cp "$MIG_LOC_ROOT/V20261102_2__t2_batch2_runtime_grants.sql" "$CHAIN_COPY/"
 before_succ=$(success_rows injection)
 # Injected version MUST compare numerically ABOVE the chain head. The chain uses
-# date-style versions: 20261105.3 = 20,261,105.3, so '2026999.1' (2,026,999.1) is
+# date-style versions: 20261107.1 = 20,261,105.3, so '2026999.1' (2,026,999.1) is
 # an OLDER version — Flyway classifies it IGNORED (below schema version, outOfOrder
 # disabled) and validateOnMigrate aborts BEFORE executing it (runs #10/#11/#13).
 # V20261105_4 (20,261,105.4 > 20,261,105.3) is an in-order PENDING migration and IS
@@ -213,7 +213,7 @@ rm "$CHAIN_COPY/V20261105_4__inject_failure.sql"
 $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
   || die C "c3: retry after clean failure failed (database left inconsistent)"
-[ "$(history_head injection)" = "20261105.3" ] || die C "c3: head changed after retry"
+[ "$(history_head injection)" = "20261107.1" ] || die C "c3: head changed after retry"
 gate C "c3 PASS: mid-chain failure -> migrate aborted, transaction rolled back (real DDL marker absent, no history pollution), clean retry without repair [Flyway PG-transactional: no success=false row by design]"
 
 gate C "c4 PASS: repair/baseline never invoked at any point (no repair artifacts; all failures stay failed)"
