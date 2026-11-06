@@ -152,8 +152,8 @@ class OwnershipReadQueueLifecyclePostgresTest {
         UUID otherTenant = UUID.randomUUID();
         insertTenant(otherTenant, "other");
         UUID otherQueueId = UUID.randomUUID();
-        inTransaction(() -> queues.save(queue(
-                otherQueueId, otherTenant, "OTHER", QueueStatus.ACTIVE, null)));
+        TenantGucDataSource.readAsTenant(otherTenant, () -> inTransaction(() ->
+                queues.save(queue(otherQueueId, otherTenant, "OTHER", QueueStatus.ACTIVE, null))));
 
         assertThatThrownBy(() -> inTransaction(() -> queues.save(queue(
                 UUID.randomUUID(), tenantId, "CROSS", QueueStatus.ACTIVE, otherQueueId))))

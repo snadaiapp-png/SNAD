@@ -101,17 +101,42 @@ jobs:
           set -euo pipefail
           # Ephemeral per-run migrator password: generated at runtime, masked,
           # never a repository literal (cluster is destroyed with the runner).
+          # The certification script provisions roles only after isolated-cluster checks.
+          other_dbs="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname <> 'postgres'")"
+          test "$other_dbs" = "0" || { echo "::error::Non-disposable PostgreSQL cluster; refusing role mutation"; exit 1; }
           mig_pw="$(openssl rand -hex 24)"
           echo "::add-mask::$mig_pw"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
-          DO \$r\$ BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator') THEN
-              CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-            END IF;
-          END \$r\$;
-          ALTER ROLE sanad_migrator PASSWORD '$mig_pw';
-          SQL
-          SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+          SEP_ISOLATED_CLUSTER=1 SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+
+      - name: Capture read-only RLS and SECURITY DEFINER forensic inventory
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run only on the disposable separated-topology database from the
+          # acceptance matrix. This is an inventory, not production proof.
+          if ! sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
+            -f tests/security/rls_forensic_inventory.sql \
+            > /tmp/separation-forensic-inventory.log 2>&1; then
+            echo "::error::Forensic SQL failed; inspect the complete query error below."
+            cat /tmp/separation-forensic-inventory.log
+            exit 1
+          fi
+          test -s /tmp/separation-forensic-inventory.log
+          # A non-empty inventory is not proof of an append-only ledger.
+          # Assert effective permissions in the same isolated DB as the audit.
+          ledger_acl="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "
+            SELECT (pg_get_userbyid(c.relowner) <> 'sanad')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'SELECT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'INSERT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'UPDATE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'DELETE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'TRUNCATE')::text
+            FROM pg_class c
+            WHERE c.oid=to_regclass('public.subscription_commands');")"
+          printf '%s\n' "LEDGER_EFFECTIVE_ACL=$ledger_acl" | tee -a /tmp/separation-forensic-inventory.log
+          test "$ledger_acl" = "true|true|true|false|false|false"
+          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
 
       - name: Upload separation evidence
         if: always()
@@ -120,6 +145,7 @@ jobs:
           name: migrator-runtime-separation-evidence
           path: |
             /tmp/separation-run.log
+            /tmp/separation-forensic-inventory.log
             /tmp/separation-cert-artifacts/
           if-no-files-found: warn
           retention-days: 30

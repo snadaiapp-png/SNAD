@@ -41,7 +41,7 @@ on:
         required: true
         default: ""
       expected_head:
-        description: "Expected Flyway chain head after migration (e.g. 20261103.2)"
+        description: "Expected Flyway chain head after migration (e.g. 20261103.3)"
         required: true
         default: ""
 

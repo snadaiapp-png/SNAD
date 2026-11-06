@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,6 +43,7 @@ class CrmIntegrationResultImmutabilityTest {
     
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource tenantScopeDataSource;
     private static CrmIntegrationStore store;
     private static ObjectMapper mapper;
 
@@ -59,8 +61,10 @@ class CrmIntegrationResultImmutabilityTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        DriverManagerDataSource rawTenantDataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        TenantGucDataSource dataSource = new TenantGucDataSource(rawTenantDataSource, null);
+        tenantScopeDataSource = dataSource;
         jdbc = new JdbcTemplate(dataSource);
         mapper = new ObjectMapper();
         store = new CrmIntegrationStore(jdbc, mapper);
@@ -69,6 +73,7 @@ class CrmIntegrationResultImmutabilityTest {
     @BeforeEach
     void seedRequest() {
         tenantId = UUID.randomUUID();
+        tenantScopeDataSource.setDefaultTenant(tenantId);
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO crm_integration_requests " +

@@ -3,6 +3,7 @@ package com.sanad.platform.crm.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationException;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -43,6 +44,7 @@ class CrmIntegrationDecisionPostgresTest {
     
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource tenantScopeDataSource;
     private static CrmIntegrationStore store;
 
     private UUID tenantId;
@@ -59,8 +61,10 @@ class CrmIntegrationDecisionPostgresTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        DriverManagerDataSource rawTenantDataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        TenantGucDataSource dataSource = new TenantGucDataSource(rawTenantDataSource, null);
+        tenantScopeDataSource = dataSource;
         jdbc = new JdbcTemplate(dataSource);
         store = new CrmIntegrationStore(jdbc, new ObjectMapper());
     }
@@ -68,6 +72,7 @@ class CrmIntegrationDecisionPostgresTest {
     @BeforeEach
     void seedRequest() {
         tenantId = UUID.randomUUID();
+        tenantScopeDataSource.setDefaultTenant(tenantId);
         UUID actorId = UUID.randomUUID();
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);

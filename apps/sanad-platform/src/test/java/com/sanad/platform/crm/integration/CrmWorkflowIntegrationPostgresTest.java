@@ -12,6 +12,7 @@ import com.sanad.platform.crm.integration.domain.CorrelationContextPort;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationEnvelope;
 import com.sanad.platform.crm.integration.orchestration.WorkflowIntegrationPort;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -35,6 +36,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class CrmWorkflowIntegrationPostgresTest {
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource tenantScopeDataSource;
     private static CrmIntegrationStore store;
     private static CrmWorkflowUseCases useCases;
     private static CrmWorkflowOutboxWorker worker;
@@ -61,8 +63,10 @@ class CrmWorkflowIntegrationPostgresTest {
                 .load()
                 .migrate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        DriverManagerDataSource rawTenantDataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        TenantGucDataSource ds = new TenantGucDataSource(rawTenantDataSource, null);
+        tenantScopeDataSource = ds;
         jdbc = new JdbcTemplate(ds);
         store = new CrmIntegrationStore(jdbc, mapper);
         CrmWorkflowStore workflowStore = new CrmWorkflowStore(jdbc, store);
@@ -84,6 +88,7 @@ class CrmWorkflowIntegrationPostgresTest {
     @BeforeEach
     void seedTenant() {
         tenantId = UUID.randomUUID();
+        tenantScopeDataSource.setDefaultTenant(tenantId);
         actorId = UUID.randomUUID();
         entityId = UUID.randomUUID();
         workflowPort.reset();

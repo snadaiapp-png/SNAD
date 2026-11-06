@@ -49,7 +49,7 @@ class HrG1MigrationTest {
     // role-template matrix revalidation under RLS context; re-derives V20260820_7's blind assertions).
     // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at 20261029.1 (fail-closed RLS for the
     // 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables).
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261103.2"; // V20261103_2 (P0 final remediation, Issue #1462, Article 3) heads the ledger: topology-gated migrator ownership + evidence-derived runtime ACL matrix; previous head V20261102_2 carried the T2 batch 2 restricted runtime ACLs
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261105.3"; // V20261103_2 (P0 final remediation, Issue #1462, Article 3) heads the ledger: topology-gated migrator ownership + evidence-derived runtime ACL matrix; previous head V20261103_2 carried the topology-gated migrator ownership matrix; V20261103_3 corrects the append-only ledger runtime ACL (Issue #1462)
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",

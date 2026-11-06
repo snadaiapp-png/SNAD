@@ -6,6 +6,7 @@ import com.sanad.platform.crm.integration.application.ConfirmedRecommendationExe
 import com.sanad.platform.crm.integration.application.StubConfirmedRecommendationCommandAdapter;
 import com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -35,6 +36,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 class CommandExecutionIdempotencyPostgresTest {
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource tenantScopeDataSource;
     private static CrmIntegrationStore store;
     private static ConfirmedRecommendationExecutor executor;
     private static final ObjectMapper mapper = new ObjectMapper();
@@ -54,8 +56,10 @@ class CommandExecutionIdempotencyPostgresTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        DriverManagerDataSource rawTenantDataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        TenantGucDataSource ds = new TenantGucDataSource(rawTenantDataSource, null);
+        tenantScopeDataSource = ds;
         jdbc = new JdbcTemplate(ds);
         store = new CrmIntegrationStore(jdbc, mapper);
         executor = new ConfirmedRecommendationExecutor(
@@ -68,6 +72,7 @@ class CommandExecutionIdempotencyPostgresTest {
     @BeforeEach
     void seedConfirmedRequest() throws Exception {
         tenantId = UUID.randomUUID();
+        tenantScopeDataSource.setDefaultTenant(tenantId);
         requestId = UUID.randomUUID();
         decisionId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);

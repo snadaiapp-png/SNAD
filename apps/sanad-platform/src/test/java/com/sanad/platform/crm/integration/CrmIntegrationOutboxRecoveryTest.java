@@ -3,6 +3,7 @@ package com.sanad.platform.crm.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -38,6 +39,7 @@ class CrmIntegrationOutboxRecoveryTest {
     
 
     private static JdbcTemplate jdbc;
+    private static TenantGucDataSource tenantScopeDataSource;
     private static CrmIntegrationStore store;
     private UUID tenantId;
     private UUID requestId;
@@ -71,8 +73,10 @@ class CrmIntegrationOutboxRecoveryTest {
         flyway.clean();
         flyway.migrate();
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        DriverManagerDataSource rawTenantDataSource = new DriverManagerDataSource(
                 isolatedUrl, user, password);
+        TenantGucDataSource dataSource = new TenantGucDataSource(rawTenantDataSource, null);
+        tenantScopeDataSource = dataSource;
         jdbc = new JdbcTemplate(dataSource);
         store = new CrmIntegrationStore(jdbc, new ObjectMapper());
     }
@@ -80,6 +84,7 @@ class CrmIntegrationOutboxRecoveryTest {
     @BeforeEach
     void seedRequest() {
         tenantId = UUID.randomUUID();
+        tenantScopeDataSource.setDefaultTenant(tenantId);
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO crm_integration_requests " +
