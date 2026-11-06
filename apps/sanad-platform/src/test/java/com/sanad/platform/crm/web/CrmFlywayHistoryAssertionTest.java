@@ -363,7 +363,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261104.2"   // CRM fail-closed FORCE RLS
             , "20261105.1"   // callback replay runtime UPDATE denial
             , "20261105.2"   // workflow pre-auth pointer runtime read-only
-            , "20261105.3"   // tenant-subscription composite foreign keys
+            , "20261107.1"   // tenant-subscription composite foreign keys
     );
 
 
