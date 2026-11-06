@@ -106,9 +106,12 @@ jobs:
           local=os.environ.copy()
           for k in ('PGHOST','PGPORT','PGUSER','PGPASSWORD','PGDATABASE','PGSSLMODE'):local.pop(k,None)
           subprocess.run(['sudo','-u','postgres','createdb','-p',os.environ['LOCAL_PGPORT'],'snad_g1_restored'],check=True)
-          res=subprocess.run(['sudo','-u','postgres','pg_restore','--exit-on-error',
-                              '--no-owner','--no-acl','-p',os.environ['LOCAL_PGPORT'],'-d','snad_g1_restored',archive],
-                              stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+          # Read private archive as runner and stream via stdin to postgres.
+          # chmod 700 on work directory intentionally prevents postgres from opening the path.
+          with open(archive,'rb') as stream:
+              res=subprocess.run(['sudo','-u','postgres','pg_restore','--exit-on-error',
+                                  '--no-owner','--no-acl','-p',os.environ['LOCAL_PGPORT'],'-d','snad_g1_restored'],
+                                  stdin=stream,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
           if res.returncode: raise SystemExit('RESTORE_FAILED: inspect restricted log on runner')
           restored=subprocess.run(['sudo','-u','postgres','psql','-d','snad_g1_restored',
                                    '-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],
