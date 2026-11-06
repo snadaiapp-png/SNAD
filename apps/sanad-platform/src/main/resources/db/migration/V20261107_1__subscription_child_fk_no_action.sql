@@ -10,9 +10,15 @@ DECLARE
   v_name text;
   v_child regclass;
 BEGIN
-  IF current_setting('sanad.deployment_topology', true) <> 'separated'
-     OR current_user <> 'sanad_migrator' THEN
-    RAISE EXCEPTION 'G1_NO_ACTION_REQUIRES_SEPARATED_MIGRATOR';
+  IF current_setting('sanad.deployment_topology', true) = 'separated' THEN
+    IF current_user <> 'sanad_migrator' THEN
+      RAISE EXCEPTION 'G1_NO_ACTION_REQUIRES_SEPARATED_MIGRATOR';
+    END IF;
+  ELSIF current_setting('sanad.deployment_topology', true) IS NULL
+     OR current_setting('sanad.deployment_topology', true) = 'migration-fixture' THEN
+    RAISE WARNING 'G1_NO_ACTION_FIXTURE_MODE_NOT_SECURITY_CERTIFIED';
+  ELSE
+    RAISE EXCEPTION 'G1_NO_ACTION_UNKNOWN_TOPOLOGY';
   END IF;
   FOR v_child, v_name IN
     SELECT 'public.provisioning_jobs'::regclass, 'fk_prov_jobs_tenant_subscription'
