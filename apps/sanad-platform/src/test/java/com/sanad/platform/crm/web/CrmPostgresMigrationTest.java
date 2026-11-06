@@ -613,6 +613,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
+                        MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -872,6 +873,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
+                        MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
