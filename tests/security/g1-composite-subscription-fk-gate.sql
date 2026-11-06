@@ -1,5 +1,5 @@
 -- G1 regression gate: subscription child references must match tenant.
--- Read-only. Requires the forward-only composite FK migration to be applied.
+-- Read-only. Requires the forward-only NO ACTION composite FK migration to be applied.
 \set ON_ERROR_STOP on
 BEGIN READ ONLY;
 DO $g1$
@@ -31,7 +31,7 @@ BEGIN
         WHERE k.conrelid=v_child AND k.confrelid=v_referenced
           AND k.conname=v_name AND k.contype='f' AND k.convalidated
           AND k.conkey=v_child_attnums AND k.confkey=v_parent_attnums
-          AND k.confdeltype='c'
+          AND k.confdeltype='a'
        ) THEN
       RAISE EXCEPTION 'G1_COMPOSITE_FK_INVALID table=% expected=%',v_child,v_name;
     END IF;
