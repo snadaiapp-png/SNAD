@@ -38,13 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CHANGE_TICKET" =~ ^G1-CHG-[0-9]+$ ]] || { echo "::error::INVALID_CHANGE_TICKET_FORMAT"; exit 1; }
-          if [[ "$CHANGE_TICKET" == "G1-CHG-1481" ]]; then
-            echo "CHANGE_REFERENCE=G1-CHG-1481"
-          fi
+          echo "CHANGE_REFERENCE_FORMAT_VALID=yes"
           # A valid change reference is not an approval. Production protection reviewers
           # must independently verify explicit approval and rotated credentials.
           test -n "${PRODUCTION_DATABASE_URL:-}" || { echo "::error::NO_PROTECTED_PRODUCTION_DB_URL"; exit 1; }
-          echo "APPROVAL_REFERENCE_PRESENT=yes"
+          echo "CHANGE_REFERENCE_PRESENT=yes"
           echo "NOTE=Production environment reviewer must authorize this run"
 
       - name: Install matching native PostgreSQL 17 clients and server
@@ -62,7 +60,7 @@ jobs:
           fi
           local_port="$(pg_lsclusters --no-header | awk '$1=="17" && $2=="main" {print $3}')"
           test -n "$local_port" || { echo "::error::PG17_CLUSTER_PORT_MISSING"; exit 1; }
-          sudo -u postgres psql -p "$local_port" -Atqc "SHOW server_version" | grep -E '^17\\.'
+          sudo -u postgres psql -p "$local_port" -Atqc "SHOW server_version" | grep -E '^17[.]'
           echo "LOCAL_PGPORT=$local_port" >> "$GITHUB_ENV"
 
       - name: Production read-only backup and isolated restore rehearsal
@@ -102,7 +100,7 @@ jobs:
                                     stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
                                     stderr=subprocess.PIPE)
           sql="SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1"
-          head=cmd(['psql','-p',os.environ['LOCAL_PGPORT'],'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],capture=True).stdout.decode().strip()
+          head=cmd(['psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],capture=True).stdout.decode().strip()
           if head!=os.environ['EXPECTED_FLYWAY']: raise SystemExit('FLYWAY_HEAD_MISMATCH')
           archive=os.path.join(sys.argv[1],'production.dump')
           cmd(['pg_dump','-Fc','-f',archive])
