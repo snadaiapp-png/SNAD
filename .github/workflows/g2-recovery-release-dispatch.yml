@@ -9,34 +9,63 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  dispatch-recovery-release:
+  recovery-preflight:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment: production
-    env:
-      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    outputs:
+      authorized: ${{ steps.authorization.outputs.authorized }}
+      target_sha: ${{ steps.authorization.outputs.target_sha }}
     steps:
-      - name: Verify explicit recovery authorization marker
+      - name: Verify explicit recovery authorization and exact main SHA
         id: authorization
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          G1_SECURITY_APPROVED: ${{ vars.G1_SECURITY_APPROVED }}
         run: |
           set -euo pipefail
-          message="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA" --jq '.commit.message')"
-          if grep -q 'PRODUCTION-RECOVERY-G2-AUTHORIZED' <<<"$message"; then
-            echo 'authorized=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'authorized=false' >> "$GITHUB_OUTPUT"
+          echo 'authorized=false' >> "$GITHUB_OUTPUT"
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+
+          # Never request production approval for an outdated or non-main artifact.
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test -n "$remote_main" || { echo '::error::Unable to resolve main'; exit 1; }
+          if [[ "$remote_main" != "$TARGET_SHA" ]]; then
+            echo '::notice::Recovery not eligible: triggering SHA is not current main'
+            exit 0
           fi
 
+          # This repository variable is an additional explicit operator gate.
+          # It is NOT a substitute for G1 evidence or independent approval.
+          if [[ "$G1_SECURITY_APPROVED" != 'true' ]]; then
+            echo '::notice::G1 security approval gate is not enabled'
+            exit 0
+          fi
+
+          message="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA" --jq '.commit.message')"
+          if ! grep -Fq 'PRODUCTION-RECOVERY-G2-AUTHORIZED' <<<"$message"; then
+            echo '::notice::Explicit recovery authorization marker is absent'
+            exit 0
+          fi
+
+          echo 'authorized=true' >> "$GITHUB_OUTPUT"
+
+  dispatch-recovery-release:
+    needs: recovery-preflight
+    if: needs.recovery-preflight.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      actions: write
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
       - name: Enable fail-closed recovery surface for authorized release only
         id: enable
-        if: steps.authorization.outputs.authorized == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -54,10 +83,9 @@ jobs:
 
       - name: Dispatch exact-SHA recovery release without rollback
         id: dispatch
-        if: steps.authorization.outputs.authorized == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_SHA: ${{ needs.recovery-preflight.outputs.target_sha }}
         run: |
           set -euo pipefail
           remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
@@ -70,10 +98,12 @@ jobs:
             -f rollback_on_failure='false'
 
       - name: Fail-closed cleanup when recovery dispatch itself fails
-        if: failure() && steps.authorization.outputs.authorized == 'true'
+        if: failure()
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${RENDER_API_KEY:-}"
+          test -n "${RENDER_SERVICE_ID:-}"
           curl --fail-with-body --silent --show-error \
             -X PUT \
             -H "Authorization: Bearer $RENDER_API_KEY" \
