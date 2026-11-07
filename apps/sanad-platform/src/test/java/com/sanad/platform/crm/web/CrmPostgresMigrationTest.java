@@ -296,7 +296,7 @@ class CrmPostgresMigrationTest {
     // transfer + runtime ACL matrix, closes F-01) at the sequence tail.
     private static final String MIGRATOR_SEPARATION_ROLE_VERSION = "20261103.1";
     private static final String MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION = "20261103.2";
-    private static final String LATEST_MIGRATION_VERSION = "20261105.3";
+    private static final String LATEST_MIGRATION_VERSION = "20261107.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -613,6 +613,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
+                        MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -872,6 +873,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261104.2"), // CRM FORCE RLS
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
+                        MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

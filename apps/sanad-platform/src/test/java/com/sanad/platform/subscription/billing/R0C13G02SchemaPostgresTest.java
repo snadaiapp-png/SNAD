@@ -132,7 +132,7 @@ class R0C13G02SchemaPostgresTest {
             // V20261103_1 + V20261103_2 (P0 final remediation, Issue #1462 Article 3)
             // close with the dedicated sanad_migrator role contract and the
             // topology-gated ownership transfer + runtime ACL matrix (F-01 closed).
-            assertThat(rs.getString(1)).isEqualTo("20261105.3");
+            assertThat(rs.getString(1)).isEqualTo("20261107.1");
         }
     }
 

@@ -34,7 +34,7 @@ concurrency:
 jobs:
   separation-certification:
     name: Isolated PG17.6 — sanad_migrator vs sanad acceptance matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -42,7 +42,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install isolated PostgreSQL 17.6 (exact pin, host-native, no containers)
+      - name: Install isolated PostgreSQL 17.x (prefer 17.6, record deviation; host-native)
         shell: bash
         run: |
           set -euo pipefail
@@ -55,12 +55,14 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
             | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
+          echo "RUNNER_OS_RELEASE=$(cat /etc/os-release | grep VERSION_ID | head -1)"
           sudo apt-get update -qq
           PG_OK=no
           for v in "17.6-1.pgdg24.04+1" "17.6-*"; do
             if sudo apt-get install -y -qq --allow-downgrades "postgresql-17=$v" "postgresql-client-17=$v"; then PG_OK=yes; break; fi
           done
           if [ "$PG_OK" != "yes" ]; then
+            echo '::warning::PostgreSQL 17.6 exact package unavailable; testing fallback 17.x, NOT 17.6 certification'
             echo "GATE_NOTE=PG_17_6_UNAVAILABLE_DEVIATION_TO_LATEST_17X_DOCUMENTED" >> "$GITHUB_ENV"
             sudo apt-get install -y -qq postgresql-17 postgresql-client-17
           fi
@@ -70,6 +72,8 @@ jobs:
           sudo pg_lsclusters
           PGV=$(sudo -u postgres psql -Atqc "SHOW server_version;" | grep -oE '^17\.[0-9]+' | head -1)
           echo "POSTGRES_VERSION=$PGV (server)" >> "$GITHUB_ENV"
+          test "${PGV%%.*}" = "17" || { echo "::error::UNEXPECTED_POSTGRES_MAJOR=$PGV"; exit 1; }
+          if [ "$PGV" != "17.6" ]; then echo "::warning::POSTGRES_17_6_EXACT_PIN_UNVERIFIED_ACTUAL=$PGV"; fi
           echo "TOOLCHAIN: PostgreSQL server $PGV / client $(psql --version | grep -oE '17\.[0-9]+' | head -1) (isolated host-native cluster)"
 
       - name: Install Flyway CLI 11.7.2 (project-pinned version)
