@@ -1,0 +1,52 @@
+name: G1 PG17 Runner Preflight (No Production Secrets)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/g1-production-backup-restore-proof.yml'
+      - '.github/workflows/g1-pg17-runner-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pg17-runner-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Install PostgreSQL 17 on matching Ubuntu 24.04 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(lsb_release -cs)" = noble
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 postgresql-17
+          pg_dump --version
+          if ! sudo pg_ctlcluster 17 main status >/dev/null 2>&1; then
+            sudo pg_ctlcluster 17 main start
+          fi
+          local_port="$(pg_lsclusters --no-header | awk '$1=="17" && $2=="main" {print $3}')"
+          test -n "$local_port"
+          sudo -u postgres psql -p "$local_port" -Atqc "SHOW server_version" | grep -E '^17[.]'
+          echo "PG17_INSTALL_AND_CONNECT=PASS"
+
+      - name: Restore a safe synthetic sample (not production-derived)
+        shell: bash
+        run: |
+          set -euo pipefail
+          local_port="$(pg_lsclusters --no-header | awk '$1=="17" && $2=="main" {print $3}')"
+          sudo -u postgres createdb -p "$local_port" g1_preflight_source
+          sudo -u postgres psql -p "$local_port" -d g1_preflight_source -v ON_ERROR_STOP=1 -c "CREATE TABLE probe(id integer PRIMARY KEY, state text NOT NULL); INSERT INTO probe VALUES (1,'ok');" >/dev/null
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          sudo -u postgres pg_dump -p "$local_port" -Fc -f /tmp/g1pg17-preflight.dump g1_preflight_source
+          sudo -u postgres createdb -p "$local_port" g1_preflight_restored
+          sudo -u postgres pg_restore -p "$local_port" --exit-on-error --no-owner --no-acl -d g1_preflight_restored /tmp/g1pg17-preflight.dump
+          test "$(sudo -u postgres psql -p "$local_port" -d g1_preflight_restored -Atqc "SELECT state FROM probe WHERE id=1")" = ok
+          sudo rm -f /tmp/g1pg17-preflight.dump
+          echo "SYNTHETIC_RESTORE=PASS"
