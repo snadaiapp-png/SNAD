@@ -124,6 +124,25 @@ class R0C13G06SettlementReconciliationPostgresTest {
             // tenant's transaction-local GUC scope — an unbound DELETE matches
             // zero rows and would leave FK-blocking orphans.
             inTenant(tenant, () -> {
+                // Test-only fixture teardown. Production's separated runtime must NEVER
+                // delete the append-only subscription_commands ledger. Fail closed if
+                // this is not the owner-run disposable migration-fixture topology.
+                Boolean disposableOwner = jdbc.queryForObject("""
+                        SELECT coalesce(current_setting('sanad.deployment_topology', true),
+                                        'migration-fixture') = 'migration-fixture'
+                           AND current_user = (
+                               SELECT pg_get_userbyid(relowner)
+                               FROM pg_class
+                               WHERE oid = 'public.subscription_commands'::regclass)
+                        """, Boolean.class);
+                if (!Boolean.TRUE.equals(disposableOwner)) {
+                    throw new IllegalStateException(
+                            "G1_FIXTURE_TEARDOWN_FORBIDDEN_OUTSIDE_OWNER_RUN_MIGRATION_FIXTURE");
+                }
+                // Delete child fixtures before the parent: all four production
+                // FKs remain NO ACTION, and tenant-local RLS is still enforced.
+                jdbc.update("DELETE FROM subscription_commands WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM provisioning_jobs WHERE tenant_id = ?", tenant);
                 jdbc.update("DELETE FROM billing_invoices WHERE tenant_id = ?", tenant);
                 jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
                 return null;
