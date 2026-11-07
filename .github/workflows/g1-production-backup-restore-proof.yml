@@ -25,7 +25,7 @@ concurrency:
 jobs:
   backup-restore:
     name: Production read-only dump to disposable local restore
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: Production
     env:
@@ -37,7 +37,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$CHANGE_TICKET" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{4,100}$ ]] || { echo "::error::INVALID_CHANGE_TICKET"; exit 1; }
+          [[ "$CHANGE_TICKET" =~ ^G1-CHG-[0-9]+$ ]] || { echo "::error::INVALID_CHANGE_TICKET_FORMAT"; exit 1; }
+          if [[ "$CHANGE_TICKET" == "G1-CHG-1481" ]]; then
+            echo "CHANGE_REFERENCE=G1-CHG-1481"
+          fi
+          # A valid change reference is not an approval. Production protection reviewers
+          # must independently verify explicit approval and rotated credentials.
           test -n "${PRODUCTION_DATABASE_URL:-}" || { echo "::error::NO_PROTECTED_PRODUCTION_DB_URL"; exit 1; }
           echo "APPROVAL_REFERENCE_PRESENT=yes"
           echo "NOTE=Production environment reviewer must authorize this run"
@@ -52,7 +57,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17 postgresql-17
           pg_dump --version
-          sudo pg_ctlcluster 17 main start
+          if ! sudo pg_ctlcluster 17 main status >/dev/null 2>&1; then
+            sudo pg_ctlcluster 17 main start
+          fi
           local_port="$(pg_lsclusters --no-header | awk '$1=="17" && $2=="main" {print $3}')"
           test -n "$local_port" || { echo "::error::PG17_CLUSTER_PORT_MISSING"; exit 1; }
           sudo -u postgres psql -p "$local_port" -Atqc "SHOW server_version" | grep -E '^17\\.'
