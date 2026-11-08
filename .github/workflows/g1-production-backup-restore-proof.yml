@@ -1,6 +1,17 @@
 # G1 production-derived backup/restore rehearsal. Manual and protected.
 # IMPORTANT: This does NOT authorize production schema changes or certify recovery.
 #
+# v20261108.2 — RUN 5 FIX (run 42525547844, exit 1 after 1m36s):
+#   sudo -u postgres pg_restore failed: could not open
+#   "/tmp/tmp.XXX/production.restore.dump": Permission denied. Root cause:
+#   mktemp -d under umask 077 creates a 0700 runner-owned directory, so the
+#   postgres user could not TRAVERSE the directory to reach the postgres-owned
+#   0400 restore copy and the 0644 toc inside it (file permissions were already
+#   correct; the directory was not). Fix: chmod 0711 on the work directory —
+#   traverse-only for non-owners, listing still denied; the private
+#   production.dump archive remains 0600 runner-only. The green preflight
+#   never hit this because it wrote its dump directly into /tmp.
+#
 # v20261108.1 — RESTORE REHEARSAL FIXES (after run failures 42426903432 et al.):
 #   1. Install step hardened: curl --retry, apt -o Acquire::Retries=5, retry loops
 #      (fixes transient curl(56) key-fetch and apt exit-100 libicu74 index failures).
@@ -107,6 +118,11 @@ jobs:
           set -euo pipefail
           umask 077
           work="$(mktemp -d)"
+          # postgres (via sudo -u postgres pg_restore) must traverse this directory
+          # to reach its postgres-owned 0400 restore copy and the 0644 toc. 0711 grants
+          # traverse-only to non-owners: listing stays denied and the private
+          # production.dump archive remains 0600 runner-only (run 5 fix).
+          chmod 0711 "$work"
           trap 'rm -rf "$work"' EXIT
           # PostgreSQL connection URL comes only from protected Actions secret.
           # Do not print the URL, password, query results containing user data, or dump.
