@@ -1,5 +1,28 @@
 # G1 production-derived backup/restore rehearsal. Manual and protected.
 # IMPORTANT: This does NOT authorize production schema changes or certify recovery.
+#
+# v20261108.1 — RESTORE REHEARSAL FIXES (after run failures 42426903432 et al.):
+#   1. Install step hardened: curl --retry, apt -o Acquire::Retries=5, retry loops
+#      (fixes transient curl(56) key-fetch and apt exit-100 libicu74 index failures).
+#   2. Restore step no longer streams the custom-format archive through stdin;
+#      pg_restore now receives a filename via a postgres-owned 0400 copy — the exact
+#      pattern already proven green by g1-pg17-runner-preflight.yml.
+#   3. Restore is now a selective TOC restore of the public schema: Supabase
+#      platform schemas (auth/storage/extensions/vault/net/graphql/...), ALL
+#      EXTENSION entries, and ACL/default-privilege entries are excluded — they
+#      cannot exist on vanilla PostgreSQL 17 and abort any full --exit-on-error
+#      restore (CREATE EXTENSION pgsodium/pg_net/pg_graphql, policies TO
+#      authenticated/anon, "schema public already exists" on Supabase-altered
+#      public ownership). The public schema uses only built-in gen_random_uuid(),
+#      so it restores cleanly.
+#   4. Restore-only stub roles (sanad, sanad_migrator, service_role) are created
+#      NOLOGIN before restore: public RLS policies name them in TO clauses.
+#   5. On restore failure the first object-level pg_restore error lines are
+#      printed (object names only; DETAIL/CONTEXT/HINT lines are suppressed so
+#      no row data reaches the log).
+#   6. evidence.json records restore_scope + stubbed roles as explicit
+#      limitations. The rehearsal result key is unchanged:
+#      RESTORE_REHEARSAL_SUCCESS_NOT_G1_CERTIFIED.
 name: G1 Production Backup Restore Proof
 
 on:
@@ -50,10 +73,20 @@ jobs:
         run: |
           set -euo pipefail
           sudo install -d /usr/share/postgresql-common/pgdg
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-17 postgresql-17
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=5 update -qq; then break; fi
+            echo "APT update attempt ${attempt} failed; retrying in 15s"
+            test "$attempt" -eq 3 && { echo "::error::APT_UPDATE_FAILED_AFTER_RETRIES"; exit 1; }
+            sleep 15
+          done
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=5 install -y -qq postgresql-client-17 postgresql-17; then break; fi
+            echo "APT install attempt ${attempt} failed; retrying in 20s"
+            test "$attempt" -eq 3 && { echo "::error::APT_INSTALL_FAILED_AFTER_RETRIES"; exit 1; }
+            sleep 20
+          done
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
           pg_dump --version | grep -E 'PostgreSQL[)] 17[.]'
@@ -115,24 +148,107 @@ jobs:
           # there is no write access to production in this step.
           local=os.environ.copy()
           for k in ('PGHOST','PGPORT','PGUSER','PGPASSWORD','PGDATABASE','PGSSLMODE'):local.pop(k,None)
-          subprocess.run(['sudo','-u','postgres','createdb','-p',os.environ['LOCAL_PGPORT'],'snad_g1_restored'],check=True)
-          # Read private archive as runner and stream via stdin to postgres.
-          # chmod 700 on work directory intentionally prevents postgres from opening the path.
-          with open(archive,'rb') as stream:
-              res=subprocess.run(['sudo','-u','postgres','pg_restore','--exit-on-error',
-                                  '--no-owner','--no-acl','-p',os.environ['LOCAL_PGPORT'],'-d','snad_g1_restored'],
-                                  stdin=stream,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-          if res.returncode: raise SystemExit('RESTORE_FAILED: inspect restricted log on runner')
+          port=os.environ['LOCAL_PGPORT']
+          def sudo_pg(args, **kw):
+              return subprocess.run(['sudo','-u','postgres']+args, env=local, **kw)
+          # 1) Fresh destination database on the disposable local cluster.
+          sudo_pg(['dropdb','-p',port,'--if-exists','snad_g1_restored'], check=True)
+          sudo_pg(['createdb','-p',port,'snad_g1_restored'], check=True)
+          # 2) Restore-only stub roles (NOLOGIN): public RLS policies name them in
+          #    TO clauses; production ACLs are intentionally not restored (--no-acl).
+          stub_sql=("DO $do$ DECLARE r text; BEGIN "
+                    "FOREACH r IN ARRAY ARRAY['sanad','sanad_migrator','service_role'] LOOP "
+                    "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN "
+                    "EXECUTE format('CREATE ROLE %I NOLOGIN', r); END IF; END LOOP; END $do$;")
+          sudo_pg(['psql','-p',port,'-X','-v','ON_ERROR_STOP=1','-d','postgres','-c',stub_sql], check=True)
+          # 3) Selective TOC restore: keep the public schema (all application tables,
+          #    data, and flyway_schema_history); drop Supabase platform schemas, ALL
+          #    EXTENSION entries, and ACL/default-privilege entries — none of these can
+          #    exist on vanilla PostgreSQL 17 and each aborts a full --exit-on-error
+          #    restore. The public schema only uses built-in gen_random_uuid().
+          platform={'auth','storage','extensions','vault','net','graphql','graphql_public',
+                    'supabase_functions','pgsodium','pgsodium_keys','cron','realtime','_realtime',
+                    '_analytics','_supabase','supabase_admin'}
+          toc=subprocess.run(['pg_restore','-l',archive],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True).stdout.decode()
+          kept=[]
+          dropped={'extension':0,'platform_schema_object':0,'acl':0}
+          for line in toc.splitlines():
+              if not line.strip() or line.lstrip().startswith(';'):
+                  kept.append(line); continue
+              parts=line.split('; ')
+              if len(parts)<3:
+                  kept.append(line); continue
+              rest=parts[2].strip()
+              multi=('TABLE DATA ','MATERIALIZED VIEW DATA ','MATERIALIZED VIEW ',
+                     'FK CONSTRAINT ','DEFAULT PRIVILEGES','LARGE OBJECT ')
+              typ=''; tail=rest
+              for pref in multi:
+                  if rest.startswith(pref):
+                      typ=pref.strip(); tail=rest[len(pref):].strip(); break
+              if not typ:
+                  words=rest.split()
+                  typ=words[0] if words else ''
+                  tail=' '.join(words[1:])
+              tail_words=tail.split()
+              if tail_words and tail_words[0]=='-':
+                  schema=''; name=tail_words[1] if len(tail_words)>1 else ''
+              else:
+                  schema=tail_words[0] if tail_words else ''
+                  name=tail_words[1] if len(tail_words)>1 else ''
+              if typ=='EXTENSION':
+                  dropped['extension']+=1; continue
+              if typ=='SCHEMA':
+                  if name in platform or name=='public':
+                      # platform schemas are not restorable; public already exists in a
+                      # fresh database (its Supabase-altered ownership is not certified here)
+                      continue
+                  kept.append(line); continue
+              if schema in platform:
+                  dropped['platform_schema_object']+=1; continue
+              if typ in ('ACL','DEFAULT PRIVILEGES'):
+                  dropped['acl']+=1; continue
+              kept.append(line)
+          toc_path=os.path.join(sys.argv[1],'toc.filtered')
+          with open(toc_path,'w') as f: f.write('\n'.join(kept)+'\n')
+          os.chmod(toc_path,0o644)  # object names only; postgres user must be able to read it
+          # 4) Restore by filename (preflight-proven pattern) via a postgres-owned
+          #    0400 copy of the private archive; never streamed through stdin.
+          arch_restore=os.path.join(sys.argv[1],'production.restore.dump')
+          subprocess.run(['sudo','install','-o','postgres','-g','postgres','-m','0400',
+                          archive,arch_restore], check=True)
+          res=sudo_pg(['pg_restore','--exit-on-error','--no-owner','--no-acl',
+                       '-p',port,'-L',toc_path,'-d','snad_g1_restored',arch_restore],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+          try:
+              if res.returncode:
+                  err_lines=res.stderr.decode('utf-8','replace').splitlines()
+                  shown=[l[:240] for l in err_lines
+                         if l.startswith('pg_restore: error:')
+                         and not l.startswith(('pg_restore: error: DETAIL',
+                                               'pg_restore: error: CONTEXT',
+                                               'pg_restore: error: HINT'))][:10]
+                  print('RESTORE_ERROR_SUMMARY (object names only; data values suppressed):')
+                  for l in shown: print(l)
+                  raise SystemExit('RESTORE_FAILED: see RESTORE_ERROR_SUMMARY above')
+          finally:
+              subprocess.run(['sudo','rm','-f',arch_restore], check=False)
           restored=subprocess.run(['sudo','-u','postgres','psql','-d','snad_g1_restored',
-                                   '-p',os.environ['LOCAL_PGPORT'],'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],
+                                   '-p',port,'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],
                                    check=True,capture_output=True).stdout.decode().strip()
           if restored!=head: raise SystemExit('RESTORED_FLYWAY_MISMATCH')
           summary={'result':'RESTORE_REHEARSAL_SUCCESS_NOT_G1_CERTIFIED',
                    'source_project':'tkbrvupemreqabwzdpyq','source_flyway':head,
                    'restored_flyway':restored,'archive_size_bytes':os.path.getsize(archive),
-                   'archive_sha256':sha,'scope':'logical full database',
+                   'archive_sha256':sha,'scope':'logical full database archive',
+                   'restore_scope':'public schema only - Supabase platform schemas/extensions '
+                                   'and ACLs excluded by design for vanilla PostgreSQL 17 rehearsal',
+                   'restore_roles_stubbed':['sanad','sanad_migrator','service_role'],
+                   'toc_dropped':dropped,
                    'limitations':['ephemeral runner backup removed at job end',
                                   'restored with no-owner/no-acl: ownership and ACL not certified',
+                                  'platform schemas (auth/storage/extensions) not restorable on '
+                                  'vanilla PostgreSQL and excluded from the rehearsal',
                                   'not a durable or independently verified recovery backup']}
           with open(os.path.join(sys.argv[1],'evidence.json'),'w') as f:json.dump(summary,f,indent=2)
           print('PRODUCTION_BACKUP_RESTORE_REHEARSAL=PASS')
