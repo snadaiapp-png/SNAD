@@ -1,0 +1,176 @@
+# G1 durable encrypted backup. Manual and protected (Production environment).
+# Companion to g1-production-backup-restore-proof.yml: that workflow PROVES
+# restorability on a disposable runner; this one CREATES the durable artifact —
+# a passphrase-encrypted (AES-256-CBC + PBKDF2-SHA256 600k iterations) full
+# logical archive of production, uploaded as an Actions artifact for offsite
+# storage. The plaintext dump never leaves the runner; the encrypted file is
+# round-trip verified (decrypt + hash compare) before upload.
+#
+# This does NOT by itself close the G1 security hold: full ACL/RLS
+# certification and independent approval are still required.
+name: G1 Durable Backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_ticket:
+        description: 'Approved backup ticket ID'
+        required: true
+        type: string
+      expected_flyway:
+        description: 'Expected production Flyway version before backup'
+        required: true
+        default: '20261021.1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-durable-backup
+  cancel-in-progress: false
+
+jobs:
+  durable-backup:
+    name: Encrypted production backup to durable artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: Production
+    env:
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      EXPECTED_FLYWAY: ${{ inputs.expected_flyway }}
+      CHANGE_TICKET: ${{ inputs.change_ticket }}
+    steps:
+      - name: Check approved change reference and protected credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHANGE_TICKET" =~ ^G1-CHG-[0-9]+$ ]] || { echo "::error::INVALID_CHANGE_TICKET_FORMAT"; exit 1; }
+          echo "CHANGE_REFERENCE_FORMAT_VALID=yes"
+          # A valid change reference is not an approval. Production protection reviewers
+          # must independently verify explicit approval and rotated credentials.
+          test -n "${PRODUCTION_DATABASE_URL:-}" || { echo "::error::NO_PROTECTED_PRODUCTION_DB_URL"; exit 1; }
+          test -n "${BACKUP_PASSPHRASE:-}" || { echo "::error::NO_BACKUP_PASSPHRASE_SECRET"; exit 1; }
+          echo "CHANGE_REFERENCE_PRESENT=yes"
+          echo "NOTE=Production environment reviewer must authorize this run"
+
+      - name: Install matching native PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=5 update -qq; then break; fi
+            echo "APT update attempt ${attempt} failed; retrying in 15s"
+            test "$attempt" -eq 3 && { echo "::error::APT_UPDATE_FAILED_AFTER_RETRIES"; exit 1; }
+            sleep 15
+          done
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=5 install -y -qq postgresql-client-17; then break; fi
+            echo "APT install attempt ${attempt} failed; retrying in 20s"
+            test "$attempt" -eq 3 && { echo "::error::APT_INSTALL_FAILED_AFTER_RETRIES"; exit 1; }
+            sleep 20
+          done
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          pg_dump --version | grep -E 'PostgreSQL[)] 17[.]'
+
+      - name: Production read-only backup, encrypted and verified in place
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          # PostgreSQL connection URL and backup passphrase come only from protected
+          # Actions secrets. Do not print the URL, password, passphrase, or the dump.
+          python3 - "$work" <<'PY'
+          import os, sys
+          from urllib.parse import urlsplit, parse_qs, unquote
+          raw=os.environ['PRODUCTION_DATABASE_URL']
+          if raw.startswith('jdbc:'): raw=raw[5:]
+          p=urlsplit(raw)
+          if p.scheme not in ('postgresql','postgres'): raise SystemExit('INVALID_CONNECTION_SCHEME')
+          host=p.hostname or ''
+          u=unquote(p.username or '')
+          query=parse_qs(p.query)
+          if not u: u=query.get('user',[''])[0]
+          password=unquote(p.password or '') or query.get('password',[''])[0]
+          # Exact production-project binding; accept Supabase pooler username postgres.<project-ref>.
+          ref='tkbrvupemreqabwzdpyq'
+          if ref not in host and ref not in u: raise SystemExit('PRODUCTION_IDENTITY_NOT_MATCHED')
+          if not (host and u and password): raise SystemExit('INCOMPLETE_DATABASE_CONNECTION')
+          env=os.environ.copy()
+          env.update(PGHOST=host, PGPORT=str(p.port or 5432),
+                     PGUSER=u, PGPASSWORD=password,
+                     PGDATABASE=unquote((p.path or '/postgres').lstrip('/')),
+                     PGSSLMODE='require', PGCONNECT_TIMEOUT='15')
+          import subprocess, hashlib, json
+          def h(path):
+              m=hashlib.sha256()
+              with open(path,'rb') as f:
+                  for chunk in iter(lambda: f.read(1024*1024), b''): m.update(chunk)
+              return m.hexdigest()
+          sql="SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1"
+          head=subprocess.run(['psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],env=env,
+                              check=True,capture_output=True).stdout.decode().strip()
+          if head!=os.environ['EXPECTED_FLYWAY']: raise SystemExit('FLYWAY_HEAD_MISMATCH')
+          archive=os.path.join(sys.argv[1],'production.dump')
+          subprocess.run(['pg_dump','-Fc','-f',archive],env=env,check=True)
+          size=os.path.getsize(archive)
+          if size==0: raise SystemExit('EMPTY_BACKUP')
+          sha=h(archive)
+          # Encrypt before anything leaves the runner: AES-256-CBC, PBKDF2-SHA256
+          # with 600k iterations. The passphrase is passed via environment only.
+          enc=os.path.join(sys.argv[1],'production.dump.enc')
+          subprocess.run(['openssl','enc','-aes-256-cbc','-md','sha256','-salt','-pbkdf2','-iter','600000',
+                          '-in',archive,'-out',enc,'-pass','env:BACKUP_PASSPHRASE'],check=True)
+          # Round-trip verification: decrypt in place and compare hashes, so a
+          # corrupted or undecryptable archive can never be uploaded.
+          rt=os.path.join(sys.argv[1],'roundtrip.dump')
+          subprocess.run(['openssl','enc','-d','-aes-256-cbc','-md','sha256','-pbkdf2','-iter','600000',
+                          '-in',enc,'-out',rt,'-pass','env:BACKUP_PASSPHRASE'],check=True)
+          if h(rt)!=sha: raise SystemExit('ENCRYPTION_ROUNDTRIP_MISMATCH')
+          os.remove(rt)
+          esize=os.path.getsize(enc)
+          esha=h(enc)
+          manifest={'result':'DURABLE_ENCRYPTED_BACKUP_CREATED',
+                    'source_project':'tkbrvupemreqabwzdpyq','source_flyway':head,
+                    'change_ticket':os.environ['CHANGE_TICKET'],
+                    'plaintext_archive_sha256':sha,'plaintext_archive_size_bytes':size,
+                    'encrypted_archive_sha256':esha,'encrypted_archive_size_bytes':esize,
+                    'cipher':'AES-256-CBC','kdf':'PBKDF2-SHA256, 600000 iterations',
+                    'decrypt_command':'openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 600000 -in production.dump.enc -out production.dump -pass pass:BACKUP_PASSPHRASE',
+                    'note':'G1 security hold remains ACTIVE until ACL/RLS certification and independent approval'}
+          with open(os.path.join(sys.argv[1],'manifest.json'),'w') as f: json.dump(manifest,f,indent=2)
+          os.remove(archive)  # plaintext never leaves the runner
+          print('DURABLE_ENCRYPTED_BACKUP_CREATED')
+          print('PLAINTEXT_SHA256='+sha)
+          print('ENCRYPTED_SHA256='+esha)
+          print('ENCRYPTED_SIZE_BYTES='+str(esize))
+          print('ROUNDTRIP_VERIFY=PASS')
+          print('NOTE=G1_SECURITY_HOLD_STILL_ACTIVE')
+          PY
+          out="$RUNNER_TEMP/durable-backup"
+          rm -rf "$out"
+          mkdir -p "$out"
+          cp "$work/production.dump.enc" "$out/"
+          cp "$work/manifest.json" "$out/"
+
+      - name: Upload durable encrypted backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-durable-backup
+          path: ${{ runner.temp }}/durable-backup
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: State certification limitations
+        shell: bash
+        run: |
+          echo "Durable encrypted backup artifact uploaded (90-day retention in Actions)."
+          echo "Backup Gate remains OPEN until full ACL/RLS verification and independent approval."
+          echo "G1_SECURITY_HOLD=ACTIVE"
