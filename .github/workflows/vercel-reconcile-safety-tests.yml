@@ -1,0 +1,41 @@
+name: Vercel Reconcile Safety Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/vercel-main-production-reconcile.yml'
+      - '.github/workflows/vercel-reconcile-safety-tests.yml'
+      - 'tests/ci/test_vercel_main_reconcile_workflow.py'
+      - 'apps/web/app/api/system/release/route.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-static-safety:
+    name: Vercel reconcile staging and rollback contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install YAML parser and pytest
+        run: python -m pip install --disable-pip-version-check 'pytest==8.3.5' 'PyYAML==6.0.2'
+      - name: Parse workflow YAML
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          path = Path('.github/workflows/vercel-main-production-reconcile.yml')
+          doc = yaml.safe_load(path.read_text(encoding='utf-8'))
+          assert 'jobs' in doc and 'reconcile' in doc['jobs']
+          print('WORKFLOW_YAML_PARSE = PASS')
+          PY
+      - name: Run release-flow security regressions
+        run: python -m pytest -q tests/ci/test_vercel_main_reconcile_workflow.py
