@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: vercel-main-production-reconcile
-  cancel-in-progress: true
+  # Never cancel an in-flight production promotion; cancellation may bypass rollback.
+  cancel-in-progress: false
 
 jobs:
   reconcile:
