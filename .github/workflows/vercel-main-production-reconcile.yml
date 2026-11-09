@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: vercel-main-production-reconcile
-  cancel-in-progress: true
+  # Never cancel an in-flight production promotion; cancellation may bypass rollback.
+  cancel-in-progress: false
 
 jobs:
   reconcile:
@@ -64,7 +65,7 @@ jobs:
           test -n "$VERCEL_TOKEN"
           test -n "$VERCEL_ORG_ID"
           test -n "$VERCEL_PROJECT_ID"
-          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx --yes vercel@65.11.0 pull --yes --environment=production
 
       - name: Verify Vercel monorepo project settings
         shell: bash
@@ -142,7 +143,7 @@ jobs:
           export VERCEL_GIT_COMMIT_REF="${GITHUB_REF#refs/heads/}"
           test "$VERCEL_GIT_COMMIT_REF" = "main"
           rm -rf .vercel/output
-          npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN" 2>&1 | tee "$RUNNER_TEMP/vercel-build.log"
+          npx --yes vercel@65.11.0 build --prod 2>&1 | tee "$RUNNER_TEMP/vercel-build.log"
 
           python3 - <<'PY'
           import os
@@ -210,6 +211,27 @@ jobs:
           print("HRM_G3_PREBUILT_ROUTE_ARTIFACTS = PASS")
           PY
 
+      - name: Capture previous production deployment for rollback
+        id: previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          host = urllib.parse.urlparse(os.environ["PRODUCTION_WEB_BASE_URL"]).netloc
+          team = urllib.parse.quote(os.environ["VERCEL_ORG_ID"], safe="")
+          endpoint = "https://api.vercel.com/v13/deployments/" + urllib.parse.quote(host, safe="") + "?teamId=" + team
+          request = urllib.request.Request(endpoint, headers={"Authorization": "Bearer " + os.environ["VERCEL_TOKEN"], "Accept": "application/json"})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              deployment = json.load(response)
+          previous_id = str(deployment.get("id") or deployment.get("uid") or "")
+          if not previous_id or deployment.get("readyState") != "READY" or deployment.get("target") != "production":
+              raise SystemExit("PREVIOUS_PRODUCTION_DEPLOYMENT_UNVERIFIED")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("deployment_id=" + previous_id + "\n")
+          print("PREVIOUS_PRODUCTION_CAPTURED id=" + previous_id)
+          PY
+
       - name: Deploy verified prebuilt artifact to Vercel Production
         id: deploy
         shell: bash
@@ -239,12 +261,13 @@ jobs:
             echo "VERCEL_PREBUILT_DEPLOY_ATTEMPT=$attempt archive=tgz"
 
             set +e
-            npx --yes vercel@latest deploy \
+            npx --yes vercel@65.11.0 deploy \
               --prebuilt \
               --archive=tgz \
               --prod \
+              --skip-domain \
               --yes \
-              --token="$VERCEL_TOKEN" \
+              \
               --meta "snadMainSha=$GITHUB_SHA" \
               --meta "snadMainRef=main" \
               --meta "snadDeploymentMethod=verified-prebuilt" \
@@ -377,7 +400,7 @@ jobs:
             core.setSecret(token);
             core.setOutput('token', token);
 
-      - name: Verify exact production deployment via Vercel REST API
+      - name: Verify staged production deployment via Vercel REST API
         shell: bash
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
@@ -432,7 +455,7 @@ jobs:
                   f"productionAlias={alias_ok}"
               )
 
-              if state == "READY" and target == "production" and observed_sha == expected and alias_ok:
+              if state == "READY" and target == "production" and observed_sha == expected and not alias_ok:
                   evidence = {
                       "schemaVersion": 1,
                       "deploymentId": last.get("id") or last.get("uid"),
@@ -449,7 +472,7 @@ jobs:
                       json.dumps(evidence, indent=2, sort_keys=True) + "\n",
                       encoding="utf-8",
                   )
-                  print("VERCEL_PRODUCTION_IDENTITY = PASS")
+                  print("VERCEL_STAGED_IDENTITY = PASS")
                   raise SystemExit(0)
 
               time.sleep(5)
@@ -463,9 +486,10 @@ jobs:
           )
           PY
 
-      - name: Capture production route diagnostics
+      - name: Capture staged route diagnostics
         shell: bash
         env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
           VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
@@ -481,14 +505,15 @@ jobs:
               --write-out '%{http_code}' \
               -H 'Cache-Control: no-cache' \
               -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN" \
-              "$PRODUCTION_WEB_BASE_URL$path" || true)"
+              "$DEPLOYMENT_URL$path" || true)"
             echo "=== ROUTE $path HTTP $status ==="
             grep -Ei '^(server:|content-type:|cache-control:|x-vercel-|x-matched-path:|x-nextjs-|x-snad-release-guard:|location:)' "$headers" || true
           done
 
-      - name: Verify live HRM G3 routes
+      - name: Verify staged HRM G3 routes
         shell: bash
         env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
           VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
@@ -497,8 +522,38 @@ jobs:
             --attempts 6 \
             --delay-seconds 5 \
             --timeout-seconds 20 \
-            --production-url "$PRODUCTION_WEB_BASE_URL" \
-            --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+            --production-url "$DEPLOYMENT_URL" \
+            --evidence-file "$RUNNER_TEMP/hrm-g3-staged-routes.json"
+
+      - name: Verify staged release identity before promotion
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --location \
+            -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN" \
+            "$DEPLOYMENT_URL/api/system/release" > "$RUNNER_TEMP/staged-release.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads((Path(os.environ["RUNNER_TEMP"]) / "staged-release.json").read_text())
+          if data.get("commitSha") != os.environ["GITHUB_SHA"] or data.get("environment") not in ("production", "prod"):
+              raise SystemExit("STAGED_RELEASE_IDENTITY_MISMATCH")
+          print("STAGED_RELEASE_IDENTITY = PASS")
+          PY
+
+      - name: Promote tested production deployment
+        id: promote
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOYMENT_URL"
+          npx --yes vercel@65.11.0 promote "$DEPLOYMENT_URL"
+          echo "PRODUCTION_PROMOTION_EXECUTED = YES"
 
       - name: Verify production alias still points to created deployment
         shell: bash
@@ -564,6 +619,54 @@ jobs:
           print("PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS")
           PY
 
+      - name: Verify live production routes and exact release after promotion
+        shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-production-readiness.py \
+            --frontend-routes-only \
+            --attempts 6 \
+            --delay-seconds 5 \
+            --timeout-seconds 20 \
+            --production-url "$PRODUCTION_WEB_BASE_URL" \
+            --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+          curl --fail-with-body --silent --show-error --location \
+            -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN" \
+            "$PRODUCTION_WEB_BASE_URL/api/system/release" > "$RUNNER_TEMP/live-release.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads((Path(os.environ["RUNNER_TEMP"]) / "live-release.json").read_text())
+          if data.get("commitSha") != os.environ["GITHUB_SHA"] or data.get("environment") not in ("production", "prod"):
+              raise SystemExit("LIVE_RELEASE_IDENTITY_MISMATCH")
+          print("LIVE_RELEASE_IDENTITY = PASS")
+          PY
+
+      - name: Restore previous production deployment after failed promotion
+        if: failure() && steps.promote.outcome != 'skipped'
+        shell: bash
+        env:
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.previous.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          test -n "$PREVIOUS_DEPLOYMENT_ID" || { echo "::error::ROLLBACK_PREVIOUS_ID_MISSING"; exit 1; }
+          npx --yes vercel@65.11.0 promote "$PREVIOUS_DEPLOYMENT_ID"
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          host = urllib.parse.urlparse(os.environ["PRODUCTION_WEB_BASE_URL"]).netloc
+          team = urllib.parse.quote(os.environ["VERCEL_ORG_ID"], safe="")
+          endpoint = "https://api.vercel.com/v13/deployments/" + urllib.parse.quote(host, safe="") + "?teamId=" + team
+          request = urllib.request.Request(endpoint, headers={"Authorization": "Bearer " + os.environ["VERCEL_TOKEN"], "Accept": "application/json"})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              current = json.load(response)
+          actual = str(current.get("id") or current.get("uid") or "")
+          if actual != os.environ["PREVIOUS_DEPLOYMENT_ID"]:
+              raise SystemExit("PRODUCTION_ROLLBACK_IDENTITY_MISMATCH")
+          print("PRODUCTION_ROLLBACK_IDENTITY = PASS")
+          PY
+
       - name: Capture production release identity
         if: always()
         shell: bash
@@ -625,6 +728,9 @@ jobs:
             ${{ runner.temp }}/vercel-deploy.json
             ${{ runner.temp }}/vercel-production-identity.json
             ${{ runner.temp }}/production-route-diagnostics
+            ${{ runner.temp }}/hrm-g3-staged-routes.json
+            ${{ runner.temp }}/staged-release.json
+            ${{ runner.temp }}/live-release.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/production-release.json
           if-no-files-found: warn
