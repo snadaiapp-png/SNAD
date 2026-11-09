@@ -12,6 +12,26 @@
 #   production.dump archive remains 0600 runner-only. The green preflight
 #   never hit this because it wrote its dump directly into /tmp.
 #
+#
+# v20261108.3 — RUN 7 FIX (run 42587205803, exit 1 after 2m19s):
+#   The v20261108.1 "selective TOC" filter never actually filtered anything.
+#   It parsed pg_restore -l lines with split('; ') expecting >=3 parts, but a
+#   real TOC line contains exactly ONE semicolon —
+#     <dumpid>; <tableoid> <oid> <DESC...> <namespace|-> <tag...> [<owner>]
+#   — so every entry hit the len(parts)<3 guard and toc.filtered ended up the
+#   FULL TOC. pg_restore therefore died at the first extension unavailable on
+#   vanilla PostgreSQL 17: CREATE EXTENSION supabase_vault → "extension
+#   supabase_vault is not available" (run 7). Fix: parse the one-semicolon
+#   format (skip leading integer catalog oids, DESC, namespace, tag) and
+#   switch to a public-schema ALLOWLIST: keep an entry iff its namespace is
+#   'public'; drop EXTENSION, SCHEMA (public already exists; Supabase
+#   platform schemas are not restorable), ACL/DEFAULT PRIVILEGES, and all
+#   non-public objects (incl. publications and extension comments). Multi-
+#   word TOC descs handled (TABLE DATA, SEQUENCE OWNED BY / SEQUENCE SET,
+#   ROW SECURITY, PUBLICATION TABLE, FK CONSTRAINT, ...). Validated end-to-
+#   end on a local PG 17 simulation with an unavailable extension: the old
+#   filter fails exactly like run 7; the new filter restores the public
+#   schema, data, RLS policies and flyway_schema_history with exit 0.
 # v20261108.1 — RESTORE REHEARSAL FIXES (after run failures 42426903432 et al.):
 #   1. Install step hardened: curl --retry, apt -o Acquire::Retries=5, retry loops
 #      (fixes transient curl(56) key-fetch and apt exit-100 libicu74 index failures).
@@ -188,43 +208,52 @@ jobs:
           toc=subprocess.run(['pg_restore','-l',archive],
                              stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True).stdout.decode()
           kept=[]
-          dropped={'extension':0,'platform_schema_object':0,'acl':0}
+          dropped={'extension':0,'platform_schema_object':0,'acl':0,'out_of_public_scope':0}
+          # Real pg_restore -l lines have exactly ONE semicolon:
+          #   <dumpid>; <tableoid> <oid> <DESC...> <namespace|-> <tag...> [<owner>]
+          # Multi-word descs must be matched before single-word ones.
+          multi=('TABLE DATA ','MATERIALIZED VIEW DATA ','MATERIALIZED VIEW ',
+                 'FK CONSTRAINT ','DEFAULT PRIVILEGES','DEFAULT ACL','LARGE OBJECT ',
+                 'SEQUENCE OWNED BY ','SEQUENCE SET ','PUBLICATION TABLE ',
+                 'ROW SECURITY ','EVENT TRIGGER ','TEXT SEARCH ',
+                 'OPERATOR CLASS ','OPERATOR FAMILY ')
           for line in toc.splitlines():
               if not line.strip() or line.lstrip().startswith(';'):
+                  kept.append(line); continue      # header/comment/blank lines
+              if ';' not in line:
+                  kept.append(line); continue      # unrecognized line: keep verbatim
+              fields=line.split(';',1)[1].split()
+              k=0
+              while k<len(fields) and fields[k].isdigit():
+                  k+=1                             # skip leading integer catalog oids
+              if k>=len(fields):
                   kept.append(line); continue
-              parts=line.split('; ')
-              if len(parts)<3:
-                  kept.append(line); continue
-              rest=parts[2].strip()
-              multi=('TABLE DATA ','MATERIALIZED VIEW DATA ','MATERIALIZED VIEW ',
-                     'FK CONSTRAINT ','DEFAULT PRIVILEGES','LARGE OBJECT ')
-              typ=''; tail=rest
+              desc=' '.join(fields[k:])
+              typ=''; after=[]
               for pref in multi:
-                  if rest.startswith(pref):
-                      typ=pref.strip(); tail=rest[len(pref):].strip(); break
+                  if desc.startswith(pref):
+                      typ=pref.strip(); after=desc[len(pref):].split(); break
               if not typ:
-                  words=rest.split()
-                  typ=words[0] if words else ''
-                  tail=' '.join(words[1:])
-              tail_words=tail.split()
-              if tail_words and tail_words[0]=='-':
-                  schema=''; name=tail_words[1] if len(tail_words)>1 else ''
-              else:
-                  schema=tail_words[0] if tail_words else ''
-                  name=tail_words[1] if len(tail_words)>1 else ''
+                  w=desc.split()
+                  typ=w[0] if w else ''
+                  after=w[1:]
+              ns=after[0] if after else ''              # namespace; '-' = database-level
+              tag=after[1] if len(after)>1 else ''     # first tag word (schema name for SCHEMA)
               if typ=='EXTENSION':
                   dropped['extension']+=1; continue
               if typ=='SCHEMA':
-                  if name in platform or name=='public':
-                      # platform schemas are not restorable; public already exists in a
-                      # fresh database (its Supabase-altered ownership is not certified here)
-                      continue
-                  kept.append(line); continue
-              if schema in platform:
-                  dropped['platform_schema_object']+=1; continue
-              if typ in ('ACL','DEFAULT PRIVILEGES'):
+                  # tag is the schema name: public already exists in a fresh database
+                  # and Supabase platform schemas are not restorable on vanilla PG 17.
+                  if tag=='public' or tag in platform:
+                      dropped['platform_schema_object']+=1
+                  else:
+                      dropped['out_of_public_scope']+=1
+                  continue
+              if typ in ('ACL','DEFAULT PRIVILEGES','DEFAULT ACL'):
                   dropped['acl']+=1; continue
-              kept.append(line)
+              if ns=='public':
+                  kept.append(line); continue      # application scope: public schema only
+              dropped['out_of_public_scope']+=1
           toc_path=os.path.join(sys.argv[1],'toc.filtered')
           with open(toc_path,'w') as f: f.write('\n'.join(kept)+'\n')
           os.chmod(toc_path,0o644)  # object names only; postgres user must be able to read it
