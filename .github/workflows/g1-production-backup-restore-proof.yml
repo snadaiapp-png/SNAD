@@ -13,6 +13,20 @@
 #   never hit this because it wrote its dump directly into /tmp.
 #
 #
+# v20261108.4 — RUN 8 FIX (run 42597788638, exit 1 after ~3m):
+#   v20261108.3 fixed the TOC filter and the restore then proceeded into real
+#   public-schema objects, failing at the first EXCLUDE USING gist constraint:
+#   "data type uuid has no default operator class for access method gist".
+#   The application's own migrations require the btree_gist extension
+#   (CREATE EXTENSION IF NOT EXISTS btree_gist) for temporal no-overlap
+#   constraints on uuid tenant columns. The allowlist drops the dump's
+#   EXTENSION entries (most are Supabase-only, not available on vanilla
+#   PostgreSQL 17), so the gist uuid opclass was missing at restore time.
+#   Fix: pre-create btree_gist in the disposable restored database before
+#   pg_restore — it ships in PGDG contrib on the runner (same source as
+#   pgcrypto, which run 7 already created successfully). Validated locally
+#   against a PG 17 simulation: without it, run 8's exact error; with it,
+#   restore exit 0 with both EXCLUDE constraints intact.
 # v20261108.3 — RUN 7 FIX (run 42587205803, exit 1 after 2m19s):
 #   The v20261108.1 "selective TOC" filter never actually filtered anything.
 #   It parsed pg_restore -l lines with split('; ') expecting >=3 parts, but a
@@ -197,6 +211,12 @@ jobs:
                     "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN "
                     "EXECUTE format('CREATE ROLE %I NOLOGIN', r); END IF; END LOOP; END $do$;")
           sudo_pg(['psql','-p',port,'-X','-v','ON_ERROR_STOP=1','-d','postgres','-c',stub_sql], check=True)
+          # 2b) Pre-create btree_gist in the disposable restore target: the application's
+          #     own migrations require it for EXCLUDE USING gist temporal no-overlap
+          #     constraints on uuid columns, and it ships in PGDG contrib on the runner.
+          #     All other EXTENSION entries stay dropped (not available on vanilla PG 17).
+          sudo_pg(['psql','-p',port,'-X','-v','ON_ERROR_STOP=1','-d','snad_g1_restored',
+                   '-c','CREATE EXTENSION IF NOT EXISTS btree_gist'], check=True)
           # 3) Selective TOC restore: keep the public schema (all application tables,
           #    data, and flyway_schema_history); drop Supabase platform schemas, ALL
           #    EXTENSION entries, and ACL/default-privilege entries — none of these can
@@ -289,6 +309,7 @@ jobs:
                    'restore_scope':'public schema only - Supabase platform schemas/extensions '
                                    'and ACLs excluded by design for vanilla PostgreSQL 17 rehearsal',
                    'restore_roles_stubbed':['sanad','sanad_migrator','service_role'],
+                   'restore_extensions_precreated':['btree_gist'],
                    'toc_dropped':dropped,
                    'limitations':['ephemeral runner backup removed at job end',
                                   'restored with no-owner/no-acl: ownership and ACL not certified',
