@@ -8,12 +8,12 @@ RELEASE_ROUTE = Path("apps/web/app/api/system/release/route.ts")
 def test_vercel_reconcile_uses_rest_metadata_for_artifact_identity():
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Verify exact production deployment via Vercel REST API" in text
+    assert "Verify staged production deployment via Vercel REST API" in text
     assert "https://api.vercel.com/v13/deployments/" in text
     assert 'meta.get("snadMainSha") or meta.get("githubCommitSha")' in text
     assert 'target == "production"' in text
     assert 'state == "READY"' in text
-    assert "production_host in aliases" in text
+    assert "not alias_ok" in text
 
 
 def test_protected_route_probe_uses_ephemeral_github_oidc():
@@ -36,7 +36,7 @@ def test_vercel_reconcile_deploys_the_verified_prebuilt_artifact():
     text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "Deploy verified prebuilt artifact to Vercel Production" in text
-    assert "vercel@latest deploy" in text
+    assert "vercel@65.11.0 deploy" in text
     assert "--prebuilt" in text
     assert "--prod" in text
     assert '--meta "snadMainSha=$GITHUB_SHA"' in text
@@ -75,17 +75,47 @@ def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
     assert "find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true" not in text
 
 
-def test_vercel_reconcile_probes_live_routes_only_after_alias_identity():
+def test_vercel_reconcile_stages_then_probes_before_promotion():
     text = WORKFLOW.read_text(encoding="utf-8")
-
-    assert "Verify HRM G3 routes on created deployment" not in text
-    assert '--production-url "$DEPLOYMENT_URL"' not in text
-    assert "hrm-g3-deployment-routes.json" not in text
-    assert "Verify live HRM G3 routes" in text
-    assert '--production-url "$PRODUCTION_WEB_BASE_URL"' in text
+    assert "--skip-domain" in text
+    assert '--production-url "$DEPLOYMENT_URL"' in text
+    assert "STAGED_RELEASE_IDENTITY = PASS" in text
+    assert "VERCEL_STAGED_IDENTITY = PASS" in text
+    assert "Verify staged HRM G3 routes" in text
+    assert "Promote tested production deployment" in text
     assert "Verify production alias still points to created deployment" in text
-    assert "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT" in text
-    assert "PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS" in text
+    assert "Verify live production routes and exact release after promotion" in text
+    assert "LIVE_RELEASE_IDENTITY = PASS" in text
+    sequence = [
+        "Capture previous production deployment for rollback",
+        "Deploy verified prebuilt artifact to Vercel Production",
+        "Verify staged production deployment via Vercel REST API",
+        "Verify staged HRM G3 routes",
+        "Verify staged release identity before promotion",
+        "Promote tested production deployment",
+        "Verify production alias still points to created deployment",
+        "Verify live production routes and exact release after promotion",
+    ]
+    offsets = [text.index(marker) for marker in sequence]
+    assert offsets == sorted(offsets)
+
+
+def test_production_rollback_is_fail_closed_and_scoped():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "PREVIOUS_PRODUCTION_DEPLOYMENT_UNVERIFIED" in text
+    assert "Restore previous production deployment after failed promotion" in text
+    assert "if: failure() && steps.promote.outcome != 'skipped'" in text
+    assert 'promote "$PREVIOUS_DEPLOYMENT_ID"' in text
+    assert "PRODUCTION_ROLLBACK_IDENTITY_MISMATCH" in text
+    assert "PRODUCTION_ROLLBACK_IDENTITY = PASS" in text
+
+
+def test_cli_is_pinned_and_does_not_put_token_in_argv():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "vercel@65.11.0" in text
+    assert "vercel@latest" not in text
+    assert "--token=" not in text
+    assert "VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}" in text
 
 
 def test_prebuilt_deploy_bypasses_vercelignore_only_for_output_upload_and_restores_it():
@@ -116,7 +146,7 @@ def test_hrm_g3_routes_must_build_as_dynamic_before_production_deploy():
 def test_reconcile_captures_route_diagnostics_before_live_g3_gate():
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Capture production route diagnostics" in text
+    assert "Capture staged route diagnostics" in text
     assert "/hr/employees" in text
     assert "/hr/assignments" in text
     assert "/hr/performance/goals" in text
