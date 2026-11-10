@@ -42,9 +42,20 @@ GRANT USAGE, CREATE ON SCHEMA public TO sanad_migrator; -- new owner needs CREAT
 --      ALTER statements inside the transfer script.)
 
 -- (c) declare the target topology for the production database.
---     On Supabase the production database is named `postgres`
---     (verified read-only 2026-11-03: current_database() = postgres).
-ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
+--     PLATFORM CONSTRAINT (verified 2026-11-11 on Supabase PG 17.6):
+--     `ALTER DATABASE ... SET sanad.deployment_topology` and
+--     `ALTER ROLE ... SET sanad.deployment_topology` are DENIED for
+--     placeholder/custom GUCs (parameter privilege wall; GRANT SET ON
+--     PARAMETER is likewise superuser-only and unavailable), and the
+--     session pooler strips startup `options`. The topology declaration
+--     therefore rides with the authorized migrator dispatch instead:
+--     the `confirm_topology='separated'` typed input of the protected
+--     workflow maps to a session-level SET (FLYWAY_INIT_SQL for every
+--     Flyway connection + the pre/post-flight psql sessions). The
+--     original ALTER DATABASE form below remains valid on self-hosted /
+--     vanilla PostgreSQL where the migration chain is provisioned by a
+--     superuser:
+--     ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
 ```
 
 Then store the migrator credentials **only** in the GitHub secret store:
