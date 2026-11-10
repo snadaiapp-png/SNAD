@@ -164,6 +164,27 @@ jobs:
       - name: Verify Control Plane tenant in production database
         run: bash scripts/production/verify-control-plane-tenant.sh
 
+      - name: Verify Render's externally configured health probe for OCI image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # OCI images do not retain the Containerfile HEALTHCHECK instruction.
+          # Fail closed unless Render itself performs the required HTTP probe.
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" \
+            > "$RUNNER_TEMP/g1-render-service.json"
+          jq -e '
+            (.service // .).type == "web_service" and
+            (.service // .).serviceDetails.runtime == "image" and
+            (.service // .).serviceDetails.healthCheckPath == "/actuator/health"
+          ' "$RUNNER_TEMP/g1-render-service.json" >/dev/null || {
+            echo "::error::Render external HTTP health probe contract is absent or drifted; stop BEFORE deployment"
+            exit 1
+          }
+          echo "RENDER_EXTERNAL_HEALTH_PROBE=PASS (/actuator/health)"
+
       - name: Verify Flyway is disabled in the backend runtime
         shell: bash
         run: |
