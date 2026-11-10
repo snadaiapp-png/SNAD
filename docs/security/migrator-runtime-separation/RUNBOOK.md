@@ -46,6 +46,30 @@ and enable LOGIN with that password:
 SELECT format('ALTER ROLE sanad_migrator LOGIN PASSWORD %L', :'migrator_secret') \gexec
 ```
 
+### 2b. Read-only release audit identity (`sanad_release_auditor`) — required by the production release gate
+
+The canonical production release workflow audits Flyway through a separately
+governed READ-ONLY identity (CAB 2026-11-10 §C); the runtime role must never
+regain `flyway_schema_history` access. Provision it in the same one-time admin
+session, BEFORE the ownership transfer (run
+`scripts/ops/migrator-separation/provision-release-auditor.sql`, which
+creates the role, grants the exact least-privilege set and verifies it
+fail-closed):
+
+* role `sanad_release_auditor`: `NOLOGIN` until the operator sets the password;
+  `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`;
+* exact privileges: `USAGE` on schema `public`, `SELECT` on
+  `flyway_schema_history` and `access_capabilities` (Y2 sentinel rows);
+* store in the GitHub **Production** environment secret store:
+  `PROD_RELEASE_AUDIT_USER` = `sanad_release_auditor`,
+  `PROD_RELEASE_AUDIT_PASSWORD` = a long random secret,
+  `PROD_RELEASE_AUDIT_URL` = production database URL;
+* enable LOGIN with that password via the operator's governed channel (the
+  provisioning script documents the `\gexec` pattern);
+* if the grants must be re-asserted AFTER the migrator ownership transfer,
+  run the `GRANT` statements from the owner context (`SET ROLE
+  sanad_migrator` as the bootstrap admin).
+
 Finally verify the runtime contract (fail closed if violated):
 
 ```sql

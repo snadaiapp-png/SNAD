@@ -1,0 +1,53 @@
+# G1 Release Audit Identity — CAB §C resolution record
+
+**Date:** 2026-11-11
+**Repository:** `snadaiapp-png/SNAD`
+**Scope:** engineering change resolving the fail-closed incompatibility recorded in
+[G1-CAB-PRODUCTION-GO-NOGO-EVIDENCE-2026-11-10.md](G1-CAB-PRODUCTION-GO-NOGO-EVIDENCE-2026-11-10.md) §C, item 3.
+**Status of this document:** engineering record only — NOT a G1/CAB approval, NOT a certification.
+
+## 1. The resolved incompatibility (restated)
+
+The CAB evidence recorded: `scripts/production/verify-flyway.sh` read
+`flyway_schema_history` using the backend runtime credentials
+(`DATABASE_USERNAME` fetched from the Render environment together with
+`DATABASE_URL`/`DATABASE_PASSWORD`). Under the separated migrator/runtime
+topology enforced by `V20261103_2` (runtime `sanad` holds NO privilege on the
+migration ledger), that audit path is structurally impossible — by design.
+The production release workflow was therefore intentionally fail-closed until
+the audit moved to a separately governed read-only identity.
+
+## 2. The implemented change
+
+| File | Change |
+|---|---|
+| `scripts/production/verify-flyway.sh` | Credentials now come exclusively from `AUDIT_DATABASE_URL` / `AUDIT_DATABASE_USERNAME` / `AUDIT_DATABASE_PASSWORD` environment variables (GitHub Production environment secrets). The script **fails closed** when they are absent and **rejects** `sanad`, `postgres`, `sanad_migrator`, `supabase_admin` and `service_role` as the audit identity. The Y2 definition-column sentinel now reads `pg_catalog.pg_attribute` (world-readable) instead of `information_schema.columns`, so the audit identity needs no privilege on the `workflow_definitions` business table. All ledger semantics (sentinels V15/20260702.x, failed/duplicate/checksum checks, installed_rank-derived head, pending/drift guards) are unchanged. |
+| `.github/workflows/production-release.yml` | Job env passes `PROD_RELEASE_AUDIT_URL` / `PROD_RELEASE_AUDIT_USER` / `PROD_RELEASE_AUDIT_PASSWORD` Production-environment secrets; the input validation step requires all three to be present before any deployment action. |
+| `.github/workflows/users-production-release.yml` | Same audit identity wiring for the Users production release path (it invokes the same gate). |
+| `scripts/production/run-production-release.sh` | Operator entry point now requires the `AUDIT_*` environment explicitly (fail closed). |
+| `scripts/production/tests/verify-flyway.test.sh` | Harness updated to the env-based credential contract; adds two new scenarios: (4) missing `AUDIT_*` environment fails closed, (5) the runtime role is rejected as the audit identity. The harness now runs against a pinned fixture repository tree so the regression scenarios are independent of the live chain head (the previous harness had silently gone RED on main as the chain advanced past `20260908.1`). |
+| `scripts/ops/migrator-separation/provision-release-auditor.sql` | One-time admin bootstrap: creates `sanad_release_auditor` (NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE), grants the exact least-privilege set (`USAGE` on schema `public`; `SELECT` on `flyway_schema_history` and `access_capabilities`), and verifies the effective privilege set fail-closed (no other SELECT, no write, no DDL). |
+| `docs/security/migrator-runtime-separation/RUNBOOK.md` | §2b documents the audit identity provisioning, secret store names, ordering relative to the migrator ownership transfer, and the `SET ROLE sanad_migrator` re-assertion path. |
+
+## 3. Governance of the audit identity
+
+* Credentials live only in the GitHub **Production** environment secret store
+  (`PROD_RELEASE_AUDIT_URL` / `PROD_RELEASE_AUDIT_USER` /
+  `PROD_RELEASE_AUDIT_PASSWORD`) — the same protection domain as
+  `PROD_FLYWAY_MIGRATOR_*`.
+* The identity holds **no** membership in `sanad`/`sanad_migrator` and no
+  write or DDL privilege anywhere; it is verified fail-closed at provisioning
+  time and empirically at every production release (a broken grant fails the
+  release, never bypasses it).
+* The runtime role does **not** regain `flyway_schema_history` SELECT — the
+  CAB constraint "do not regrant Flyway history SELECT to runtime" holds.
+
+## 4. What this change does NOT do
+
+* It does not deploy anything, does not touch the production database, and
+  does not modify the pending migration chain (head remains `20261107.1`).
+* It does not constitute G1, CAB, or payment authorization. Production
+  deployment still requires the full CAB chain: fresh recovery point,
+  isolated rehearsal, migrator bootstrap + protected migration, daemonless
+  OCI publication, Vercel exact-SHA reconcile, and the Production
+  environment approvals.
