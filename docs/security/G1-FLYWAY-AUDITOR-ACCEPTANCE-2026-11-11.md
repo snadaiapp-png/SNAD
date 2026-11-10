@@ -34,7 +34,7 @@ GRANT SELECT ON TABLE public.access_capabilities TO sanad_release_auditor;
 ## Isolated PostgreSQL 17 acceptance
 
 1. Create a disposable PG17 cluster with no production networking/secrets. First exercise 35+ independent tenant/privilege and Flyway chain probes using `.github/workflows/migrator-runtime-separation.yml` (the existing isolated run #42880314820 was 62/62 + 11/11 on source baseline).
-2. Create the auditor only in the disposable DB, apply minimum GRANTs, connect as `sanad_release_auditor` and verify `current_user`, read-only Flyway SELECT, `access_capabilities` SELECT, no DDL/DML, no `SET ROLE sanad` or `sanad_migrator`, no role owner privilege. Compare with denial of runtime `sanad` reading Flyway history.
+2. Run `G1 Flyway Auditor Acceptance`: its new disposable PG17 job executes `tests/security/flyway-auditor/pg17-acceptance.sh` with real PostgreSQL 17 role/ACL SQL and synthetic objects. Verify `current_user`, read-only Flyway SELECT, `access_capabilities` SELECT, denied auditor UPDATE, rejected broad auditor UPDATE, rejected runtime Flyway SELECT and rejected pending-schema head. It uses no Supabase/Render/Vercel credentials or production data. This is an isolated role-contract test, NOT production permission certification.
 3. Execute the actual release-audit script from a protected synthetic credential fixture against that disposable cluster and verify successful expected current head, then negative cases for schema drift, failed migrations, missing SQL checksums, missing capabilities, illegal ACL, missing secrets, wrong identity, and injected credentials.
 4. Independently rerun CI and Post-Merge on the **new merge SHA**; do not reuse `43e6c419` for the future release.
 
