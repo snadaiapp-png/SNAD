@@ -19,7 +19,7 @@ org.postgresql.util.PSQLException: FATAL: password authentication failed for use
 
 1. `RenderDatabaseUrlConverter.java`: when `DATABASE_URL` or `RENDER_DATABASE_URL` is raw `postgresql://...`, prefer explicitly provided credentials in this order: `SPRING_DATASOURCE_{USERNAME,PASSWORD}`, then `DATABASE_{USERNAME,PASSWORD}`, then URL-embedded credentials. Previously the raw `DATABASE_URL` path always selected the embedded credentials and overwrote separately rotated values in the highest-priority Spring property source.
 2. `application-prod.yml`: `FLYWAY_ENABLED` defaults to `false` for normal production runtime; only the protected, independent migration operator may enable it under a **separate change**. The currently-running **old image** still defaults to true; this source change is not active until an approved deployment.
-3. Regression tests use **synthetic credentials only**, and require a real Maven test execution to be treated as PASS. No Docker or production DB in tests.
+3. Regression tests use **synthetic credentials only**. **EXECUTED:** on the connected SNAD Windows desktop in a separate Git worktree at code SHA `7781d82fccb383ee7332f436c6fd2d72ca53736d`, Temurin Java 17.0.19, Maven 3.9.6, command `mvn -B -ntp -Dtest=RenderDatabaseUrlConverterTest -DfailIfNoTests=false test`. Maven Surefire reported **29 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, exit code 0**. No Docker or production database used. (The later commit adds only this incident document.)
 
 **Important:** The credential-precedence defect is proven in source code but is **not proven as the underlying source of the currently rejected `postgres` password**. Proper production credential synchronization is still mandatory.
 
@@ -40,7 +40,7 @@ org.postgresql.util.PSQLException: FATAL: password authentication failed for use
 | Repeated Render `PSQLException: password authentication failed for user "postgres"` | **VERIFIED**, from private Render logs |
 | Underlying effective environment variable/secret identified | **UNVERIFIED** |
 | Code fix proposed on isolated GitHub branch | **IMPLEMENTED ON BRANCH**, not deployed |
-| Focused Java/Maven regression test | **PENDING actual terminal result** |
+| Focused Java/Maven regression test | **PASS — 29/29**, SHA `7781d82f`, Maven exit `0`, isolated Windows worktree |
 | Production credential corrected | **NOT EXECUTED** |
 | Production app healthy on approved image | **NOT VERIFIED** |
 | Production Flyway/RLS correction or security amendment activation | **NOT AUTHORIZED / NOT ACTIVE** |
