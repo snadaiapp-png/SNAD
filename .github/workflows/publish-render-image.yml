@@ -1,10 +1,16 @@
 # PRODUCTION-AUTHORIZATION-EB19-20260925: inert trigger for exact-main immutable backend image publication after protected release-control merge.
+# v20261110.1 (Render incident remediation CI contract): the push-to-main
+# auto-trigger was removed. Image publication (a Docker build) is now an
+# explicit, authorized action only:
+#   - the governed release orchestration (crm-exact-sha-production-orchestrator)
+#     already dispatches this workflow by name at the exact approved SHA;
+#   - merging to main no longer silently activates Docker-based CI;
+#   - the publication itself is unchanged (same build, GHCR push, attestation).
+# Fail-closed: no automatic image build occurs on merge; release engineers
+# dispatch it deliberately with the existing production approvals in place.
 name: Publish Render Backend Image
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
