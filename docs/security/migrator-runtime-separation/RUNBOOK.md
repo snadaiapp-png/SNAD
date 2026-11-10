@@ -28,6 +28,19 @@ END $do$;
 --     Run the file scripts/ops/migrator-separation/transfer-ownership-to-migrator.sql
 --     (it also transfers schema public and flyway_schema_history).
 
+-- (b-pre) Supabase-specific bootstrap order (empirically verified on the
+--     isolated DR project 2026-11-11; the GitHub-runner rehearsal runs as
+--     superuser and does not exercise these platform constraints):
+--
+--     The Supabase SQL-editor identity (`postgres`) is NOSUPERUSER (CREATEROLE,
+--     database owner; schema public is owned by `pg_database_owner`), so BEFORE
+--     any ALTER ... OWNER TO sanad_migrator can succeed it needs:
+GRANT sanad_migrator TO postgres;                       -- membership for ALTER OWNER
+GRANT USAGE, CREATE ON SCHEMA public TO sanad_migrator; -- new owner needs CREATE to receive tables
+--     (CREATE becomes implicit once the schema ownership transfers to the
+--      migrator; the grant is idempotent and only bridges the pre-transfer
+--      ALTER statements inside the transfer script.)
+
 -- (c) declare the target topology for the production database.
 --     On Supabase the production database is named `postgres`
 --     (verified read-only 2026-11-03: current_database() = postgres).

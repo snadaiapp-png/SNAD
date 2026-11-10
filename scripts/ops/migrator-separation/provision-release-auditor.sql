@@ -57,10 +57,26 @@ BEGIN
         RAISE EXCEPTION 'AUDIT_ROLE_CONTRACT: sanad_release_auditor must be NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE';
     END IF;
 
-    -- (c) no membership path from the audit role into runtime/migrator/admin
-    IF pg_has_role('sanad_release_auditor', 'sanad_migrator', 'MEMBER')
-       OR pg_has_role('sanad_release_auditor', 'sanad', 'MEMBER') THEN
-        RAISE EXCEPTION 'AUDIT_ROLE_CONTRACT: sanad_release_auditor must hold no membership in sanad/sanad_migrator';
+    -- (c) no membership path from the audit role into runtime/migrator/admin.
+    --     Existence guards: pg_has_role RAISES for a missing role instead of
+    --     returning false, which would turn a not-yet-provisioned peer role
+    --     into a spurious bootstrap failure (verified on the isolated DR
+    --     project 2026-11-11). The separation invariants themselves are
+    --     enforced fail-closed by V20261103_1/V20261103_2 and the migrator
+    --     workflow pre/post-flight assertions.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator') THEN
+        IF pg_has_role('sanad_release_auditor', 'sanad_migrator', 'MEMBER') THEN
+            RAISE EXCEPTION 'AUDIT_ROLE_CONTRACT: sanad_release_auditor must hold no membership in sanad_migrator';
+        END IF;
+    ELSE
+        RAISE NOTICE 'AUDIT_ROLE_NOTE: sanad_migrator not provisioned yet — membership isolation is enforced by V20261103_1/V20261103_2';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+        IF pg_has_role('sanad_release_auditor', 'sanad', 'MEMBER') THEN
+            RAISE EXCEPTION 'AUDIT_ROLE_CONTRACT: sanad_release_auditor must hold no membership in sanad';
+        END IF;
+    ELSE
+        RAISE NOTICE 'AUDIT_ROLE_NOTE: sanad runtime role not present on this cluster';
     END IF;
 
     RAISE NOTICE 'AUDIT_ROLE_OK: sanad_release_auditor provisioned with the read-only contract';
@@ -77,18 +93,23 @@ GRANT SELECT ON TABLE public.access_capabilities TO sanad_release_auditor;
 
 -- (e) fail-closed verification of the effective privilege set (exact match:
 --     the audit role must hold SELECT on exactly the two granted relations
---     and nothing more in schema public).
+--     and nothing more in schema public). Uses pg_catalog.pg_class directly
+--     (the same pattern as the migrator workflow post-flight assertions),
+--     NOT the pg_tables view, which is not reliable under every Supabase
+--     catalog state.
 DO $verify$
 DECLARE
     v_extra TEXT;
     v_missing BOOLEAN;
 BEGIN
-    SELECT string_agg(t.tablename, ', ') INTO v_extra
-      FROM pg_tables t
-     WHERE t.schemaname = 'public'
-       AND t.tablename NOT IN ('flyway_schema_history', 'access_capabilities')
+    SELECT string_agg(c.relname, ', ') INTO v_extra
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relkind IN ('r', 'p')
+       AND c.relname NOT IN ('flyway_schema_history', 'access_capabilities')
        AND has_table_privilege('sanad_release_auditor',
-            'public.' || quote_ident(t.tablename), 'SELECT');
+            'public.' || quote_ident(c.relname), 'SELECT');
     IF v_extra IS NOT NULL THEN
         RAISE EXCEPTION 'AUDIT_GRANT_VERIFY: unexpected SELECT privilege(s) on: %', v_extra;
     END IF;

@@ -42,7 +42,47 @@ the audit moved to a separately governed read-only identity.
 * The runtime role does **not** regain `flyway_schema_history` SELECT — the
   CAB constraint "do not regrant Flyway history SELECT to runtime" holds.
 
-## 4. What this change does NOT do
+## 4. Isolated DR verification (2026-11-11, project `wmlimglmvfirxhiwfekb`)
+
+The provisioning script and the migrator ownership-transfer interplay were
+exercised on the empty designated isolated-verification Supabase project
+(PG 17.11, admin identity `postgres` — the same NOSUPERUSER platform shape as
+production). Findings:
+
+1. `pg_has_role` RAISES for a not-yet-provisioned role instead of returning
+   false, so the auditor script's membership-isolation check aborted the whole
+   bootstrap when `sanad_migrator` did not exist yet. **Fixed** with existence
+   guards + NOTICES (the invariants remain enforced fail-closed by
+   V20261103_1/V20261103_2 and the migrator workflow assertions).
+2. On Supabase the admin identity is NOSUPERUSER: `ALTER ... OWNER TO
+   sanad_migrator` requires (a) membership of the admin in the migrator role
+   and (b) CREATE for the migrator on schema `public` **before** the transfer
+   statements run (`GRANT sanad_migrator TO postgres; GRANT USAGE, CREATE ON
+   SCHEMA public TO sanad_migrator;`). The GitHub-runner rehearsal never hit
+   this because it runs as superuser. **Documented** in RUNBOOK §2(b-pre).
+3. Production schema `public` is owned by `pg_database_owner` (the database
+   owner `postgres` can transfer it); `V20261103_2` fails closed at its
+   SANAD_SCHEMA_OWNER_PRECONDITION unless the schema is migrator-owned, which
+   the transfer script performs.
+4. Auditor grants survive the migrator ownership transfer — **empirically
+   proven on the isolate**: after `ALTER SCHEMA/TABLE ... OWNER TO
+   sanad_migrator` (ownership confirmed via `pg_class`), the auditor still
+   held exactly `SELECT` on `flyway_schema_history` + `access_capabilities`
+   (aclexplode enumeration), nothing on the business table, no write/DDL and
+   no membership. The RUNBOOK `SET ROLE sanad_migrator` re-assertion path
+   remains available as defense in depth, and the release gate itself proves
+   the grants live at every production release (fail-closed).
+5. The `pg_tables` view is not reliable under every Supabase catalog state
+   for ad-hoc `has_table_privilege(...)` enumeration (spurious
+   `public.pg_statistic` resolution errors at top level). The provisioning
+   script's verification therefore uses `pg_catalog.pg_class` directly — the
+   same pattern as the migrator workflow post-flight assertions.
+6. Full green end-to-end re-run recorded: fixture → provisioning (5/5) →
+   bootstrap order → transfer → post-transfer verification → cleanup; the DR
+   project was restored to its pristine empty state afterwards
+   (0 fixture tables, 0 fixture roles, schema ownership restored).
+
+## 5. What this change does NOT do
 
 * It does not deploy anything, does not touch the production database, and
   does not modify the pending migration chain (head remains `20261107.1`).
