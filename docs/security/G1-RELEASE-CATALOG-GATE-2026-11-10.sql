@@ -55,12 +55,10 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
     'dedicated migrator LOGIN; no superuser/bypassrls/createdb/createrole'
   UNION ALL
   SELECT 'ROLE:membership_separation',
-    NOT EXISTS (
-      SELECT 1 FROM pg_auth_members m
-      JOIN pg_roles r_member ON r_member.oid=m.member
-      JOIN pg_roles r_parent ON r_parent.oid=m.roleid
-      WHERE r_member.rolname='sanad' AND r_parent.rolname='sanad_migrator'
-    ) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator'),
+    (SELECT COUNT(*)=1 FROM pg_roles migrator
+      JOIN pg_roles runtime ON runtime.rolname='sanad'
+      WHERE migrator.rolname='sanad_migrator'
+        AND NOT pg_has_role(runtime.oid, migrator.oid, 'MEMBER')),
     'sanad cannot inherit dedicated migrator membership'
   UNION ALL
   SELECT 'ACL:schema_and_flyway',
