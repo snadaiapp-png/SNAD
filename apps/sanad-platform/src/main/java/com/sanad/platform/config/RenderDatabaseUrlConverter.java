@@ -76,7 +76,15 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
             log.info("Converting DATABASE_URL from raw PostgreSQL format to JDBC format");
             try {
                 ParsedUrl parsed = parse(databaseUrl);
-                setProperties(environment, parsed.jdbcUrl, parsed.username, parsed.password);
+                // A rotated, explicitly configured runtime credential takes precedence
+                // over legacy credentials embedded in a raw DATABASE_URL. Previously
+                // the converter inserted the URL's credentials as the highest-priority
+                // Spring properties and silently shadowed DATABASE_USERNAME/PASSWORD.
+                setProperties(environment, parsed.jdbcUrl,
+                        firstNonBlank(environment.getProperty("SPRING_DATASOURCE_USERNAME"),
+                                environment.getProperty("DATABASE_USERNAME"), parsed.username),
+                        firstNonBlank(environment.getProperty("SPRING_DATASOURCE_PASSWORD"),
+                                environment.getProperty("DATABASE_PASSWORD"), parsed.password));
                 return;
             } catch (IllegalArgumentException e) {
                 log.error("Failed to convert DATABASE_URL: {}", e.getMessage());
@@ -90,13 +98,14 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
             try {
                 ParsedUrl parsed = parse(renderUrl);
 
-                // Explicit DATABASE_USERNAME / DATABASE_PASSWORD override the parsed values
-                String username = environment.getProperty("DATABASE_USERNAME");
-                String password = environment.getProperty("DATABASE_PASSWORD");
-
+                // Consistent precedence across both raw URL sources:
+                // SPRING_DATASOURCE_* > DATABASE_* > URL-embedded credentials.
+                // Never log or expose any of these secret values.
                 setProperties(environment, parsed.jdbcUrl,
-                        (username != null && !username.isBlank()) ? username : parsed.username,
-                        (password != null && !password.isBlank()) ? password : parsed.password);
+                        firstNonBlank(environment.getProperty("SPRING_DATASOURCE_USERNAME"),
+                                environment.getProperty("DATABASE_USERNAME"), parsed.username),
+                        firstNonBlank(environment.getProperty("SPRING_DATASOURCE_PASSWORD"),
+                                environment.getProperty("DATABASE_PASSWORD"), parsed.password));
                 return;
             } catch (IllegalArgumentException e) {
                 log.error("Failed to convert RENDER_DATABASE_URL: {}", e.getMessage());
@@ -107,6 +116,15 @@ public class RenderDatabaseUrlConverter implements EnvironmentPostProcessor {
         // If we get here, no database URL source was found.
         // The ProductionDatasourceGuard will fail fast with a clear error.
         log.warn("No database URL source found (RENDER_DATABASE_URL, DATABASE_URL, SPRING_DATASOURCE_URL all empty)");
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private void setProperties(ConfigurableEnvironment environment,
