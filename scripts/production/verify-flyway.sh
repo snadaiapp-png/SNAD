@@ -152,7 +152,7 @@ require_y2_table "workflow_event_outbox"
 require_y2_table "workflow_event_inbox"
 
 # (c) Workflow Y2 sentinels — definition graph metadata column.
-DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workflow_definitions' AND column_name = 'definition_family_id';")
+DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'workflow_definitions' AND a.attname = 'definition_family_id' AND a.attnum > 0 AND NOT a.attisdropped;")
 [ "${DEF_FAMILY// /}" = "1" ] || { echo "::error::Y2 sentinel column absent: workflow_definitions.definition_family_id"; exit 1; }
 echo "Y2 SENTINEL COLUMN workflow_definitions.definition_family_id: PASS"
 
