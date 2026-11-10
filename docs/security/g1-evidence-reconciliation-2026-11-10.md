@@ -62,7 +62,51 @@ Evidence classifications are **VERIFIED JOB SUCCESS**, **DOCUMENTED LIMITATION**
 - **P1 — Evidence retention and auditability:** index exact artifact IDs and checksums if they can be independently validated without exposing secrets or backups; note 90-day artifact retention. **PARTIAL**.
 - **Separate gate — payments:** explicit commercial/payment authorization and negative-smoke evidence, distinct from G1. **OFF**.
 
-## 5. Authorized closure procedure (NOT executed)
+## 5. Fresh production catalog and backend identity — P0 live blockers (2026-11-10)
+
+**PRODUCTION CATALOG VERIFIED BY ACTUAL READ-ONLY SELECTS.** Project `tkbrvupemreqabwzdpyq` / `snad-prod-fresh`, PostgreSQL 17.6. Queries executed as Supabase SQL interface role `postgres` (not as runtime role), against `pg_catalog` and Flyway history **only**; no tenant/business rows read, no INSERT/UPDATE/DELETE/DDL, no migration, and no credential values collected.
+
+### 5.1 Exact Flyway status
+
+`public.flyway_schema_history` latest successful row: `installed_rank=243`, version **`20261021.1`**, `V20261021_1__crm_post_baseline_fail_closed_rls.sql`, installed `2026-10-28 00:10:51`. Exact versions `20261028.2`, `20261031.1`, `20261101.1`, `20261102.1`, `20261102.2`, `20261103.1`, `20261103.2` all **absent** from successful applied history. Migration-chain rehearsal and green PMV on source SHA do **not** establish these migrations were applied in production.
+
+### 5.2 Six-table catalog and effective runtime privileges (live)
+
+Actual catalog object is **`provisioning_job_steps`**, not `provisioning_steps`. Every listed table is in schema `public` and owned by `postgres`. The `sanad` privileges below are effective `has_table_privilege()` results, not merely displayed grant entries.
+
+| Relation | RLS enabled | FORCE | Policies | Effective `sanad` SELECT/INSERT/UPDATE/DELETE | Expected in reviewed G1 source |
+|---|---|---|---|---|---|
+| `refresh_tokens` | false | false | 0 | YES/YES/YES/YES | ENABLE+FORCE; tenant fail-closed policy; full DML |
+| `password_reset_tokens` | false | false | 0 | YES/YES/YES/YES | ENABLE+FORCE; tenant fail-closed policy; full DML |
+| `login_tenant_index` | false | false | 0 | YES/YES/**YES**/YES | **Intentionally no RLS** for pre-auth discovery; UPDATE must be denied — current grant is excessive |
+| `provisioning_jobs` | false | false | 0 | YES/YES/YES/**YES** | ENABLE+FORCE; DELETE denied |
+| `provisioning_job_steps` | false | false | 0 | YES/YES/YES/**YES** | ENABLE+FORCE; DELETE denied |
+| `subscription_commands` | false | false | 0 | YES/YES/**YES**/**YES** | ENABLE+FORCE; **append-only** SELECT/INSERT, UPDATE/DELETE denied |
+
+Expected source contract documented in `docs/security/g1-final-closure/03-SIX-TABLE-RLS-ACCEPTANCE.md` and `docs/security/rls-final-closure/T2-SIX-TABLE-CLOSURE.md`. **Correct distinction:** the pre-auth index's intentional RLS exemption is not a finding on its own, but its effective UPDATE grant violates its specific ACL contract. The other five tables fail the expected RLS/FORCE/policy baseline. Effective DML rights without RLS represent a serious isolation/control gap; **no exploit was executed or proven**.
+
+Role catalog: `sanad` = LOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE; no `sanad_migrator` role found (count=0). `sanad` has no `CREATE` on public schema or current database, no UPDATE on `flyway_schema_history`, but has SELECT on `flyway_schema_history` (the target separated-role contract denies even SELECT). Those positives do not mitigate the six-table RLS/ACL drift. **Render's effective database connection username has not been independently read from live environment settings**; role catalog presence alone does not prove what role the backend actually uses.
+
+### 5.3 Backend image identity mismatch
+
+Render read-only API: service **`srv-d8ragqkm0tmc73bviqq0`** (`sanad-backend`, URL `https://sanad-backend-mcrj.onrender.com`) reports `imagePath=ghcr.io/snadaiapp-png/snad-backend:48322d0bae97082d69ee143b7af26962d6e14ef8`. Deployment list reports latest live deploy **`dep-dbgjqbjl550s73cnln40`**, created 2026-10-28, same image reference and digest `sha256:f1df37f53d3db2751b651540720097a46817a0cac9a1c47ed85d192c567c0008`. **Target `e7c876c2` not observed as this service's deployed image.**
+
+GitHub Actions orchestration success is not a deployment proof here:
+- Run [42714388553](https://github.com/snadaiapp-png/SNAD/actions/runs/42714388553), `Reconcile, release, and verify SCP production`: `Dispatch canonical recovery chain` **SKIPPED** despite overall job success.
+- Run [42714388567](https://github.com/snadaiapp-png/SNAD/actions/runs/42714388567): `Dispatch canonical SANAD Production Release`, resolve and watch steps all **SKIPPED**; `Record clean non-release evidence` **SUCCESS**.
+- Vercel frontend remains verified as `e7c876c2`, but this **does not certify Backend SHA or RLS state**.
+
+Classification: `BACKEND_PRODUCTION_IMAGE_IDENTITY=FAIL (observed vs required SHA)`. Any intention to upgrade backend or execute pending Flyway requires separate scoped production approval and risk-reviewed plan.
+
+### 5.4 Production gate decision
+
+`LIVE_G1_RLS_CATALOG=FAIL` (five required tenant-boundary tables have no RLS); `PREAUTH_INDEX_ACL=FAIL` (UPDATE unexpectedly permitted); `MIGRATOR_SEPARATION=NOT_APPLIED` (role absent; effective runtime identity needs independent review); `FLYWAY_TARGET_MIGRATIONS=NOT_APPLIED`; `BACKEND_IMAGE_IDENTITY=FAIL`; `EXACT_SHA_G1_CERTIFICATION=NO-GO`; `PAYMENTS=OFF`.
+
+**Remediation is not a blind FORCE-RLS toggle.** The migrations are interdependent with pre-auth resolution, restricted runtime grants, historical data, migration ownership and worker operations. Require a protected change request, approved maintenance window, current verified backup, separated migrator plan, preproduction replay with exact production ancestry, negative tenant A/B + no-context tests, approved rollback/forward-fix path, and post-change live catalog/application acceptance. **No changes were performed by this evidence audit.**
+
+Evidence note: Supabase security advisors returned no security lints at this inspection; zero lints is **not** positive certification and cannot supersede direct catalog observations.
+
+## 6. Authorized closure procedure (NOT executed)
 
 1. Obtain case-level source-to-assertion matrix and independently check protected production's **read-only** identity evidence.
 2. Resolve reviewer authority under current governance and record an exact-SHA acceptance/risk decision in a separately approved change.
