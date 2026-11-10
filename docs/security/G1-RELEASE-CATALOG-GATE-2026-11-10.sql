@@ -68,8 +68,11 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
   UNION ALL
   SELECT 'FLYWAY:installed_head',
     (SELECT version FROM public.flyway_schema_history
-      WHERE success ORDER BY installed_rank DESC LIMIT 1)='20261107.1',
-    'expected full-chain head 20261107.1 on this reviewed baseline; confirm source SHA before future use'
+      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261107.1',
+    'expected=20261107.1; actual=' ||
+      COALESCE((SELECT version FROM public.flyway_schema_history
+        WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'NONE') ||
+      '; latest successful VERSIONED migration (ignore later repeatable rows)'
 )
 SELECT check_name,
        CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result,
