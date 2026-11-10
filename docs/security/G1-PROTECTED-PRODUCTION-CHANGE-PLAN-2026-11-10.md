@@ -89,6 +89,15 @@
 | Final G1 exact-SHA certification | **NO-GO** |
 | Commercial payments | **OFF** |
 
+## H. Native PG17 preparatory runs — EXECUTED, synthetic only
+
+On 2026-11-10 UTC, the following **read-only-to-production** workflows were actually dispatched against `main@e7c876c2f8d0e9fe972c4ede56e4d2188e91b405`:
+
+- **[Isolated migrator/runtime certification — run 42728561331](https://github.com/snadaiapp-png/SNAD/actions/runs/42728561331):** terminal SUCCESS. Decoded job log reports host-native PostgreSQL **17.6**, project-pinned Flyway **11.7.2**, full disposable separated-role chain to **`20261107.1`**, successful `validate`, and **62 passed probes** covering role denials, A/B tenant isolation and absent context, pre-auth token/reset, append-only commands and FORCE RLS / catalog checks. Uploaded artifact **`13723164645`**. The log also says **`CLUSTER CLEANUP: INCOMPLETE`** because the database was retained for the following forensic-inventory step. Do not claim cleanup was explicitly verified; the job used an ephemeral GitHub runner.  
+- **[PG17 runner setup + synthetic backup/restore — run 42728646796](https://github.com/snadaiapp-png/SNAD/actions/runs/42728646796):** terminal SUCCESS. Decoded log records **`PG17_INSTALL_AND_CONNECT=PASS`**, **`SYNTHETIC_RESTORE=PASS`**.
+
+**Boundary:** Those are code-level ephemeral tests, **not** production-derived restore rehearsal, actual drift repair or a new G1 certificate. The isolated `20261107.1` head must be reconciled against all source files before specifying a formal expected production head; do **not** infer it merely from older documentation. Production-derived restoration remains **BLOCKED** until secure backup access, approver authority and an isolated environment have been explicitly authorized. Tracking authorization: [Issue #1496](https://github.com/snadaiapp-png/SNAD/issues/1496) (**NOT APPROVED**).
+
 ## Source references
 
 - [G1 live findings](https://github.com/snadaiapp-png/SNAD/issues/1462#issuecomment-6754989438); [Draft evidence PR #1492](https://github.com/snadaiapp-png/SNAD/pull/1492).
