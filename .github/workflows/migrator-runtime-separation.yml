@@ -22,6 +22,7 @@ on:
       - '.github/workflows/migrator-runtime-separation.yml'
       - 'tests/security/migrator-separation/**'
       - 'apps/sanad-platform/src/main/resources/db/**'
+      - 'docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql'
   workflow_dispatch:
 
 permissions:
@@ -142,6 +143,27 @@ jobs:
           test "$ledger_acl" = "true|true|true|false|false|false"
           echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
 
+      - name: Verify G1 certificate amendment catalog controls (isolated only)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All metadata, no secrets/customer data; runs only against disposable PG17.6.
+          sudo -u postgres psql -X -t -A -F '|' -v ON_ERROR_STOP=1 \
+            -d separation_cert \
+            -f docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql \
+            | tee /tmp/g1-addendum-catalog-gate.log
+          if grep -q '|FAIL|' /tmp/g1-addendum-catalog-gate.log; then
+            echo "::error::G1_ADDENDUM_CATALOG_GATE=FAIL (isolated source chain)"
+            exit 1
+          fi
+          count="$(grep -c '|PASS|' /tmp/g1-addendum-catalog-gate.log)"
+          test "$count" = "11" || {
+            echo "::error::G1_ADDENDUM_CATALOG_GATE_MISSING_CHECKS=$count"
+            exit 1
+          }
+          echo "G1_ADDENDUM_CATALOG_GATE=PASS (11/11 structural catalog, isolated PG17 only)"
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,6 +172,7 @@ jobs:
           path: |
             /tmp/separation-run.log
             /tmp/separation-forensic-inventory.log
+            /tmp/g1-addendum-catalog-gate.log
             /tmp/separation-cert-artifacts/
           if-no-files-found: warn
           retention-days: 30
