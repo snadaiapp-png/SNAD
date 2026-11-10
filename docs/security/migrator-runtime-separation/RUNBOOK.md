@@ -49,8 +49,15 @@ ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
 
 Then store the migrator credentials **only** in the GitHub secret store:
 
-* `PROD_FLYWAY_MIGRATOR_USER` = `sanad_migrator`
+* `PROD_FLYWAY_MIGRATOR_USER` = `sanad_migrator.tkbrvupemreqabwzdpyq`
+  (Supabase session-mode pooler form; the pooler strips the `.tkbrvupemreqabwzdpyq`
+  suffix and PostgreSQL sees exactly `sanad_migrator`, which the workflow's
+  `current_user` assertion enforces. The bare form `sanad_migrator` is accepted
+  by the workflow only for non-pooler connection paths, which the Supabase
+  platform does not offer to IPv4-only GitHub runners — the direct
+  `db.<ref>.supabase.co:5432` endpoint resolves IPv6-only.)
 * `PROD_FLYWAY_MIGRATOR_PASSWORD` = a long random secret
+* `PROD_JDBC_URL` = `jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require`
 
 and enable LOGIN with that password:
 

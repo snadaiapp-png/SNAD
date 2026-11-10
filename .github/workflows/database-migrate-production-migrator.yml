@@ -4,9 +4,15 @@ name: Database Migration Production (Migrator Identity)
 # SANAD P0 (Issue #1462) — PROTECTED production migration path.
 #
 # G2-C hardened contract — EVERY condition fails closed:
-#  * IDENTITY    — the connection must be EXACTLY `sanad_migrator`
-#                  (secrets PROD_FLYWAY_MIGRATOR_USER / _PASSWORD);
-#                  `postgres` and the runtime role are refused.
+#  * IDENTITY    — the connection must be the dedicated migrator identity
+#                  `sanad_migrator` (secrets PROD_FLYWAY_MIGRATOR_USER /
+#                  _PASSWORD), supplied either as the bare role name or with
+#                  the Supabase pooler project suffix
+#                  `sanad_migrator.tkbrvupemreqabwzdpyq` (session-mode
+#                  routing requires the suffix; the pooler strips it and
+#                  PostgreSQL sees exactly `sanad_migrator`, which the
+#                  catalog pre-flight asserts). `postgres` and the runtime
+#                  role are refused in both forms.
 #  * SECRETS     — Flyway credentials reach the CLI ONLY through
 #                  environment variables (FLYWAY_URL / FLYWAY_USER /
 #                  FLYWAY_PASSWORD); never as CLI arguments
@@ -123,11 +129,11 @@ jobs:
             echo "::error::PROD_FLYWAY_MIGRATOR_PASSWORD is not provisioned — provision it per docs/security/migrator-runtime-separation/RUNBOOK.md §2 before dispatching"
             exit 1
           fi
-          if [ "${FLYWAY_USER:-}" != "sanad_migrator" ]; then
-            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be exactly 'sanad_migrator' (got '${FLYWAY_USER:-unset}')"
+          if [ "${FLYWAY_USER:-}" != "sanad_migrator" ] && [ "${FLYWAY_USER:-}" != "sanad_migrator.tkbrvupemreqabwzdpyq" ]; then
+            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be the dedicated migrator identity, either bare 'sanad_migrator' or with the Supabase pooler project suffix 'sanad_migrator.tkbrvupemreqabwzdpyq' (got '${FLYWAY_USER:-unset}')"
             exit 1
           fi
-          echo "pre-flight: migrator identity pinned to sanad_migrator (exact match, fail closed)"
+          echo "pre-flight: migrator identity pinned to sanad_migrator (bare or pooler-suffixed form; the database-side current_user assertion below is the authoritative identity gate)"
 
       - name: "Pre-flight — catalog assertions (identity, role contract, membership isolation, separated topology — fail closed)"
         shell: bash

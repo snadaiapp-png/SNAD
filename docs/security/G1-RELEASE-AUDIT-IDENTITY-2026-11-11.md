@@ -81,6 +81,18 @@ production). Findings:
    bootstrap order → transfer → post-transfer verification → cleanup; the DR
    project was restored to its pristine empty state afterwards
    (0 fixture tables, 0 fixture roles, schema ownership restored).
+7. **Pooler username routing (empirically probed against the live Supabase
+   session pooler):** the bare form `sanad_migrator` is refused with
+   `ENOIDENTIFIER (no tenant identifier provided)`; the suffixed form
+   `sanad_migrator.tkbrvupemreqabwzdpyq` routes correctly (probe returned
+   `EAUTHQUERY user not found in the database` only because the role is not
+   yet provisioned in production — tenant resolution succeeded). The migrator
+   workflow's pre-flight therefore now accepts both the bare and the
+   pooler-suffixed migrator username (the same convention as
+   `g1-acl-rls-certification.yml`), while the database-side `current_user`
+   assertion remains the authoritative identity gate. RUNBOOK §2 documents
+   the pooler-form `PROD_FLYWAY_MIGRATOR_USER` and the `PROD_JDBC_URL`
+   pooler URL for IPv4-only GitHub runners.
 
 ## 5. What this change does NOT do
 
