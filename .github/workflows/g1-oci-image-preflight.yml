@@ -1,0 +1,79 @@
+# Synthetic OCI build test only. No registry write, production secrets or deployment.
+name: G1 Daemonless OCI Build Preflight
+
+on:
+  pull_request:
+    paths:
+      - apps/sanad-platform/Containerfile
+      - .github/workflows/publish-render-image.yml
+      - .github/workflows/production-release.yml
+      - .github/workflows/g1-oci-image-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-oci-preflight-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  oci-build:
+    name: Validate Java backend image without Docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SOURCE_SHA: '${{ github.event.pull_request.head.sha || github.sha }}'
+    steps:
+      - name: Checkout exact test source
+        uses: actions/checkout@v4
+        with:
+          ref: '${{ github.event.pull_request.head.sha || github.sha }}'
+          persist-credentials: false
+      - name: Validate isolated source and no sensitive outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -s apps/sanad-platform/Containerfile
+          test ! -e apps/sanad-platform/.env.production
+          echo "PREVIEW_ONLY_SOURCE=$SOURCE_SHA"
+      - name: Install OCI build tools without Docker actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq buildah skopeo
+          buildah --version
+          skopeo --version
+      - name: Build actual Java 21 backend with host-native Buildah
+        shell: bash
+        run: |
+          set -euo pipefail
+          local_ref="localhost/snad-backend-preflight:$SOURCE_SHA"
+          sudo buildah bud --format oci --isolation chroot --layers=false \
+            --build-arg "RENDER_GIT_COMMIT=$SOURCE_SHA" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            -t "$local_ref" -f apps/sanad-platform/Containerfile apps/sanad-platform
+          sudo buildah inspect --type image "$local_ref" > "$RUNNER_TEMP/preflight-oci-image.json"
+          jq -e --arg sha "$SOURCE_SHA" '
+            (.OCIv1.config.User == "sanad") and
+            (.OCIv1.config.Env | any(. == "SPRING_PROFILES_ACTIVE=prod")) and
+            (.OCIv1.config.Labels["org.opencontainers.image.revision"] == $sha)
+          ' "$RUNNER_TEMP/preflight-oci-image.json" >/dev/null
+          echo 'OCI_RUNTIME_CONFIG=PASS'
+          sudo buildah push "$local_ref" "oci-archive:$RUNNER_TEMP/preflight.oci:snad-backend:preflight"
+          sudo skopeo inspect --raw "oci-archive:$RUNNER_TEMP/preflight.oci" | jq -e 'has("schemaVersion")' >/dev/null
+          echo 'OCI_ARCHIVE_INSPECTION=PASS'
+      - name: Record non-production evidence
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## OCI build preflight"
+            echo "- Tested source: $SOURCE_SHA"
+            echo "- Docker CLI/daemon/actions: not invoked"
+            echo "- PostgreSQL/Render/Vercel production: not contacted"
+            echo "- GHCR publication: not attempted"
+            echo "- This is not a G1 certification, CAB approval or release authorization"
+          } >> "$GITHUB_STEP_SUMMARY"
