@@ -1,17 +1,15 @@
-# PRODUCTION-AUTHORIZATION-EB19-20260925: inert trigger for exact-main immutable backend image publication after protected release-control merge.
-# v20261110.1 (Render incident remediation CI contract): the push-to-main
-# auto-trigger was removed. Image publication (a Docker build) is now an
-# explicit, authorized action only:
-#   - the governed release orchestration (crm-exact-sha-production-orchestrator)
-#     already dispatches this workflow by name at the exact approved SHA;
-#   - merging to main no longer silently activates Docker-based CI;
-#   - the publication itself is unchanged (same build, GHCR push, attestation).
-# Fail-closed: no automatic image build occurs on merge; release engineers
-# dispatch it deliberately with the existing production approvals in place.
+# G1 P0: daemonless OCI publication. No Docker CLI, daemon, or Docker actions.
+# Manual + protected only. This builds/publishes the artifact; NEVER deploys to Render.
+# This workflow is a PROPOSED remediation and does not constitute G1/CAB approval.
 name: Publish Render Backend Image
 
 on:
   workflow_dispatch:
+    inputs:
+      change_ticket:
+        description: 'Actual independently approved CAB ticket (G1-CHG-NNN); format alone is not approval'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,66 +21,119 @@ concurrency:
   group: publish-render-backend-image
   cancel-in-progress: false
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/snad-backend
-
 jobs:
   build-and-push:
-    name: Build, publish, and attest backend image (artifact only)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    name: Build and attest exact-main backend OCI image (no deployment)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 75
     steps:
+      - name: Require exact main and approved ticket review
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          ticket='${{ inputs.change_ticket }}'
+          [[ "$ticket" =~ ^G1-CHG-[0-9]+$ ]] || {
+            echo "::error::Missing/invalid CAB ticket format (not proof of approval)"
+            exit 1
+          }
+          current_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$current_main" = "$GITHUB_SHA" || {
+            echo "::error::Current main differs from dispatched SHA"
+            exit 1
+          }
+          echo "SOURCE_CURRENT_MAIN_VERIFIED=$GITHUB_SHA"
+          echo "CAB_TICKET_FORMAT_VALID_ONLY; Production reviewers must verify the actual authorization."
       - name: Checkout exact source
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Sign in to GitHub Container Registry
-        uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and publish immutable image with BuildKit provenance and SBOM
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: apps/sanad-platform
-          file: apps/sanad-platform/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          provenance: mode=max
-          sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish GitHub artifact build-provenance attestation
+          persist-credentials: false
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -s apps/sanad-platform/Containerfile
+      - name: Install daemonless OCI tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get -y -qq install buildah skopeo
+          buildah --version
+          skopeo --version
+          command -v buildah
+          test ! -e /var/run/docker.sock || {
+            echo "::error::Docker daemon socket present; refuse publication"
+            exit 1
+          }
+      - name: Build OCI image with Buildah (no Docker daemon)
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_ref="ghcr.io/$GITHUB_REPOSITORY_OWNER/snad-backend:$GITHUB_SHA"
+          sudo buildah bud --format oci --isolation chroot --layers=false \
+            --build-arg "RENDER_GIT_COMMIT=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$image_ref" -f apps/sanad-platform/Containerfile apps/sanad-platform
+          sudo buildah inspect --type image "$image_ref" > "$RUNNER_TEMP/image-inspect.json"
+          jq -e --arg sha "$GITHUB_SHA" '
+            (.OCIv1.config.User == "sanad") and
+            (.OCIv1.config.Env | any(. == "SPRING_PROFILES_ACTIVE=prod")) and
+            (.OCIv1.config.Labels["org.opencontainers.image.revision"] == $sha)
+          ' "$RUNNER_TEMP/image-inspect.json" >/dev/null
+          echo "OCI_BUILD_CONFIG=PASS (non-root runtime, prod profile, exact SHA)"
+      - name: Publish immutable SHA tag, verify registry digest
+        id: publish
+        shell: bash
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+        run: |
+          set -euo pipefail
+          umask 077
+          image_name="ghcr.io/$GITHUB_REPOSITORY_OWNER/snad-backend"
+          image_ref="$image_name:$GITHUB_SHA"
+          auth="$RUNNER_TEMP/g1-ghcr-auth.json"
+          digest_path="$RUNNER_TEMP/g1-oci-digest"
+          trap 'rm -f "$auth"' EXIT
+          printf '%s' "$GITHUB_TOKEN" | sudo buildah login --authfile "$auth" -u "$GITHUB_ACTOR" --password-stdin ghcr.io >/dev/null
+          sudo buildah push --authfile "$auth" --digestfile "$digest_path" "$image_ref" "$image_ref"
+          digest="$(sudo cat "$digest_path" | tr -d '\r\n')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error::Invalid immutable digest from OCI push"
+            exit 1
+          }
+          sudo skopeo inspect --raw --authfile "$auth" "docker://$image_ref" > "$RUNNER_TEMP/manifest.json"
+          observed="sha256:$(sha256sum "$RUNNER_TEMP/manifest.json" | awk '{print $1}')"
+          test "$digest" = "$observed" || {
+            echo "::error::Registry manifest digest mismatch"
+            exit 1
+          }
+          echo "image_name=$image_name" >> "$GITHUB_OUTPUT"
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "OCI_SHA_TAG_AND_MANIFEST_DIGEST=PASS: $digest"
+      - name: Attest immutable OCI digest with GitHub provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: '${{ steps.publish.outputs.image_name }}'
+          subject-digest: '${{ steps.publish.outputs.digest }}'
           push-to-registry: true
-
-      - name: Record published image and evidence expectations
+      - name: Publication evidence and explicit limitations
+        shell: bash
         run: |
           {
-            echo "## Render backend image (artifact only)"
-            echo "- Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-            echo "- Digest: ${{ steps.build.outputs.digest }}"
-            echo "- Source: ${{ github.sha }}"
-            echo "- BuildKit provenance: mode=max"
-            echo "- SBOM: enabled"
-            echo "- GitHub artifact attestation: requested for the exact published digest"
-            echo "- Note: This workflow ONLY builds, publishes, and attests the image."
-            echo "- Production deployment is performed exclusively by production-release.yml."
-            echo "- Verify after a successful run with: gh attestation verify oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} --repo ${{ github.repository }}"
+            echo "## Daemonless OCI backend publication"
+            echo "- Source SHA: $GITHUB_SHA"
+            echo "- OCI image: ${{ steps.publish.outputs.image_ref }}"
+            echo "- Registry manifest digest: ${{ steps.publish.outputs.digest }}"
+            echo "- GitHub build-provenance attestation: requested"
+            echo "- Docker CLI/daemon/actions: not used in this workflow"
+            echo "- No deployment or database mutation performed"
+            echo "- Not G1/CAB authorization; Production review verifies real ticket"
+            echo "- SBOM parity with prior BuildKit flow requires separate verified evidence before declaring release parity"
           } >> "$GITHUB_STEP_SUMMARY"
