@@ -66,7 +66,7 @@
 
 ## C. Open implementation parity items in this PR (must not be silently passed)
 
-- Docker-free OCI Buildah publisher/preflight **requires actual CI and publication results** before acceptance. The new test workflow never publishes to GHCR or deploys.
+- Docker-free OCI Buildah publisher/preflight **requires actual CI and publication results** before acceptance. The new test workflow never publishes to GHCR or deploys. First isolated build run #42883744152 passed actual OCI build/archive checks, but no registry publication was executed. OCI format **does not embed HEALTHCHECK**; current Render service was observed with `serviceDetails.healthCheckPath=/actuator/health` and the candidate production workflow now fails closed unless that external probe remains configured.
 - Prior BuildKit publisher emitted an SBOM and BuildKit provenance. The replacement uses a GitHub OCI digest attestation, but **equivalent SBOM generation/review and provenance policy must be independently verified**; do not claim parity by source review alone.
 - The existing `scripts/production/verify-flyway.sh` reads `flyway_schema_history` using runtime DB credentials. In separated topology, runtime SELECT to Flyway history must be denied. Before any Render deployment, change that audit to a separately governed **read-only audit identity** and test it; **do not regrant Flyway history SELECT to runtime**. The production release workflow is intentionally fail-closed until this incompatibility is resolved.
 - Historic Docker-related workflows and developer documentation outside this narrow publisher/release path are not hereby certified as globally Docker-free.
