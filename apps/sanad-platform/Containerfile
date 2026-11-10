@@ -66,10 +66,9 @@ USER sanad
 
 EXPOSE 8080
 
-# Start period 600s (10 min) to allow Flyway migrations + Hibernate init on Render free tier.
-# Start-up may be delayed by database connectivity and application initialization; runtime Flyway stays disabled.
-# Render's platform allows up to ~30 minutes for the update phase before marking failed.
-HEALTHCHECK --interval=15s --timeout=10s --start-period=600s --retries=5 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+# OCI image-spec does not define an embedded HEALTHCHECK. Render's external
+# HTTP probe is the /actuator/health endpoint; the protected release workflow
+# checks serviceDetails.healthCheckPath BEFORE deploy and verifies readiness.
+# Do not add HEALTHCHECK here and assume Buildah preserved it.
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
