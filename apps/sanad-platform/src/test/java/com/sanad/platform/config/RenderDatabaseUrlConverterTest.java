@@ -295,6 +295,72 @@ class RenderDatabaseUrlConverterTest {
     }
 
     @Test
+    @DisplayName("Raw DATABASE_URL must not shadow rotated explicit runtime credentials")
+    void rawDatabaseUrl_preservesRotatedDatabaseCredentials() {
+        var env = new MockEnvironment();
+        env.setProperty("SPRING_PROFILES_ACTIVE", "prod");
+        env.setProperty("DATABASE_URL",
+                "postgresql://postgres:stale-synthetic@dbhost:5432/sanad");
+        env.setProperty("DATABASE_USERNAME", "sanad");
+        env.setProperty("DATABASE_PASSWORD", "rotated-synthetic");
+
+        new RenderDatabaseUrlConverter().postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://dbhost:5432/sanad");
+        assertThat(env.getProperty("spring.datasource.username")).isEqualTo("sanad");
+        assertThat(env.getProperty("spring.datasource.password")).isEqualTo("rotated-synthetic");
+        assertThat(env.getProperty("sanad.database.username")).isEqualTo("sanad");
+        assertThat(env.getProperty("sanad.database.password")).isEqualTo("rotated-synthetic");
+    }
+
+    @Test
+    @DisplayName("Explicit Spring credentials outrank DATABASE_* and raw DATABASE_URL userinfo")
+    void rawDatabaseUrl_explicitSpringCredentialsHaveHighestPriority() {
+        var env = new MockEnvironment();
+        env.setProperty("SPRING_PROFILES_ACTIVE", "prod");
+        env.setProperty("DATABASE_URL",
+                "postgresql://postgres:stale-synthetic@dbhost:5432/sanad");
+        env.setProperty("DATABASE_USERNAME", "database-user");
+        env.setProperty("DATABASE_PASSWORD", "database-synthetic");
+        env.setProperty("SPRING_DATASOURCE_USERNAME", "sanad");
+        env.setProperty("SPRING_DATASOURCE_PASSWORD", "spring-synthetic");
+
+        new RenderDatabaseUrlConverter().postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("spring.datasource.username")).isEqualTo("sanad");
+        assertThat(env.getProperty("spring.datasource.password")).isEqualTo("spring-synthetic");
+    }
+
+    @Test
+    @DisplayName("Raw RENDER_DATABASE_URL follows identical explicit credential precedence")
+    void renderDatabaseUrl_explicitSpringCredentialsHaveHighestPriority() {
+        var env = new MockEnvironment();
+        env.setProperty("SPRING_PROFILES_ACTIVE", "prod");
+        env.setProperty("RENDER_DATABASE_URL",
+                "postgresql://postgres:stale-synthetic@dbhost:5432/sanad");
+        env.setProperty("DATABASE_USERNAME", "database-user");
+        env.setProperty("DATABASE_PASSWORD", "database-synthetic");
+        env.setProperty("SPRING_DATASOURCE_USERNAME", "sanad");
+        env.setProperty("SPRING_DATASOURCE_PASSWORD", "spring-synthetic");
+
+        new RenderDatabaseUrlConverter().postProcessEnvironment(env, new SpringApplication());
+
+        assertThat(env.getProperty("spring.datasource.username")).isEqualTo("sanad");
+        assertThat(env.getProperty("spring.datasource.password")).isEqualTo("spring-synthetic");
+    }
+
+    @Test
+    @DisplayName("Production Flyway defaults to disabled; migration requires explicit opt-in")
+    void productionFlywayRequiresExplicitOptIn() throws Exception {
+        var sources = new org.springframework.boot.env.YamlPropertySourceLoader()
+                .load("production", new org.springframework.core.io.ClassPathResource("application-prod.yml"));
+        assertThat(sources).isNotEmpty();
+        assertThat(sources.get(0).getProperty("spring.flyway.enabled"))
+                .isEqualTo("${FLYWAY_ENABLED:false}");
+    }
+
+    @Test
     @DisplayName("postProcessEnvironment: no RENDER_DATABASE_URL does nothing")
     void postProcess_noRenderUrl_doesNothing() {
         var converter = new RenderDatabaseUrlConverter();

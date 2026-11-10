@@ -1,21 +1,21 @@
 README.md:sidekiq-secret:50
 # Test fixtures — synthetic keys for CI/CD and unit tests, NOT real secrets
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/config/ProductionSecurityGuardTest.java:generic-api-key:20
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/crm/legacy/infrastructure/CrmEncryptionKeyValidatorTest.java:generic-api-key:24
+apps/sanad-platform/src/test/java/com/sanad/platform/config/ProductionSecurityGuardTest.java:generic-api-key:20
+apps/sanad-platform/src/test/java/com/sanad/platform/crm/legacy/infrastructure/CrmEncryptionKeyValidatorTest.java:generic-api-key:24
 # CI/CD test fixture keys — exact current-tree fingerprints only
-/repo/.github/workflows/business-process-e2e-validation.yml:generic-api-key:77
-/repo/.github/workflows/ci.yml:generic-api-key:80
-/repo/.github/workflows/crm-authenticated-acceptance.yml:generic-api-key:90
-/repo/.github/workflows/post-merge-verification.yml:generic-api-key:211
+.github/workflows/business-process-e2e-validation.yml:generic-api-key:77
+.github/workflows/ci.yml:generic-api-key:80
+.github/workflows/crm-authenticated-acceptance.yml:generic-api-key:90
+.github/workflows/post-merge-verification.yml:generic-api-key:211
 # G7 documentation examples — synthetic opaque token / SecureStore alias, NOT secrets
-/repo/G7_DATA_MODEL_FINAL_BASELINE.md:generic-api-key:377
-/repo/G7_M13_SECURITY_RUNTIME_AUDIT.md:generic-api-key:68
+G7_DATA_MODEL_FINAL_BASELINE.md:generic-api-key:377
+G7_M13_SECURITY_RUNTIME_AUDIT.md:generic-api-key:68
 
 # G8 documentation HMAC parity vectors — synthetic test fixture (G8-03 §51), NOT secrets
-/repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:28
-/repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:29
-/repo/.github/workflows/provision-auth-smoke-tenants.yml:generic-password:69
-/repo/.github/workflows/provision-auth-smoke-tenants.yml:generic-password:75
+docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:28
+docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:29
+.github/workflows/provision-auth-smoke-tenants.yml:generic-password:69
+.github/workflows/provision-auth-smoke-tenants.yml:generic-password:75
 
 # HRM-G0 documentation false positives — test class name and URI path, NOT secrets
 2aef7d000d4a3fe886ffa8812a4e717032f4984f:docs/superpowers/plans/2026-08-27-hrm-g0-implementation-plan.md:generic-api-key:248
@@ -32,10 +32,10 @@ README.md:sidekiq-secret:50
 # that may not be set in the test environment. The SUT (HrPersonService,
 # JdbcHrPersonRepository, IdentifierNormalizer) are the production classes
 # under test which throw UnsupportedOperationException (RED state).
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:480
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:481
+apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:480
+apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:481
 
 # HRM-G0 reconciliation — synthetic AES-256 + HMAC-SHA-256 test-only keys for
 # the canonical-write-integrity InMemoryTestCryptoService (NOT real secrets).
 # Same class of fixture as HrPersonServiceBehaviorIntegrationTest above.
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/employment/HrEmploymentCanonicalWriteIntegrityIntegrationTest.java:generic-api-key:259
+apps/sanad-platform/src/test/java/com/sanad/platform/hr/employment/HrEmploymentCanonicalWriteIntegrityIntegrationTest.java:generic-api-key:259
