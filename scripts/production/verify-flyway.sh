@@ -43,7 +43,14 @@ if [[ "$audit_acl" != "$(printf "t\tf\tf\tf\tt\tf\tf\tf")" ]]; then
   echo "::error::Flyway audit role ACL violates minimum read-only contract" >&2
   exit 1
 fi
-echo "FLYWAY_AUDITOR_IDENTITY_AND_ACL=PASS (dedicated non-migrator; no runtime inheritance)"
+# The live runtime MUST remain forbidden from reading migration history
+# or escalating to DDL/migrator. Audit success must not hide runtime privilege drift.
+runtime_denials="$(run_sql "SELECT has_table_privilege('sanad', 'public.flyway_schema_history', 'SELECT'), has_schema_privilege('sanad', 'public', 'CREATE'), pg_has_role('sanad', 'sanad_migrator', 'MEMBER');")"
+if [[ "$runtime_denials" != "$(printf "f\tf\tf")" ]]; then
+  echo "::error::Runtime sanad has unauthorized Flyway history/schema CREATE/migrator membership" >&2
+  exit 1
+fi
+echo "FLYWAY_AUDITOR_IDENTITY_AND_ACL=PASS (dedicated non-migrator; runtime history/DDL denied)"
 
 
 # Check all required migrations including V20260702.3

@@ -73,6 +73,9 @@ case "$SQL" in
   *"SELECT has_table_privilege(current_user"*)
       printf "%s\n" "${STUB_ACTUAL_ACL:-$(printf "t\tf\tf\tf\tt\tf\tf\tf")}"
       ;;
+  *"SELECT has_table_privilege('sanad'"*)
+      printf "%s\n" "${STUB_RUNTIME_DENIALS:-$(printf "f\tf\tf")}"
+      ;;
   *"flyway_schema_history WHERE version IN"*)
       printf '15\tJDBC\tseed rbac roles and capabilities\tt\n'
       printf '20260702.1\tSQL\tcreate unified crm core\tt\n'
@@ -216,7 +219,12 @@ export STUB_MISSING_SQL_CHECKSUMS=1
 assert_fail_with "missing SQL checksum detected" "20261107.1" "missing checksums"
 unset STUB_MISSING_SQL_CHECKSUMS
 
-# 10. The auditor must be able to verify the Y2 capability catalog.
+# 10. Runtime cannot gain migration-history SELECT even if auditor is valid.
+export STUB_RUNTIME_DENIALS="$(printf "t\tf\tf")"
+assert_fail_with "runtime history access remains denied" "20261107.1" "Runtime sanad has unauthorized Flyway"
+unset STUB_RUNTIME_DENIALS
+
+# 11. The auditor must be able to verify the Y2 capability catalog.
 export STUB_CAPABILITY_COUNT=0
 assert_fail_with "required active capability absent" "20261107.1" "Y2 sentinel capability"
 unset STUB_CAPABILITY_COUNT
