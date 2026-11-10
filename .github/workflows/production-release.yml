@@ -45,6 +45,8 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REQUESTED_RELEASE_SHA: ${{ inputs.commit_sha }}
+      CAB_CHANGE_TICKET: ${{ inputs.change_ticket }}
       # Dedicated production-only G2 identities. These are role-scoped QA
       # principals; never substitute Control Plane or Tenant B admin credentials.
       E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
@@ -64,8 +66,8 @@ jobs:
             E2E_HR_EMAIL E2E_HR_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
-          [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${{ inputs.change_ticket }}" =~ ^G1-CHG-[0-9]+$ ]] || {
+          [[ "$REQUESTED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CAB_CHANGE_TICKET" =~ ^G1-CHG-[0-9]+$ ]] || {
             echo "::error::CAB ticket must be actual G1-CHG-NNN; format check does not establish authorization"
             exit 1
           }
@@ -79,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
-          test "$remote_main" = "${{ inputs.commit_sha }}" || {
+          test "$remote_main" = "$REQUESTED_RELEASE_SHA" || {
             echo "::error::Requested commit is not the current main head"
             exit 1
           }
@@ -504,4 +506,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release verification FAILED for commit \`${{ inputs.commit_sha }}\` (image \`${{ steps.image.outputs.image_ref }}\`). Rollback was requested when a previous live image was available. Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Production release verification FAILED for commit \`$REQUESTED_RELEASE_SHA\` (image \`${{ steps.image.outputs.image_ref }}\`). Rollback was requested when a previous live image was available. Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
