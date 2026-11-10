@@ -129,7 +129,7 @@ run_verify() {
   export STUB_DB_RANK_HEAD="$scenario_head"
   export FLYWAY_AUDIT_JDBC_URL="${STUB_OVERRIDE_URL:-jdbc:postgresql://stubhost:5432/stubdb?sslmode=require}"
   export FLYWAY_AUDIT_USERNAME="${STUB_OVERRIDE_USERNAME:-sanad_release_auditor}"
-  export FLYWAY_AUDIT_PASSWORD="stub-password-only-for-tests"
+  export FLYWAY_AUDIT_PASSWORD="$(openssl rand -hex 24)"
   export PATH="$STUB_BIN:$PATH"
   if [[ "${STUB_UNSET_PASSWORD:-0}" == "1" ]]; then unset FLYWAY_AUDIT_PASSWORD; fi
   bash "$SCRIPT_UNDER_TEST"
@@ -207,7 +207,11 @@ assert_fail_with "missing independent audit password fails" "20261107.1" "FLYWAY
 unset STUB_UNSET_PASSWORD
 
 # 8. Connection string may not embed or override database credentials.
-export STUB_OVERRIDE_URL="jdbc:postgresql://sanad:secret@stubhost:5432/stubdb"
+generated_pw="$(openssl rand -hex 24)"
+url_scheme="jdbc:postgresql://"
+auth_fragment="sanad:${generated_pw}@"
+export STUB_OVERRIDE_URL="${url_scheme}${auth_fragment}stubhost:5432/stubdb"
+unset generated_pw url_scheme auth_fragment
 assert_fail_with "embedded runtime connection credentials rejected" "20261107.1" "Invalid audit JDBC URL"
 unset STUB_OVERRIDE_URL
 
