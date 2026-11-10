@@ -116,6 +116,32 @@ jobs:
           echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "OCI_SHA_TAG_AND_MANIFEST_DIGEST=PASS: $digest"
+      - name: Generate pinned SPDX image SBOM directly from OCI registry
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
+        with:
+          image: ${{ steps.publish.outputs.image_name }}@${{ steps.publish.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sanad-backend.spdx.json
+          artifact-name: sanad-backend-${{ github.sha }}-sbom.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+      - name: Verify SBOM has actual OCI package inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/sanad-backend.spdx.json"
+          jq -e '.spdxVersion | startswith("SPDX-")' "$RUNNER_TEMP/sanad-backend.spdx.json" >/dev/null
+          jq -e '(.packages | type=="array") and (.packages | length > 0)' "$RUNNER_TEMP/sanad-backend.spdx.json" >/dev/null
+          echo "REGISTRY_OCI_SBOM=PASS (SPDX JSON, pinned Syft, direct registry scan)"
+      - name: Attest SBOM to exact published image digest
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b
+        with:
+          subject-name: ${{ steps.publish.outputs.image_name }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/sanad-backend.spdx.json
+          push-to-registry: true
       - name: Attest immutable OCI digest with GitHub provenance
         uses: actions/attest-build-provenance@v2
         with:
@@ -134,5 +160,5 @@ jobs:
             echo "- Docker CLI/daemon/actions: not used in this workflow"
             echo "- No deployment or database mutation performed"
             echo "- Not G1/CAB authorization; Production review verifies real ticket"
-            echo "- SBOM parity with prior BuildKit flow requires separate verified evidence before declaring release parity"
+            echo "- Pinned Syft SPDX SBOM: generated from immutable registry digest and attached as SBOM attestation (validate the actual workflow result before certification)"
           } >> "$GITHUB_STEP_SUMMARY"
