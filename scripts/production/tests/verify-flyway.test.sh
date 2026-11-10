@@ -22,9 +22,12 @@ set -euo pipefail
 #   2. rank head strictly older than repo head  → MUST FAIL (pending guard kept)
 #   3. rank head strictly newer than repo head  → MUST FAIL (drift guard kept)
 #
-# The harness runs the REAL verify-flyway.sh against stub `curl`/`psql`
-# executables that emulate the exact PostgreSQL semantics of each query shape
+# The harness runs the REAL verify-flyway.sh against a stub `psql`
+# executable that emulates the exact PostgreSQL semantics of each query shape
 # (text max for max(version), application-order for installed_rank DESC).
+# Since the G1 read-only audit identity change (CAB 2026-11-10 §C), the
+# script takes its credentials exclusively from AUDIT_* environment
+# variables (GitHub Production environment secrets) — no Render env fetch.
 # No production access.
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/verify-flyway.sh"
@@ -40,15 +43,6 @@ trap cleanup EXIT
 
 STUB_BIN="$WORK/bin"
 mkdir -p "$STUB_BIN"
-
-# ---------------------------------------------------------------------------
-# Stub curl — serves a fixed Render env-vars payload.
-# ---------------------------------------------------------------------------
-cat > "$STUB_BIN/curl" << 'EOF'
-#!/usr/bin/env bash
-cat "${CURL_FIXTURE:?}"
-EOF
-chmod +x "$STUB_BIN/curl"
 
 # ---------------------------------------------------------------------------
 # Stub psql — emulates PostgreSQL semantics per query shape.
@@ -105,27 +99,36 @@ esac
 EOF
 chmod +x "$STUB_BIN/psql"
 
-# Render env-vars fixture consumed by the stub curl.
-export CURL_FIXTURE="$WORK/render_env.json"
-cat > "$CURL_FIXTURE" << 'EOF'
-[
-  {"envVar": {"key": "DATABASE_URL",      "value": "postgresql://stubhost:5432/stubdb"}},
-  {"envVar": {"key": "DATABASE_PASSWORD", "value": "stub-password"}}
-]
-EOF
-
 # Legacy numeric rows are part of the canonical production ledger (see
 # installed_rank 9/14/15 in the real ledger) — every scenario includes them.
 export STUB_LEDGER_VERSIONS="9 14 15 20260702.1 20260702.2 20260702.3 20260904.1"
 
+# Fixture repository tree: verify-flyway.sh derives the expected repository
+# migration head from its WORKING DIRECTORY (ls apps/sanad-platform/.../V*.sql).
+# Pinning a fixture tree keeps this regression test independent of the real
+# chain head (the repo head advances with every migration PR; the scenarios
+# below exercise the comparison logic against a FIXED 20260908.1 head).
+FIXTURE_REPO="$WORK/repo-fixture"
+mkdir -p "$FIXTURE_REPO/apps/sanad-platform/src/main/resources/db/migration"
+mkdir -p "$FIXTURE_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+cat > "$FIXTURE_REPO/apps/sanad-platform/src/main/resources/db/migration/V20260908_1__fixture_head.sql" << 'EOF'
+-- fixture migration pinning the harness repository head at 20260908.1
+EOF
+# The script's REPO_MAX_VERSION glob requires BOTH migration locations to
+# match at least one file (set -euo pipefail: a non-matching glob on the
+# vendor location would abort the script). Pin a vendor file BELOW the head.
+cat > "$FIXTURE_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql/V20260701_1__fixture_vendor.sql" << 'EOF'
+-- fixture vendor migration below the harness repository head
+EOF
+
 run_verify() {
   local scenario_head="$1"
   export STUB_DB_RANK_HEAD="$scenario_head"
-  export RENDER_API_KEY="stub-key"
-  export RENDER_SERVICE_ID="stub-service"
-  export DATABASE_USERNAME="stub-user"
+  export AUDIT_DATABASE_URL="postgresql://stubhost:5432/stubdb"
+  export AUDIT_DATABASE_USERNAME="sanad_release_auditor"
+  export AUDIT_DATABASE_PASSWORD="stub-audit-password"
   export PATH="$STUB_BIN:$PATH"
-  bash "$SCRIPT_UNDER_TEST"
+  ( cd "$FIXTURE_REPO" && bash "$SCRIPT_UNDER_TEST" )
 }
 
 fail_count=0
@@ -174,6 +177,44 @@ assert_fail_with "rank head older than repo head still fails (pending guard)" \
 # 3. The drift guard must survive the fix.
 assert_fail_with "rank head newer than repo head still fails (drift guard)" \
   "20260909.9" "Schema drift"
+
+# 4. G1 audit identity (CAB 2026-11-10 §C): missing AUDIT_* environment
+#    must fail closed BEFORE any database connection is attempted.
+rc=0
+( unset AUDIT_DATABASE_URL AUDIT_DATABASE_USERNAME AUDIT_DATABASE_PASSWORD
+  export STUB_DB_RANK_HEAD="20260908.1"
+  export PATH="$STUB_BIN:$PATH"
+  cd "$FIXTURE_REPO" && bash "$SCRIPT_UNDER_TEST" ) > "$WORK/out.txt" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: missing AUDIT_* env must fail closed — script passed"
+  fail_count=$((fail_count + 1))
+elif ! grep -q "AUDIT_DATABASE_URL is required" "$WORK/out.txt"; then
+  echo "FAIL: missing AUDIT_* env failed without the expected fail-closed error"
+  sed -n '1,20p' "$WORK/out.txt"
+  fail_count=$((fail_count + 1))
+else
+  echo "PASS: missing AUDIT_* env fails closed"
+fi
+
+# 5. G1 audit identity: the runtime/migrator/admin roles must be rejected
+#    even when their credentials are supplied.
+rc=0
+( export AUDIT_DATABASE_URL="postgresql://stubhost:5432/stubdb"
+  export AUDIT_DATABASE_USERNAME="sanad"
+  export AUDIT_DATABASE_PASSWORD="stub-runtime-password"
+  export STUB_DB_RANK_HEAD="20260908.1"
+  export PATH="$STUB_BIN:$PATH"
+  cd "$FIXTURE_REPO" && bash "$SCRIPT_UNDER_TEST" ) > "$WORK/out.txt" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: runtime role as audit identity must be rejected — script passed"
+  fail_count=$((fail_count + 1))
+elif ! grep -q "dedicated read-only audit identity" "$WORK/out.txt"; then
+  echo "FAIL: runtime-role rejection lacked the expected error"
+  sed -n '1,20p' "$WORK/out.txt"
+  fail_count=$((fail_count + 1))
+else
+  echo "PASS: runtime role as audit identity is rejected"
+fi
 
 if [ "$fail_count" -gt 0 ]; then
   echo "RESULT: RED — $fail_count failing scenario(s)"

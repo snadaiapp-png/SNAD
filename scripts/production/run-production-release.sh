@@ -15,6 +15,11 @@ set -euo pipefail
 : "${CONTROL_PLANE_NON_ADMIN_EMAIL:?CONTROL_PLANE_NON_ADMIN_EMAIL is required}"
 : "${CONTROL_PLANE_NON_ADMIN_PASSWORD:?CONTROL_PLANE_NON_ADMIN_PASSWORD is required}"
 : "${CONTROL_PLANE_NON_ADMIN_TENANT_ID:?CONTROL_PLANE_NON_ADMIN_TENANT_ID is required}"
+# G1 read-only release audit identity (CAB 2026-11-10 §C) — used by
+# scripts/production/verify-flyway.sh; never the runtime/migrator/admin role.
+: "${AUDIT_DATABASE_URL:?AUDIT_DATABASE_URL is required (read-only release audit identity)}"
+: "${AUDIT_DATABASE_USERNAME:?AUDIT_DATABASE_USERNAME is required (read-only release audit identity)}"
+: "${AUDIT_DATABASE_PASSWORD:?AUDIT_DATABASE_PASSWORD is required (read-only release audit identity)}"
 
 ROLLBACK_ON_FAILURE="${ROLLBACK_ON_FAILURE:-true}"
 PREVIOUS_COMMIT=""

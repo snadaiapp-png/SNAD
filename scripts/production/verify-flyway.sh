@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${RENDER_API_KEY:?RENDER_API_KEY is required}"
-: "${RENDER_SERVICE_ID:?RENDER_SERVICE_ID is required}"
-: "${DATABASE_USERNAME:?DATABASE_USERNAME is required}"
+# G1 P0 (Issue #1462, CAB 2026-11-10 §C): this production Flyway audit must
+# run as the separately governed READ-ONLY audit identity
+# (sanad_release_auditor), NOT as the backend runtime credentials. In the
+# separated migrator/runtime topology the runtime role `sanad` holds NO
+# privilege on flyway_schema_history (V20261103_2 §1.4/§4.5), so an audit
+# over runtime credentials is intentionally fail-closed. The audit identity
+# is provisioned per docs/security/migrator-runtime-separation/RUNBOOK.md §2
+# and its credentials are supplied ONLY through these environment variables
+# (GitHub Production environment secrets); never regrant Flyway history
+# SELECT to the runtime role to satisfy this gate.
+: "${AUDIT_DATABASE_URL:?AUDIT_DATABASE_URL is required (read-only release audit identity, RUNBOOK §2)}"
+: "${AUDIT_DATABASE_USERNAME:?AUDIT_DATABASE_USERNAME is required (read-only release audit identity)}"
+: "${AUDIT_DATABASE_PASSWORD:?AUDIT_DATABASE_PASSWORD is required (read-only release audit identity)}"
+
+case "$AUDIT_DATABASE_USERNAME" in
+  sanad|postgres|sanad_migrator|supabase_admin|service_role)
+    echo "::error::AUDIT_DATABASE_USERNAME must be the dedicated read-only audit identity, not the runtime/migrator/admin role (got '$AUDIT_DATABASE_USERNAME')"
+    exit 1
+    ;;
+esac
 
 cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt /tmp/flyway-checksums.txt; }
 trap cleanup EXIT
 
-echo "Fetching env vars from Render..."
-RENDER_ENV=$(curl --silent --show-error \
-  --header "Authorization: Bearer $RENDER_API_KEY" \
-  --header "Accept: application/json" \
-  "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
-
-DATABASE_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty')
-DATABASE_PASSWORD=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty')
-
-test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL not found in Render"; exit 1; }
-test -n "$DATABASE_PASSWORD" || { echo "::error::DATABASE_PASSWORD not found in Render"; exit 1; }
-
-RAW_URL="$DATABASE_URL"
+RAW_URL="$AUDIT_DATABASE_URL"
 RAW_URL="${RAW_URL#jdbc:}"
 RAW_URL="${RAW_URL#postgresql://}"
 RAW_URL="${RAW_URL#https://}"
@@ -31,10 +36,10 @@ PGHOST="${HOST_PORT%%:*}"
 PGPORT="${HOST_PORT#*:}"
 PGPORT="${PGPORT:-5432}"
 
-echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
+echo "Connecting as read-only audit identity: host=$PGHOST port=$PGPORT dbname=$DB_NAME user=$AUDIT_DATABASE_USERNAME"
 
 run_sql() {
-  PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+  PGPASSWORD="$AUDIT_DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$AUDIT_DATABASE_USERNAME" -d "$DB_NAME" \
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="$1"
 }
 
@@ -133,7 +138,10 @@ require_y2_table "workflow_event_outbox"
 require_y2_table "workflow_event_inbox"
 
 # (c) Workflow Y2 sentinels — definition graph metadata column.
-DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workflow_definitions' AND column_name = 'definition_family_id';")
+#     Read from pg_catalog (world-readable) instead of information_schema
+#     columns so the read-only audit identity needs NO privilege on the
+#     workflow_definitions business table itself.
+DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON a.attrelid = c.oid JOIN pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = 'public' AND c.relname = 'workflow_definitions' AND a.attname = 'definition_family_id' AND NOT a.attisdropped;")
 [ "${DEF_FAMILY// /}" = "1" ] || { echo "::error::Y2 sentinel column absent: workflow_definitions.definition_family_id"; exit 1; }
 echo "Y2 SENTINEL COLUMN workflow_definitions.definition_family_id: PASS"
 
