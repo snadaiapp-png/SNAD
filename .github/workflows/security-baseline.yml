@@ -51,7 +51,7 @@ jobs:
 
           set +e
           "$RUNNER_TEMP/gitleaks-bin/gitleaks" detect \
-            --source="$PWD" \
+            --source=. \
             --config="$PWD/.gitleaks.toml" \
             --no-git \
             --redact \
