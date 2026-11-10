@@ -162,6 +162,33 @@ jobs:
       - name: Verify Control Plane tenant in production database
         run: bash scripts/production/verify-control-plane-tenant.sh
 
+      - name: Verify Flyway is disabled in the backend runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          # G1 separation contract: only the independently authorized
+          # sanad_migrator workflow may migrate; the backend runtime may not.
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > "$RUNNER_TEMP/g1-render-live-env.json"
+          jq -e 'type == "array" and length < 100' "$RUNNER_TEMP/g1-render-live-env.json" >/dev/null || {
+            echo "::error::Render env query incomplete"
+            exit 1
+          }
+          flyway_state="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "FLYWAY_ENABLED") | .value // empty' "$RUNNER_TEMP/g1-render-live-env.json")"
+          [ "$flyway_state" = "false" ] || {
+            echo "::error::FLYWAY_ENABLED must explicitly equal false on the backend runtime; migrations require protected sanad_migrator"
+            exit 1
+          }
+          out_of_order="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "FLYWAY_OUT_OF_ORDER") | .value // empty' "$RUNNER_TEMP/g1-render-live-env.json")"
+          [ -z "$out_of_order" ] || [ "$out_of_order" = "false" ] || {
+            echo "::error::FLYWAY_OUT_OF_ORDER must be false/unset"
+            exit 1
+          }
+          echo "RUNTIME_FLYWAY_DISABLED=PASS (separate migrator workflow mandatory)"
+
       - name: Preflight exact Vercel production release identity before Render mutation
         shell: bash
         env:
@@ -285,33 +312,6 @@ jobs:
           done
           echo "::error::Production readiness did not become UP"
           exit 1
-
-      - name: Verify Flyway is disabled in the backend runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          # G1 separation contract: only the independently authorized
-          # sanad_migrator workflow may migrate; the backend runtime may not.
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
-            > "$RUNNER_TEMP/g1-render-live-env.json"
-          jq -e 'type == "array" and length < 100' "$RUNNER_TEMP/g1-render-live-env.json" >/dev/null || {
-            echo "::error::Render env query incomplete"
-            exit 1
-          }
-          flyway_state="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "FLYWAY_ENABLED") | .value // empty' "$RUNNER_TEMP/g1-render-live-env.json")"
-          [ "$flyway_state" = "false" ] || {
-            echo "::error::FLYWAY_ENABLED must explicitly equal false on the backend runtime; migrations require protected sanad_migrator"
-            exit 1
-          }
-          out_of_order="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "FLYWAY_OUT_OF_ORDER") | .value // empty' "$RUNNER_TEMP/g1-render-live-env.json")"
-          [ -z "$out_of_order" ] || [ "$out_of_order" = "false" ] || {
-            echo "::error::FLYWAY_OUT_OF_ORDER must be false/unset"
-            exit 1
-          }
-          echo "RUNTIME_FLYWAY_DISABLED=PASS (separate migrator workflow mandatory)"
 
       - name: Verify Flyway production compatibility
         run: bash scripts/production/verify-flyway.sh
