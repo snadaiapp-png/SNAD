@@ -1,0 +1,55 @@
+# G1 P0 test of fail-closed release audit identity; synthetic fixtures only.
+name: G1 Flyway Auditor Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/production/verify-flyway.sh
+      - scripts/production/tests/verify-flyway.test.sh
+      - .github/workflows/production-release.yml
+      - .github/workflows/g1-flyway-auditor-acceptance.yml
+      - docs/security/G1-FLYWAY-AUDITOR-ACCEPTANCE-2026-11-11.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-flyway-auditor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-audit:
+    name: Fail-closed role, privilege, schema drift and checksum negative tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse shell scripts without production secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/production/verify-flyway.sh
+          bash -n scripts/production/tests/verify-flyway.test.sh
+          ! grep -Eq 'RENDER_API_KEY|DATABASE_PASSWORD|RENDER_ENV|sanad_migrator.*--username' scripts/production/verify-flyway.sh
+          echo 'AUDITOR_SCRIPT_STATIC_DENY_RUNTIME_CREDENTIALS=PASS'
+      - name: Execute actual release-auditor regression harness (synthetic SQL replies)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/production/tests/verify-flyway.test.sh
+      - name: Record scope limits
+        shell: bash
+        if: always()
+        run: |
+          {
+            echo '## G1 Flyway auditor acceptance'
+            echo "- SHA: $GITHUB_SHA"
+            echo '- No production DB, Render or Supabase access'
+            echo '- No live role provisioning, Flyway migration or production deployment'
+            echo '- Separate real PostgreSQL 17 role/ACL rehearsal and independent G1/CAB approval still required'
+          } >> "$GITHUB_STEP_SUMMARY"

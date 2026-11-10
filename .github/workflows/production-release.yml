@@ -47,6 +47,9 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REQUESTED_RELEASE_SHA: ${{ inputs.commit_sha }}
       CAB_CHANGE_TICKET: ${{ inputs.change_ticket }}
+      FLYWAY_AUDIT_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+      FLYWAY_AUDIT_USERNAME: ${{ secrets.PROD_FLYWAY_AUDIT_USER }}
+      FLYWAY_AUDIT_PASSWORD: ${{ secrets.PROD_FLYWAY_AUDIT_PASSWORD }}
       # Dedicated production-only G2 identities. These are role-scoped QA
       # principals; never substitute Control Plane or Tenant B admin credentials.
       E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}

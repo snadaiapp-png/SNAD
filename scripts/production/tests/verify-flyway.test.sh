@@ -67,6 +67,12 @@ for arg in "$@"; do
   esac
 done
 case "$SQL" in
+  *"SELECT current_user, rolsuper"*)
+      printf "%s\tf\tf\tf\tf\n" "${STUB_ACTUAL_ROLE:-sanad_release_auditor}"
+      ;;
+  *"SELECT has_table_privilege(current_user"*)
+      printf "%s\n" "${STUB_ACTUAL_ACL:-$(printf "t\tf\tf\tf\tt\tf\tf\tf")}"
+      ;;
   *"flyway_schema_history WHERE version IN"*)
       printf '15\tJDBC\tseed rbac roles and capabilities\tt\n'
       printf '20260702.1\tSQL\tcreate unified crm core\tt\n'
@@ -74,13 +80,13 @@ case "$SQL" in
       printf '20260702.3\tSQL\tcomplete crm imports custom fields\tt\n'
       ;;
   *"success = FALSE"*)
-      echo "0"
+      echo "${STUB_FAILED_MIGRATIONS:-0}"
       ;;
   *"HAVING COUNT(*) > 1"*)
       echo "0"
       ;;
   *"checksum IS NULL"*)
-      echo "0"
+      echo "${STUB_MISSING_SQL_CHECKSUMS:-0}"
       ;;
   *"max(version)"*)
       # PostgreSQL VARCHAR max = lexicographic maximum of the fixture ledger.
@@ -96,7 +102,7 @@ case "$SQL" in
       echo "1"
       ;;
   *"access_capabilities"*)
-      echo "1"
+      echo "${STUB_CAPABILITY_COUNT:-1}"
       ;;
   *)
       echo "0"
@@ -105,26 +111,24 @@ esac
 EOF
 chmod +x "$STUB_BIN/psql"
 
-# Render env-vars fixture consumed by the stub curl.
-export CURL_FIXTURE="$WORK/render_env.json"
-cat > "$CURL_FIXTURE" << 'EOF'
-[
-  {"envVar": {"key": "DATABASE_URL",      "value": "postgresql://stubhost:5432/stubdb"}},
-  {"envVar": {"key": "DATABASE_PASSWORD", "value": "stub-password"}}
-]
+# Protected audit connection fixture: the verifier MUST NOT call the Render API.
+# Stub curl exits nonzero if unexpectedly called in the new implementation.
+cat > "$STUB_BIN/curl" << 'EOF'
+#!/usr/bin/env bash
+echo "ERROR: unexpected Render API access" >&2
+exit 99
 EOF
-
-# Legacy numeric rows are part of the canonical production ledger (see
-# installed_rank 9/14/15 in the real ledger) — every scenario includes them.
+chmod +x "$STUB_BIN/curl"
 export STUB_LEDGER_VERSIONS="9 14 15 20260702.1 20260702.2 20260702.3 20260904.1"
 
 run_verify() {
   local scenario_head="$1"
   export STUB_DB_RANK_HEAD="$scenario_head"
-  export RENDER_API_KEY="stub-key"
-  export RENDER_SERVICE_ID="stub-service"
-  export DATABASE_USERNAME="stub-user"
+  export FLYWAY_AUDIT_JDBC_URL="${STUB_OVERRIDE_URL:-jdbc:postgresql://stubhost:5432/stubdb?sslmode=require}"
+  export FLYWAY_AUDIT_USERNAME="${STUB_OVERRIDE_USERNAME:-sanad_release_auditor}"
+  export FLYWAY_AUDIT_PASSWORD="stub-password-only-for-tests"
   export PATH="$STUB_BIN:$PATH"
+  if [[ "${STUB_UNSET_PASSWORD:-0}" == "1" ]]; then unset FLYWAY_AUDIT_PASSWORD; fi
   bash "$SCRIPT_UNDER_TEST"
 }
 
@@ -165,15 +169,57 @@ assert_fail_with() {
 
 # 1. REGRESSION: legacy numeric rows must not fake an older ledger head.
 #    (RED against the max(version) implementation, GREEN after the fix.)
-assert_pass "rank head == repo head with legacy numeric rows present" "20260908.1"
+assert_pass "rank head == repo head with legacy numeric rows present" "20261107.1"
 
 # 2. The pending guard must survive the fix.
 assert_fail_with "rank head older than repo head still fails (pending guard)" \
-  "20260904.1" "Pending migrations detected"
+  "20261021.1" "Pending migrations detected"
 
 # 3. The drift guard must survive the fix.
 assert_fail_with "rank head newer than repo head still fails (drift guard)" \
-  "20260909.9" "Schema drift"
+  "20261108.1" "Schema drift"
+
+# 4. Role alias, runtime and migration identities must be rejected.
+for forbidden in sanad sanad_migrator postgres; do
+  export STUB_OVERRIDE_USERNAME="$forbidden"
+  assert_fail_with "forbidden audit identity $forbidden" "20261107.1" "must equal sanad_release_auditor"
+done
+unset STUB_OVERRIDE_USERNAME
+
+# 5. Authenticated identity must match the permitted role (even when the
+# client claims to connect as the auditor).
+export STUB_ACTUAL_ROLE="sanad"
+assert_fail_with "actual DB role mismatch fails" "20261107.1" "role or privilege contract invalid"
+unset STUB_ACTUAL_ROLE
+
+# 6. The auditor cannot be allowed to write Flyway history or inherit the
+# runtime/migrator role. This fixture mimics an unexpected UPDATE privilege.
+export STUB_ACTUAL_ACL="$(printf "t\\tt\\tf\\tf\\tt\\tf\\tf\\tf")"
+assert_fail_with "auditor with Flyway UPDATE fails" "20261107.1" "minimum read-only contract"
+unset STUB_ACTUAL_ACL
+
+# 7. No silent fallback to the Render runtime password.
+export STUB_UNSET_PASSWORD=1
+assert_fail_with "missing independent audit password fails" "20261107.1" "FLYWAY_AUDIT_PASSWORD is required"
+unset STUB_UNSET_PASSWORD
+
+# 8. Connection string may not embed or override database credentials.
+export STUB_OVERRIDE_URL="jdbc:postgresql://sanad:secret@stubhost:5432/stubdb"
+assert_fail_with "embedded runtime connection credentials rejected" "20261107.1" "Invalid audit JDBC URL"
+unset STUB_OVERRIDE_URL
+
+# 9. Never approve a failed Flyway migration or missing SQL checksum.
+export STUB_FAILED_MIGRATIONS=1
+assert_fail_with "failed migration detected" "20261107.1" "Failed migrations"
+unset STUB_FAILED_MIGRATIONS
+export STUB_MISSING_SQL_CHECKSUMS=1
+assert_fail_with "missing SQL checksum detected" "20261107.1" "missing checksums"
+unset STUB_MISSING_SQL_CHECKSUMS
+
+# 10. The auditor must be able to verify the Y2 capability catalog.
+export STUB_CAPABILITY_COUNT=0
+assert_fail_with "required active capability absent" "20261107.1" "Y2 sentinel capability"
+unset STUB_CAPABILITY_COUNT
 
 if [ "$fail_count" -gt 0 ]; then
   echo "RESULT: RED — $fail_count failing scenario(s)"

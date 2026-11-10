@@ -1,42 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${RENDER_API_KEY:?RENDER_API_KEY is required}"
-: "${RENDER_SERVICE_ID:?RENDER_SERVICE_ID is required}"
-: "${DATABASE_USERNAME:?DATABASE_USERNAME is required}"
+# G1: read-only Flyway audit role. Never borrow the live Backend
+# runtime role (sanad) or the privileged migration role (sanad_migrator).
+# Required credentials come exclusively from protected release secrets;
+# there is deliberately no fallback to Render DATABASE_* variables.
+: "${FLYWAY_AUDIT_JDBC_URL:?FLYWAY_AUDIT_JDBC_URL is required}"
+: "${FLYWAY_AUDIT_USERNAME:?FLYWAY_AUDIT_USERNAME is required}"
+: "${FLYWAY_AUDIT_PASSWORD:?FLYWAY_AUDIT_PASSWORD is required}"
+
+if [[ "$FLYWAY_AUDIT_USERNAME" != "sanad_release_auditor" ]]; then
+  echo "::error::FLYWAY_AUDIT_USERNAME must equal sanad_release_auditor (runtime/migrator identities forbidden)" >&2
+  exit 1
+fi
+
+# libpq URI, not CLI credentials: forbid embedded user/password and
+# libpq overrides that could switch authenticated identities.
+AUDIT_URI="${FLYWAY_AUDIT_JDBC_URL#jdbc:}"
+if [[ "$AUDIT_URI" != postgresql://* || "$AUDIT_URI" == *"@"* || "$AUDIT_URI" =~ [\?\&](user|password|options|service|host|dbname)= ]]; then
+  echo "::error::Invalid audit JDBC URL: require postgresql:// URI without embedded credentials or identity overrides" >&2
+  exit 1
+fi
 
 cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt /tmp/flyway-checksums.txt; }
 trap cleanup EXIT
 
-echo "Fetching env vars from Render..."
-RENDER_ENV=$(curl --silent --show-error \
-  --header "Authorization: Bearer $RENDER_API_KEY" \
-  --header "Accept: application/json" \
-  "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100")
-
-DATABASE_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty')
-DATABASE_PASSWORD=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty')
-
-test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL not found in Render"; exit 1; }
-test -n "$DATABASE_PASSWORD" || { echo "::error::DATABASE_PASSWORD not found in Render"; exit 1; }
-
-RAW_URL="$DATABASE_URL"
-RAW_URL="${RAW_URL#jdbc:}"
-RAW_URL="${RAW_URL#postgresql://}"
-RAW_URL="${RAW_URL#https://}"
-HOST_PORT="${RAW_URL%%/*}"
-DB_PART="${RAW_URL#*/}"
-DB_NAME="${DB_PART%%\?*}"
-PGHOST="${HOST_PORT%%:*}"
-PGPORT="${HOST_PORT#*:}"
-PGPORT="${PGPORT:-5432}"
-
-echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
-
 run_sql() {
-  PGPASSWORD="$DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+  PGPASSWORD="$FLYWAY_AUDIT_PASSWORD" PGSSLMODE="${PGSSLMODE:-require}" psql \
+    --dbname="$AUDIT_URI" --username="$FLYWAY_AUDIT_USERNAME" \
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="$1"
 }
+
+# Verify the *actual* connected role, forbidden privilege/membership
+# escalations and read-only access before querying Flyway history.
+connected="$(run_sql "SELECT current_user, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=current_user;")"
+if [[ "$connected" != "$(printf "sanad_release_auditor\tf\tf\tf\tf")" ]]; then
+  echo "::error::Flyway audit connection role or privilege contract invalid" >&2
+  exit 1
+fi
+audit_acl="$(run_sql "SELECT has_table_privilege(current_user, 'public.flyway_schema_history', 'SELECT'), has_table_privilege(current_user, 'public.flyway_schema_history', 'INSERT'), has_table_privilege(current_user, 'public.flyway_schema_history', 'UPDATE'), has_table_privilege(current_user, 'public.flyway_schema_history', 'DELETE'), has_table_privilege(current_user, 'public.access_capabilities', 'SELECT'), has_schema_privilege(current_user, 'public', 'CREATE'), pg_has_role(current_user, 'sanad_migrator', 'MEMBER'), pg_has_role(current_user, 'sanad', 'MEMBER');")"
+if [[ "$audit_acl" != "$(printf "t\tf\tf\tf\tt\tf\tf\tf")" ]]; then
+  echo "::error::Flyway audit role ACL violates minimum read-only contract" >&2
+  exit 1
+fi
+echo "FLYWAY_AUDITOR_IDENTITY_AND_ACL=PASS (dedicated non-migrator; no runtime inheritance)"
+
 
 # Check all required migrations including V20260702.3
 run_sql "SELECT version, type, description, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2','20260702.3') ORDER BY installed_rank;" > /tmp/flyway-history.tsv
@@ -46,8 +54,8 @@ require_migration() {
     echo "::error::Required migration absent: version=$1 type=$2 description=$3"; exit 1; }
 }
 
-echo "FLYWAY V15: PASS"
 require_migration "15" "JDBC" "seed rbac roles and capabilities"
+echo "FLYWAY V15: PASS"
 echo "FLYWAY V20260702.1: PASS"
 require_migration "20260702.1" "SQL" "create unified crm core"
 echo "FLYWAY V20260702.2: PASS"
@@ -76,8 +84,12 @@ echo "DUPLICATE VERSIONS: 0"
 
 # Check for checksum mismatches ( Flyway stores checksum; any non-matching would have been caught by validate-on-migrate,
 # but we verify the schema history is consistent)
-CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type != 'SCHEMA_BASELINE';")
-echo "CHECKSUM VALIDATION: PASS"
+CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type = 'SQL';")
+if [[ "$(tr -d '[:space:]' <<< "$CHECKSUM_ISSUES")" != "0" ]]; then
+  echo "::error::Flyway history contains unexpected missing checksums: $CHECKSUM_ISSUES"
+  exit 1
+fi
+echo "CHECKSUM PRESENCE: PASS (not full checksum equivalence)"
 
 # ---------------------------------------------------------------------------
 # Y2 incident regression guard (2026-09-04):
