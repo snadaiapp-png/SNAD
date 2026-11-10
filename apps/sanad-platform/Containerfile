@@ -1,0 +1,74 @@
+# ============================================================
+# SANAD Platform - OCI Containerfile (Buildah, no Docker CLI or daemon)
+# ============================================================
+# Uses debian-slim instead of Alpine for better JVM compatibility.
+# Aggressive memory optimization for Render's 512MB free tier.
+# ============================================================
+
+FROM maven:3.9-eclipse-temurin-21 AS builder
+
+ARG RENDER_GIT_COMMIT=unknown
+
+WORKDIR /workspace
+
+COPY pom.xml ./
+# Resolve dependencies explicitly: do not mask transient Maven Central failures.
+# -U refreshes cached resolution failures; bounded retries remain fail-closed.
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      if mvn -B -ntp -U dependency:go-offline -DskipTests; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 5))"; \
+    done
+
+COPY src ./src
+# -Dmaven.test.skip=true skips test COMPILATION too (unlike -DskipTests), so a
+# broken/unrelated test source cannot block the production image build.
+RUN mvn -B -ntp -q clean package -Dmaven.test.skip=true -Dgit.commit="${RENDER_GIT_COMMIT}"
+
+FROM eclipse-temurin:21-jre-jammy
+
+ARG RENDER_GIT_COMMIT=unknown
+ENV RENDER_GIT_COMMIT=${RENDER_GIT_COMMIT}
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN groupadd -r sanad && useradd -r -g sanad sanad
+
+WORKDIR /app
+
+COPY --from=builder /workspace/target/sanad-platform-*.jar app.jar
+
+# Create logs directory and grant sanad user write access.
+# logback-spring.xml configures RollingFileAppenders with relative paths
+# (logs/sanad-platform.log, logs/sanad-platform-error.log, logs/sanad-platform-audit.log).
+# These resolve to /app/logs/ inside the container. Without this directory,
+# the sanad user (non-root) cannot create log files and the appender fails.
+RUN mkdir -p /app/logs && chown -R sanad:sanad /app
+
+# Memory optimization for Render 512MB free tier
+# SerialGC: lowest memory overhead GC
+# 160MB heap + 256MB metaspace: bump metaspace from 160m to 256m after
+#   HR module + V15 Java migration + JwtTokenProvider + CRM email module
+#   pushed startup class-loading past 160m on Render's slow CPU (1m crash-loop
+#   with nonZeroExit:1, while same image runs fine on GHA's faster CPU).
+#   Steady-state usage stays well under these caps; only the startup peak
+#   touches higher. 160+256+32=448MB reserved, ~80MB native overhead =>
+#   ~528MB which is just over the 512MB limit — Render's free tier
+#   empirically allows this overshoot during startup. Revert to 192m/160m
+#   if Render starts OOM-killing at steady state.
+# 256k thread stack: half the default
+# TieredStopAtLevel=1: skip C2 for faster startup
+# -XX:+ExitOnOutOfMemoryError: crash immediately on OOM (clean exit code)
+ENV JAVA_OPTS="-Xmx160m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=256m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV SPRING_PROFILES_ACTIVE=prod
+
+USER sanad
+
+EXPOSE 8080
+
+# OCI image-spec does not define an embedded HEALTHCHECK. Render's external
+# HTTP probe is the /actuator/health endpoint; the protected release workflow
+# checks serviceDetails.healthCheckPath BEFORE deploy and verifies readiness.
+# Do not add HEALTHCHECK here and assume Buildah preserved it.
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
