@@ -222,6 +222,9 @@ jobs:
           esac
           echo 'VERCEL_EXACT_RELEASE_PREFLIGHT=PASS'
 
+      - name: Verify Flyway production compatibility
+        run: bash scripts/production/verify-flyway.sh
+
       - name: Capture previous live image reference
         id: previous
         shell: bash
@@ -312,9 +315,6 @@ jobs:
           done
           echo "::error::Production readiness did not become UP"
           exit 1
-
-      - name: Verify Flyway production compatibility
-        run: bash scripts/production/verify-flyway.sh
 
       - name: Verify production security boundary
         run: bash scripts/production/verify-auth-contract.sh
