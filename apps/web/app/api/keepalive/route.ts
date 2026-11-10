@@ -19,7 +19,10 @@ import { NextResponse } from "next/server";
 
 const PRODUCTION_BACKEND_URL = "https://sanad-backend-mcrj.onrender.com";
 const HEALTH_PATH = "/actuator/health";
-const PING_TIMEOUT_MS = 10_000;
+// Cold-start wake on Render has been observed to take far longer than 10s
+// (probe evidence 2026-11-09: no response even after 170s). A 90s budget lets the
+// keepalive ping carry the wake to completion instead of aborting mid-wake.
+const PING_TIMEOUT_MS = 90_000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
