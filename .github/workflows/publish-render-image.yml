@@ -31,11 +31,13 @@ jobs:
     steps:
       - name: Require exact main and approved ticket review
         shell: bash
+        env:
+          CHANGE_TICKET: ${{ inputs.change_ticket }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
           [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
-          ticket='${{ inputs.change_ticket }}'
+          ticket="$CHANGE_TICKET"
           [[ "$ticket" =~ ^G1-CHG-[0-9]+$ ]] || {
             echo "::error::Missing/invalid CAB ticket format (not proof of approval)"
             exit 1
