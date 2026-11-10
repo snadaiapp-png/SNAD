@@ -97,11 +97,14 @@ spring:
     show-sql: false
 
   flyway:
-    # SECURITY: production migrations use an independently provisioned migrator.
-    # FLYWAY_USER / FLYWAY_PASSWORD are mandatory when Flyway is enabled.
-    # Never set these to the runtime SPRING_DATASOURCE credentials.
-    # For an already-migrated deployment, explicitly set FLYWAY_ENABLED=false.
-    enabled: ${FLYWAY_ENABLED:true}
+    # SECURITY: production runtime never runs migrations automatically.
+    # An explicitly approved, one-off migrator operation owns Flyway execution.
+    # If an authorized migration runner opts in with FLYWAY_ENABLED=true,
+    # FLYWAY_USER / FLYWAY_PASSWORD must belong to the separate migrator.
+    # Never use runtime SPRING_DATASOURCE credentials as migrator credentials.
+    # This default does not fix invalid database passwords; the Render runtime
+    # must still use a valid least-privilege sanad identity.
+    enabled: ${FLYWAY_ENABLED:false}
     # Spring Boot requires an explicit JDBC URL when Flyway credentials are
     # provided; otherwise its separate DataSource cannot be constructed.
     url: ${FLYWAY_URL:${SPRING_DATASOURCE_URL:${DATABASE_URL:}}}
