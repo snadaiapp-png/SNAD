@@ -67,7 +67,7 @@ concurrency:
 jobs:
   g2-authenticated-acceptance:
     name: G2 Authenticated Acceptance (PostgreSQL Direct + Spring Boot + Next.js + Playwright)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       # Connection coordinates only — NO password literal here. The password
@@ -354,6 +354,14 @@ jobs:
           set -euo pipefail
           google-chrome --version
 
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: |
+          npx playwright install chromium
+          # Fail closed if the runner lacks Chromium's shared libraries.
+          # Avoid apt on GitHub-hosted runners: Ubuntu mirror DNS failed twice.
+          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Playwright Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
+
       - name: Build Next.js frontend
         working-directory: apps/web
         run: npm run build
@@ -422,7 +430,7 @@ jobs:
         working-directory: apps/web
         run: |
           set -euo pipefail
-          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright-g2.config.ts
+          npx playwright test --config=playwright-g2.config.ts
 
       - name: Upload G2 Playwright report
         if: always()

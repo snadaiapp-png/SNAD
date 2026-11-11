@@ -45,7 +45,7 @@ concurrency:
 jobs:
   preview:
     name: Full-stack HRM human preview
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_hrm_visual
@@ -271,9 +271,13 @@ jobs:
         working-directory: apps/web
         run: npm ci
 
-      - name: Verify preinstalled Google Chrome
+      - name: Install Playwright Chromium
         working-directory: apps/web
-        run: google-chrome --version
+        run: |
+          npx playwright install chromium
+          # Fail closed if the runner lacks Chromium's shared libraries.
+          # Avoid apt on GitHub-hosted runners: Ubuntu mirror DNS failed twice.
+          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Playwright Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
 
       - name: Build Next.js frontend
         working-directory: apps/web
@@ -345,7 +349,7 @@ jobs:
 
       - name: Run G2 Arabic English Desktop Mobile visual certification
         working-directory: apps/web
-        run: PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright-g2-visual.config.ts
+        run: npx playwright test --config=playwright-g2-visual.config.ts
 
       - name: Verify exact-SHA evidence manifest
         working-directory: apps/web
