@@ -43,6 +43,7 @@ export default defineConfig({
   },
   use: {
     baseURL: BASE_URL,
+    ...(process.env.PLAYWRIGHT_USE_SYSTEM_CHROME === "1" ? { channel: "chrome" as const } : {}),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

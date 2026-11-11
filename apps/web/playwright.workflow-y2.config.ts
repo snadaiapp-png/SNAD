@@ -16,6 +16,7 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001",
+    ...(process.env.PLAYWRIGHT_USE_SYSTEM_CHROME === "1" ? { channel: "chrome" as const } : {}),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

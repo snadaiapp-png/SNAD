@@ -271,12 +271,9 @@ jobs:
         working-directory: apps/web
         run: npm ci
 
-      - name: Install Playwright Chromium
+      - name: Verify preinstalled Google Chrome
         working-directory: apps/web
-        run: |
-          set -euo pipefail
-          npx playwright install chromium
-          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
+        run: google-chrome --version
 
       - name: Build Next.js frontend
         working-directory: apps/web
@@ -348,7 +345,7 @@ jobs:
 
       - name: Run G2 Arabic English Desktop Mobile visual certification
         working-directory: apps/web
-        run: npx playwright test --config=playwright-g2-visual.config.ts
+        run: PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright-g2-visual.config.ts
 
       - name: Verify exact-SHA evidence manifest
         working-directory: apps/web

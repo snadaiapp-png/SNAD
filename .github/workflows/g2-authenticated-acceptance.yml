@@ -354,13 +354,6 @@ jobs:
           set -euo pipefail
           google-chrome --version
 
-      - name: Install Playwright browsers
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          npx playwright install chromium
-          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
-
       - name: Build Next.js frontend
         working-directory: apps/web
         run: npm run build
@@ -429,7 +422,7 @@ jobs:
         working-directory: apps/web
         run: |
           set -euo pipefail
-          npx playwright test --config=playwright-g2.config.ts
+          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright-g2.config.ts
 
       - name: Upload G2 Playwright report
         if: always()

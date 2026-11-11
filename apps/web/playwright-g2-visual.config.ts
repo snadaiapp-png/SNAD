@@ -17,6 +17,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   use: {
     baseURL: BASE_URL,
+    ...(process.env.PLAYWRIGHT_USE_SYSTEM_CHROME === "1" ? { channel: "chrome" as const } : {}),
     colorScheme: "light",
     trace: "retain-on-failure",
     screenshot: "on",

@@ -280,9 +280,8 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
           SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
         run: |
-          npx playwright install chromium
-          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
-          npx playwright test --config=playwright.workflow-y2.config.ts
+          google-chrome --version
+          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright.workflow-y2.config.ts
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
@@ -403,9 +402,8 @@ jobs:
           WF_E2E_PASSWORD: WfE2eTest!2026
         run: |
           set -euo pipefail
-          npx playwright install chromium
-          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
-          npx playwright test --config=playwright.workflow-designer.config.ts
+          google-chrome --version
+          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright.workflow-designer.config.ts
       - name: Upload Designer browser HTML report
         if: always()
         uses: actions/upload-artifact@v4
