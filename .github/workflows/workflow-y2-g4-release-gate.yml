@@ -193,7 +193,7 @@ jobs:
 
   g4-playwright:
     name: G4 Workflow Y2 Playwright PostgreSQL Direct
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env: *pg_env
     steps:
@@ -280,8 +280,9 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
           SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
         run: |
-          npx playwright install chromium --with-deps
-          npx playwright test --config=playwright.workflow-y2.config.ts
+          npx playwright install ffmpeg
+          google-chrome --version
+          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright.workflow-y2.config.ts
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
@@ -303,7 +304,7 @@ jobs:
 
   g4-designer-browser:
     name: G4 Workflow Designer Browser Acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env: *pg_env
     steps:
@@ -402,8 +403,9 @@ jobs:
           WF_E2E_PASSWORD: WfE2eTest!2026
         run: |
           set -euo pipefail
-          npx playwright install chromium --with-deps
-          npx playwright test --config=playwright.workflow-designer.config.ts
+          npx playwright install ffmpeg
+          google-chrome --version
+          PLAYWRIGHT_USE_SYSTEM_CHROME=1 npx playwright test --config=playwright.workflow-designer.config.ts
       - name: Upload Designer browser HTML report
         if: always()
         uses: actions/upload-artifact@v4
