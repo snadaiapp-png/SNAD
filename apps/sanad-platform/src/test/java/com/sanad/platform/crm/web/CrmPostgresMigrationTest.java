@@ -296,7 +296,10 @@ class CrmPostgresMigrationTest {
     // transfer + runtime ACL matrix, closes F-01) at the sequence tail.
     private static final String MIGRATOR_SEPARATION_ROLE_VERSION = "20261103.1";
     private static final String MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION = "20261103.2";
-    private static final String LATEST_MIGRATION_VERSION = "20261107.1";
+    // TEST_ALIGNMENT_REASON: SANAD G1 / P0 (executive order 2026-11-11) adds
+    // V20261111_1 (service_callback_replay fail-closed tenant RLS + FORCE + the
+    // dedicated least-privilege cleanup role) at the sequence tail.
+    private static final String LATEST_MIGRATION_VERSION = "20261111.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -614,7 +617,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
+                        MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // P0 service_callback_replay RLS closure
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -874,7 +878,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.1"), // callback replay runtime ACL
                         MigrationVersion.fromVersion("20261105.2"), // pre-auth pointer runtime ACL
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
+                        MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // P0 service_callback_replay RLS closure
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

@@ -293,13 +293,15 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
     # (no literal secret values). Line numbers migrated by the Phase 6R secret
     # containment fix: the release orchestrator was split into an isolated
     # verification job (no production secrets) and a gated release job, which
-    # moved the PGPASSWORD (L283) and Flyway password (L301) references. The
+    # moved the PGPASSWORD (L283) and Flyway password (L301) references; the
+    # P0 CI cleanup-role + migrator provisioning insertions (PR #1509)
+    # moved them again (+27) to L310/L328. The
     # former L104 entry (-Dspring.datasource.password in `./mvnw verify`) was
     # REMOVED by the same fix — production credentials no longer reach the
     # test execution path at all.
     KNOWN_FPS = [
-        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 283),
-        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 301),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 310),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 328),
         ("generic-password", ".github/workflows/show-admin-email.yml", 45),
         ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 42),
         ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 60),

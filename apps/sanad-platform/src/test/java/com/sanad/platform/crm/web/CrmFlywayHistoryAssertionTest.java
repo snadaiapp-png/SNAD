@@ -365,6 +365,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261105.2"   // workflow pre-auth pointer runtime read-only
             , "20261105.3"   // original tenant-subscription composite foreign keys
             , "20261107.1"   // forward-only NO ACTION child FK policy
+            , "20261111.1"   // P0 service_callback_replay RLS closure (executive order 2026-11-11)
     );
 
 
