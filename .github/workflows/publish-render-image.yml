@@ -116,6 +116,23 @@ jobs:
           echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "OCI_SHA_TAG_AND_MANIFEST_DIGEST=PASS: $digest"
+      - name: Stage GHCR credentials for attestation pushes (Docker-free)
+        shell: bash
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+        run: |
+          set -euo pipefail
+          # actions/attest resolves its registry credentials from the standard
+          # OCI/docker credential store file. No Docker daemon and no docker
+          # CLI are involved — only this JSON credentials file, written with
+          # the ephemeral workflow token (packages: write). Without it the
+          # attestation push fails with "No credentials found for registry
+          # ghcr.io" (observed on the first real publication, run 42935530898).
+          umask 077
+          mkdir -p "$HOME/.docker"
+          auth="$(printf '%s:%s' "$GITHUB_ACTOR" "$GITHUB_TOKEN" | base64 -w0)"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$auth" > "$HOME/.docker/config.json"
+
       - name: Generate pinned SPDX image SBOM directly from OCI registry
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
         with:
