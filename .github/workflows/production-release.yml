@@ -49,8 +49,10 @@ jobs:
       CAB_CHANGE_TICKET: ${{ inputs.change_ticket }}
       # G1 read-only release audit identity (CAB 2026-11-10 §C): separately
       # governed Production environment secrets for the Flyway audit;
-      # scripts/production/verify-flyway.sh rejects the runtime/migrator/admin
-      # roles and never reads Flyway history with backend runtime credentials.
+      # scripts/production/verify-flyway.sh pins the identity to
+      # sanad_release_auditor (bare or Supabase-pooler-suffixed), validates the
+      # connection URI against embedded credentials/identity overrides and
+      # never reads Flyway history with backend runtime credentials.
       AUDIT_DATABASE_URL: ${{ secrets.PROD_RELEASE_AUDIT_URL }}
       AUDIT_DATABASE_USERNAME: ${{ secrets.PROD_RELEASE_AUDIT_USER }}
       AUDIT_DATABASE_PASSWORD: ${{ secrets.PROD_RELEASE_AUDIT_PASSWORD }}

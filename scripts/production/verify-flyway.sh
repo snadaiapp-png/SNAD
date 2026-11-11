@@ -7,41 +7,67 @@ set -euo pipefail
 # separated migrator/runtime topology the runtime role `sanad` holds NO
 # privilege on flyway_schema_history (V20261103_2 §1.4/§4.5), so an audit
 # over runtime credentials is intentionally fail-closed. The audit identity
-# is provisioned per docs/security/migrator-runtime-separation/RUNBOOK.md §2
+# is provisioned per docs/security/migrator-runtime-separation/RUNBOOK.md §2b
 # and its credentials are supplied ONLY through these environment variables
 # (GitHub Production environment secrets); never regrant Flyway history
-# SELECT to the runtime role to satisfy this gate.
-: "${AUDIT_DATABASE_URL:?AUDIT_DATABASE_URL is required (read-only release audit identity, RUNBOOK §2)}"
+# SELECT to the runtime role to satisfy this gate. There is deliberately no
+# fallback to Render DATABASE_* variables and no Render API access at all.
+: "${AUDIT_DATABASE_URL:?AUDIT_DATABASE_URL is required (read-only release audit identity, RUNBOOK §2b)}"
 : "${AUDIT_DATABASE_USERNAME:?AUDIT_DATABASE_USERNAME is required (read-only release audit identity)}"
 : "${AUDIT_DATABASE_PASSWORD:?AUDIT_DATABASE_PASSWORD is required (read-only release audit identity)}"
 
-case "$AUDIT_DATABASE_USERNAME" in
-  sanad|postgres|sanad_migrator|supabase_admin|service_role)
-    echo "::error::AUDIT_DATABASE_USERNAME must be the dedicated read-only audit identity, not the runtime/migrator/admin role (got '$AUDIT_DATABASE_USERNAME')"
-    exit 1
-    ;;
-esac
+# Identity pinning (fail closed): exactly the dedicated read-only audit role,
+# either bare or with the Supabase pooler project suffix (session-mode
+# routing requires the suffix; the pooler strips it and PostgreSQL sees
+# exactly sanad_release_auditor, which the connected-role assertion below
+# enforces as the authoritative identity gate). Runtime, migrator and admin
+# identities are refused in both forms.
+if [ "${AUDIT_DATABASE_USERNAME}" != "sanad_release_auditor" ] && \
+   [ "${AUDIT_DATABASE_USERNAME}" != "sanad_release_auditor.tkbrvupemreqabwzdpyq" ]; then
+  echo "::error::AUDIT_DATABASE_USERNAME must be the dedicated read-only audit identity sanad_release_auditor, bare or Supabase-pooler-suffixed; runtime/migrator/admin identities are forbidden (got '${AUDIT_DATABASE_USERNAME}')" >&2
+  exit 1
+fi
+
+# libpq URI, not CLI credentials: forbid embedded user/password and
+# libpq overrides that could switch authenticated identities.
+AUDIT_URI="${AUDIT_DATABASE_URL#jdbc:}"
+if [[ "$AUDIT_URI" != postgresql://* || "$AUDIT_URI" == *"@"* || "$AUDIT_URI" =~ [\?\&](user|password|options|service|host|dbname)= ]]; then
+  echo "::error::Invalid audit database URL: require postgresql:// URI without embedded credentials or identity overrides" >&2
+  exit 1
+fi
 
 cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-duplicates.txt /tmp/flyway-checksums.txt; }
 trap cleanup EXIT
 
-RAW_URL="$AUDIT_DATABASE_URL"
-RAW_URL="${RAW_URL#jdbc:}"
-RAW_URL="${RAW_URL#postgresql://}"
-RAW_URL="${RAW_URL#https://}"
-HOST_PORT="${RAW_URL%%/*}"
-DB_PART="${RAW_URL#*/}"
-DB_NAME="${DB_PART%%\?*}"
-PGHOST="${HOST_PORT%%:*}"
-PGPORT="${HOST_PORT#*:}"
-PGPORT="${PGPORT:-5432}"
-
-echo "Connecting as read-only audit identity: host=$PGHOST port=$PGPORT dbname=$DB_NAME user=$AUDIT_DATABASE_USERNAME"
-
 run_sql() {
-  PGPASSWORD="$AUDIT_DATABASE_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$AUDIT_DATABASE_USERNAME" -d "$DB_NAME" \
+  PGPASSWORD="$AUDIT_DATABASE_PASSWORD" PGSSLMODE="${PGSSLMODE:-require}" psql \
+    --dbname="$AUDIT_URI" --username="$AUDIT_DATABASE_USERNAME" \
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="$1"
 }
+
+echo "Connecting as read-only audit identity: user=$AUDIT_DATABASE_USERNAME (pooler-suffixed forms resolve to sanad_release_auditor)"
+
+# Verify the *actual* connected role, forbidden privilege/membership
+# escalations and read-only access before querying Flyway history.
+connected="$(run_sql "SELECT current_user, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=current_user;")"
+if [[ "$connected" != "$(printf "sanad_release_auditor\tf\tf\tf\tf")" ]]; then
+  echo "::error::Flyway audit connection role or privilege contract invalid" >&2
+  exit 1
+fi
+audit_acl="$(run_sql "SELECT has_table_privilege(current_user, 'public.flyway_schema_history', 'SELECT'), has_table_privilege(current_user, 'public.flyway_schema_history', 'INSERT'), has_table_privilege(current_user, 'public.flyway_schema_history', 'UPDATE'), has_table_privilege(current_user, 'public.flyway_schema_history', 'DELETE'), has_table_privilege(current_user, 'public.access_capabilities', 'SELECT'), has_schema_privilege(current_user, 'public', 'CREATE'), pg_has_role(current_user, 'sanad_migrator', 'MEMBER'), pg_has_role(current_user, 'sanad', 'MEMBER');")"
+if [[ "$audit_acl" != "$(printf "t\tf\tf\tf\tt\tf\tf\tf")" ]]; then
+  echo "::error::Flyway audit role ACL violates minimum read-only contract" >&2
+  exit 1
+fi
+# The live runtime MUST remain forbidden from reading migration history
+# or escalating to DDL/migrator. Audit success must not hide runtime privilege drift.
+runtime_denials="$(run_sql "SELECT has_table_privilege('sanad', 'public.flyway_schema_history', 'SELECT'), has_schema_privilege('sanad', 'public', 'CREATE'), pg_has_role('sanad', 'sanad_migrator', 'MEMBER');")"
+if [[ "$runtime_denials" != "$(printf "f\tf\tf")" ]]; then
+  echo "::error::Runtime sanad has unauthorized Flyway history/schema CREATE/migrator membership" >&2
+  exit 1
+fi
+echo "FLYWAY_AUDITOR_IDENTITY_AND_ACL=PASS (dedicated non-migrator; runtime history/DDL denied)"
+
 
 # Check all required migrations including V20260702.3
 run_sql "SELECT version, type, description, success FROM flyway_schema_history WHERE version IN ('15','20260702.1','20260702.2','20260702.3') ORDER BY installed_rank;" > /tmp/flyway-history.tsv
@@ -51,8 +77,8 @@ require_migration() {
     echo "::error::Required migration absent: version=$1 type=$2 description=$3"; exit 1; }
 }
 
-echo "FLYWAY V15: PASS"
 require_migration "15" "JDBC" "seed rbac roles and capabilities"
+echo "FLYWAY V15: PASS"
 echo "FLYWAY V20260702.1: PASS"
 require_migration "20260702.1" "SQL" "create unified crm core"
 echo "FLYWAY V20260702.2: PASS"
@@ -81,8 +107,12 @@ echo "DUPLICATE VERSIONS: 0"
 
 # Check for checksum mismatches ( Flyway stores checksum; any non-matching would have been caught by validate-on-migrate,
 # but we verify the schema history is consistent)
-CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type != 'SCHEMA_BASELINE';")
-echo "CHECKSUM VALIDATION: PASS"
+CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type = 'SQL';")
+if [[ "$(tr -d '[:space:]' <<< "$CHECKSUM_ISSUES")" != "0" ]]; then
+  echo "::error::Flyway history contains unexpected missing checksums: $CHECKSUM_ISSUES"
+  exit 1
+fi
+echo "CHECKSUM PRESENCE: PASS (not full checksum equivalence)"
 
 # ---------------------------------------------------------------------------
 # Y2 incident regression guard (2026-09-04):
@@ -106,8 +136,8 @@ REPO_MAX_VERSION=$(
 REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
 # Ledger head MUST be derived by application order (installed_rank DESC), NOT
 # by max(version): `version` is VARCHAR, so a SQL max() is a lexicographic
-# maximum — the canonical ledger contains legacy numeric versions ("9", "14",
-# "15") which sort ABOVE every "2026..." version, making a text max() report
+# maximum — the canonical production ledger contains legacy numeric versions ("9",
+# "14", "15") which sort ABOVE every "2026..." version, making a text max() report
 # the ledger head as "9" (production release 34291484570 failed exactly this
 # way). installed_rank ordering is how Flyway itself defines the applied head;
 # repeatable migrations carry version IS NULL and are excluded like DELETE
@@ -140,8 +170,9 @@ require_y2_table "workflow_event_inbox"
 # (c) Workflow Y2 sentinels — definition graph metadata column.
 #     Read from pg_catalog (world-readable) instead of information_schema
 #     columns so the read-only audit identity needs NO privilege on the
-#     workflow_definitions business table itself.
-DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON a.attrelid = c.oid JOIN pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = 'public' AND c.relname = 'workflow_definitions' AND a.attname = 'definition_family_id' AND NOT a.attisdropped;")
+#     workflow_definitions business table itself. attnum > 0 excludes
+#     system columns; NOT attisdropped excludes dropped ones.
+DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'workflow_definitions' AND a.attname = 'definition_family_id' AND a.attnum > 0 AND NOT a.attisdropped;")
 [ "${DEF_FAMILY// /}" = "1" ] || { echo "::error::Y2 sentinel column absent: workflow_definitions.definition_family_id"; exit 1; }
 echo "Y2 SENTINEL COLUMN workflow_definitions.definition_family_id: PASS"
 
