@@ -193,7 +193,7 @@ jobs:
 
   g4-playwright:
     name: G4 Workflow Y2 Playwright PostgreSQL Direct
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env: *pg_env
     steps:
@@ -303,7 +303,7 @@ jobs:
 
   g4-designer-browser:
     name: G4 Workflow Designer Browser Acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env: *pg_env
     steps:

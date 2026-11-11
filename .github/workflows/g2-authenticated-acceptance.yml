@@ -67,7 +67,7 @@ concurrency:
 jobs:
   g2-authenticated-acceptance:
     name: G2 Authenticated Acceptance (PostgreSQL Direct + Spring Boot + Next.js + Playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       # Connection coordinates only — NO password literal here. The password
