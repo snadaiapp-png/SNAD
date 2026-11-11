@@ -166,8 +166,13 @@ jobs:
             exit 1
           }
           hba_file="$(sudo -u postgres psql --no-psqlrc -Atqc 'SHOW hba_file')"
+          # Reload the exact cluster that supplied hba_file, not an unrelated
+          # system service/cluster. Verify the parsed rule before authentication.
           sudo sed -i '1ihost postgres g1_setrole_restricted_probe 127.0.0.1/32 trust' "$hba_file"
-          sudo service postgresql reload
+          reload_ok="$(sudo -u postgres psql --no-psqlrc -Atqc 'SELECT pg_reload_conf()::text')"
+          test "$reload_ok" = true || { echo "::error::G1_HBA_RELOAD_FAILED"; exit 1; }
+          hba_rule="$(sudo -u postgres psql --no-psqlrc -Atqc "SELECT type || '|' || array_to_string(database, ',') || '|' || array_to_string(user_name, ',') || '|' || address || '|' || auth_method FROM pg_hba_file_rules WHERE error IS NULL AND 'g1_setrole_restricted_probe' = ANY(user_name) LIMIT 1")"
+          test "$hba_rule" = 'host|postgres|g1_setrole_restricted_probe|127.0.0.1|trust' || { echo "::error::G1_HBA_RULE_NOT_PARSED"; exit 1; }
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           DROP ROLE IF EXISTS g1_setrole_restricted_probe;
           DROP ROLE IF EXISTS g1_setrole_elevated_probe;
