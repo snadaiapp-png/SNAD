@@ -158,11 +158,11 @@ jobs:
             exit 1
           fi
           count="$(grep -c '|PASS|' /tmp/g1-addendum-catalog-gate.log)"
-          test "$count" = "11" || {
+          test "$count" = "14" || {
             echo "::error::G1_ADDENDUM_CATALOG_GATE_MISSING_CHECKS=$count"
             exit 1
           }
-          echo "G1_ADDENDUM_CATALOG_GATE=PASS (11/11 structural catalog, isolated PG17 only)"
+          echo "G1_ADDENDUM_CATALOG_GATE=PASS (14/14 structural catalog, isolated PG17 only)"
 
       - name: Upload separation evidence
         if: always()

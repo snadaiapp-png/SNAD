@@ -1,5 +1,6 @@
 -- SANAD G1 Amendment A01: READ-ONLY release catalog guard.
--- Valid for the source migration head reviewed at main f1f8157ea5ae2ce49ea5d146f09c984b497fb0d5.
+-- Valid for chain head 20261111.1 (V20261111_1 — P0 service_callback_replay RLS
+-- closure; executive order 2026-11-11, base main cac06b8825a676971e731ace62a93f8d60e1a509).
 -- This is not a tenant A/B functional RLS test and does not certify security or authorize changes.
 -- Run only with separately approved production access; NEVER connect using application secrets in logs.
 -- 100% SELECT on pg_catalog and Flyway history. No DDL/DML, SET ROLE or customer records.
@@ -10,7 +11,8 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
     ('login_tenant_index',      false,true, true, false, true), -- intentionally non-RLS
     ('provisioning_jobs',       true, true, true, true,  false),
     ('provisioning_job_steps',  true, true, true, true,  false),
-    ('subscription_commands',   true, true, true, false, false)
+    ('subscription_commands',   true, true, true, false, false),
+    ('service_callback_replay', true, true, true, false, true)  -- P0 V20261111_1
 ), table_probe AS (
   SELECT
     d.table_name,
@@ -61,6 +63,18 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
         AND NOT pg_has_role(runtime.oid, migrator.oid, 'MEMBER')),
     'sanad cannot inherit dedicated migrator membership'
   UNION ALL
+  SELECT 'ROLE:sanad_callback_replay_cleanup',
+    (SELECT COUNT(*)=1 FROM pg_roles WHERE rolname='sanad_callback_replay_cleanup'
+       AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole),
+    'dedicated expired-row cleanup role NOLOGIN; no superuser/bypassrls/createdb/createrole'
+  UNION ALL
+  SELECT 'ROLE:cleanup_membership_set_only',
+    (SELECT pg_has_role('sanad','sanad_callback_replay_cleanup','MEMBER')
+       AND NOT pg_has_role('sanad','sanad_callback_replay_cleanup','USAGE')
+       AND pg_has_role('sanad','sanad_callback_replay_cleanup','SET')
+       AND NOT pg_has_role('sanad_callback_replay_cleanup','sanad','MEMBER')),
+    'sanad holds the cleanup role NON-INHERITING (SET-only); no escalation path'
+  UNION ALL
   SELECT 'ACL:schema_and_flyway',
     NOT has_schema_privilege('sanad', 'public', 'CREATE')
       AND NOT has_table_privilege('sanad', 'public.flyway_schema_history', 'SELECT'),
@@ -68,8 +82,8 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
   UNION ALL
   SELECT 'FLYWAY:installed_head',
     (SELECT version FROM public.flyway_schema_history
-      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261107.1',
-    'expected=20261107.1; actual=' ||
+      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261111.1',
+    'expected=20261111.1; actual=' ||
       COALESCE((SELECT version FROM public.flyway_schema_history
         WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'NONE') ||
       '; latest successful VERSIONED migration (ignore later repeatable rows)'

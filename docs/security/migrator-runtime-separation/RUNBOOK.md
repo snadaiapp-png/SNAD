@@ -9,6 +9,7 @@
 |---|---|---|
 | `sanad_migrator` | CI provisioning SQL (auto), docker init `02-create-migrator-role.sh`, Supabase operator (§2) | NOLOGIN until the operator sets a password from the secret store |
 | `sanad` (runtime) | already exists (restricted contract enforced by V20261011_3 / V20261103_1) | yes |
+| `sanad_callback_replay_cleanup` | CI provisioning SQL (auto), docker init `02-create-migrator-role.sh`, Supabase operator (§2c) — dedicated expired-row cleanup role for `service_callback_replay` (V20261111_1) | NOLOGIN (structural — never gets a password) |
 | bootstrap admin (`postgres`) | platform | yes — maintenance only |
 
 ## 2. Production (Supabase `tkbrvupemreqabwzdpyq`) — one-time separation setup
@@ -101,6 +102,41 @@ fail-closed):
   run the `GRANT` statements from the owner context (`SET ROLE
   sanad_migrator` as the bootstrap admin).
 
+### 2c. Callback-replay cleanup role (`sanad_callback_replay_cleanup`) — required by V20261111_1
+
+The P0 RLS closure of `public.service_callback_replay` requires a dedicated
+least-privilege role so the hourly expired-row sweep
+(`CallbackReplayStore.deleteExpired`) never needs standing cross-tenant
+privileges for the runtime identity. Provision it in the same one-time admin
+session (BEFORE running the migration that includes V20261111_1):
+
+```sql
+DO $do$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_callback_replay_cleanup') THEN
+    CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+END $do$;
+-- SET-only membership: the runtime identity may SET ROLE to the cleanup role
+-- inside the sweep's own transaction, but must NEVER inherit its
+-- cross-tenant expired-row visibility (policy role matching follows
+-- inheritance rules, so a NON-INHERITING membership keeps the cleanup
+-- policies inapplicable to `sanad` itself).
+GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+```
+
+The table grants (`SELECT`+`DELETE` only) and the expiry-bounded policies are
+created by V20261111_1 itself and verified fail-closed by the migration's
+own postconditions plus
+`tests/security/callback-replay-rls/run-rls-cert.sh` (isolated PG17).
+Verified contract (fail closed on any deviation):
+
+```sql
+SELECT pg_has_role('sanad','sanad_callback_replay_cleanup','MEMBER');  -- t
+SELECT pg_has_role('sanad','sanad_callback_replay_cleanup','USAGE');  -- f (non-inheriting)
+SELECT pg_has_role('sanad','sanad_callback_replay_cleanup','SET');     -- t (SET-only)
+SELECT pg_has_role('sanad_callback_replay_cleanup','sanad','MEMBER'); -- f (no escalation)
+```
+
 Finally verify the runtime contract (fail closed if violated):
 
 ```sql
@@ -173,7 +209,14 @@ SELECT pg_get_userbyid(relowner) FROM pg_class
 SELECT has_schema_privilege('sanad','public','CREATE');  -- f
 SELECT has_table_privilege('sanad','public.flyway_schema_history','SELECT'); -- f
 SELECT has_table_privilege('sanad','public.subscription_commands','UPDATE'); -- f
+SELECT has_table_privilege('sanad','public.service_callback_replay','UPDATE'); -- f
 SELECT pg_has_role('sanad','sanad_migrator','MEMBER');   -- f
+-- P0 callback-replay RLS closure (V20261111_1)
+SELECT relrowsecurity, relforcerowsecurity FROM pg_class
+ WHERE oid='public.service_callback_replay'::regclass;  -- t | t
+SELECT policyname, cmd FROM pg_policies
+ WHERE schemaname='public' AND tablename='service_callback_replay'
+ ORDER BY policyname;  -- exactly 5 (3 tenant TO PUBLIC, 2 expired-bounded TO cleanup)
 ```
 
 ## 7. Rollback / recovery

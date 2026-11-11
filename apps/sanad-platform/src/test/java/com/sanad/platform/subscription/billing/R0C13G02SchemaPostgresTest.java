@@ -132,7 +132,11 @@ class R0C13G02SchemaPostgresTest {
             // V20261103_1 + V20261103_2 (P0 final remediation, Issue #1462 Article 3)
             // close with the dedicated sanad_migrator role contract and the
             // topology-gated ownership transfer + runtime ACL matrix (F-01 closed).
-            assertThat(rs.getString(1)).isEqualTo("20261107.1");
+            // V20261107_1 (PR #1486) heads the chain with the subscription child FK
+            // NO ACTION alignment; V20261111_1 (P0 service_callback_replay RLS
+            // closure) heads the chain with ENABLE+FORCE RLS, the fail-closed
+            // tenant policies and the dedicated expired-row cleanup role.
+            assertThat(rs.getString(1)).isEqualTo("20261111.1");
         }
     }
 

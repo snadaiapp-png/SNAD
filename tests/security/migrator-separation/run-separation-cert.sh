@@ -48,7 +48,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261107.1"
+EXPECTED_HEAD="20261111.1"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -181,6 +181,15 @@ admin postgres postgres "DO \$\$ BEGIN
     CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
 END \$\$;" >/dev/null || die S0 "role provisioning failed"
+
+# P0 V20261111_1: dedicated expired-row cleanup role + NON-INHERITING (SET-only)
+# membership for the runtime identity — the chain requires it cluster-wide.
+admin postgres postgres "DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_callback_replay_cleanup') THEN
+    CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+END \$\$;" >/dev/null || die S0 "cleanup role provisioning failed"
+admin postgres postgres "GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE" >/dev/null || die S0 "cleanup role membership failed"
 admin_secret "ALTER ROLE sanad_migrator PASSWORD '$SEP_MIG_PW';" || die S0 "migrator password"
 admin postgres postgres "ALTER ROLE sanad_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS" >/dev/null || die S0 "migrator contract"
 admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS" >/dev/null || die S0 "runtime contract"
