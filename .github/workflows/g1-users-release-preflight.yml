@@ -1,0 +1,44 @@
+# Synthetic source-only preflight for Users release. No production secrets or deployments.
+name: G1 Users Release Security Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/users-production-release.yml
+      - .github/workflows/g1-users-release-preflight.yml
+      - tests/ci/test_g1_users_release_preflight.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-users-release-guard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-preflight:
+    name: Users release Flyway and dispatch-input safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute regression tests without production access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/ci -p 'test_g1_users_release_preflight.py' -v
+      - name: Evidence scope
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Users production release security preflight'
+            echo "- Source SHA: $GITHUB_SHA"
+            echo '- Read-only source test; no production environment/secret/DB/deployment access'
+            echo '- This workflow is NOT a G1 security certification, CAB approval or production authorization'
+          } >> "$GITHUB_STEP_SUMMARY"
