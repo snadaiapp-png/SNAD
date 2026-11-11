@@ -49,7 +49,14 @@ TENANT_EXISTS=$(PGOPTIONS='-c default_transaction_read_only=on' PGPASSWORD="$DAT
   exit 1
 }
 
-ADMIN_EXISTS=$(PGOPTIONS='-c default_transaction_read_only=on' PGPASSWORD="$DATABASE_PASSWORD" psql \
+# The roles table is tenant-owned and carries fail-closed RLS
+# (V20261029_1: USING/WITH CHECK tenant_id = current_setting('app.tenant_id')).
+# A raw runtime-role query without the tenant GUC is default-denied and would
+# report a healthy ACTIVE ADMIN role as missing (observed on the first
+# post-migration release attempt, run 42945339351). Bind the control-plane
+# tenant context for this read-only verification, exactly as the application
+# does per request.
+ADMIN_EXISTS=$(PGOPTIONS="-c default_transaction_read_only=on -c app.tenant_id=${CONTROL_PLANE_TENANT_ID}" PGPASSWORD="$DATABASE_PASSWORD" psql \
   -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
   --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
   --command="SELECT COUNT(*) FROM roles WHERE tenant_id = '${CONTROL_PLANE_TENANT_ID}' AND code = 'ADMIN' AND status = 'ACTIVE';")
