@@ -1,24 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# G1: read-only Flyway audit role. Never borrow the live Backend
-# runtime role (sanad) or the privileged migration role (sanad_migrator).
-# Required credentials come exclusively from protected release secrets;
-# there is deliberately no fallback to Render DATABASE_* variables.
-: "${FLYWAY_AUDIT_JDBC_URL:?FLYWAY_AUDIT_JDBC_URL is required}"
-: "${FLYWAY_AUDIT_USERNAME:?FLYWAY_AUDIT_USERNAME is required}"
-: "${FLYWAY_AUDIT_PASSWORD:?FLYWAY_AUDIT_PASSWORD is required}"
+# G1 P0 (Issue #1462, CAB 2026-11-10 §C): this production Flyway audit must
+# run as the separately governed READ-ONLY audit identity
+# (sanad_release_auditor), NOT as the backend runtime credentials. In the
+# separated migrator/runtime topology the runtime role `sanad` holds NO
+# privilege on flyway_schema_history (V20261103_2 §1.4/§4.5), so an audit
+# over runtime credentials is intentionally fail-closed. The audit identity
+# is provisioned per docs/security/migrator-runtime-separation/RUNBOOK.md §2b
+# and its credentials are supplied ONLY through these environment variables
+# (GitHub Production environment secrets); never regrant Flyway history
+# SELECT to the runtime role to satisfy this gate. There is deliberately no
+# fallback to Render DATABASE_* variables and no Render API access at all.
+: "${AUDIT_DATABASE_URL:?AUDIT_DATABASE_URL is required (read-only release audit identity, RUNBOOK §2b)}"
+: "${AUDIT_DATABASE_USERNAME:?AUDIT_DATABASE_USERNAME is required (read-only release audit identity)}"
+: "${AUDIT_DATABASE_PASSWORD:?AUDIT_DATABASE_PASSWORD is required (read-only release audit identity)}"
 
-if [[ "$FLYWAY_AUDIT_USERNAME" != "sanad_release_auditor" ]]; then
-  echo "::error::FLYWAY_AUDIT_USERNAME must equal sanad_release_auditor (runtime/migrator identities forbidden)" >&2
+# Identity pinning (fail closed): exactly the dedicated read-only audit role,
+# either bare or with the Supabase pooler project suffix (session-mode
+# routing requires the suffix; the pooler strips it and PostgreSQL sees
+# exactly sanad_release_auditor, which the connected-role assertion below
+# enforces as the authoritative identity gate). Runtime, migrator and admin
+# identities are refused in both forms.
+if [ "${AUDIT_DATABASE_USERNAME}" != "sanad_release_auditor" ] && \
+   [ "${AUDIT_DATABASE_USERNAME}" != "sanad_release_auditor.tkbrvupemreqabwzdpyq" ]; then
+  echo "::error::AUDIT_DATABASE_USERNAME must be the dedicated read-only audit identity sanad_release_auditor, bare or Supabase-pooler-suffixed; runtime/migrator/admin identities are forbidden (got '${AUDIT_DATABASE_USERNAME}')" >&2
   exit 1
 fi
 
 # libpq URI, not CLI credentials: forbid embedded user/password and
 # libpq overrides that could switch authenticated identities.
-AUDIT_URI="${FLYWAY_AUDIT_JDBC_URL#jdbc:}"
+AUDIT_URI="${AUDIT_DATABASE_URL#jdbc:}"
 if [[ "$AUDIT_URI" != postgresql://* || "$AUDIT_URI" == *"@"* || "$AUDIT_URI" =~ [\?\&](user|password|options|service|host|dbname)= ]]; then
-  echo "::error::Invalid audit JDBC URL: require postgresql:// URI without embedded credentials or identity overrides" >&2
+  echo "::error::Invalid audit database URL: require postgresql:// URI without embedded credentials or identity overrides" >&2
   exit 1
 fi
 
@@ -26,10 +40,12 @@ cleanup() { rm -f /tmp/flyway-history.tsv /tmp/flyway-failures.txt /tmp/flyway-d
 trap cleanup EXIT
 
 run_sql() {
-  PGPASSWORD="$FLYWAY_AUDIT_PASSWORD" PGSSLMODE="${PGSSLMODE:-require}" psql \
-    --dbname="$AUDIT_URI" --username="$FLYWAY_AUDIT_USERNAME" \
+  PGPASSWORD="$AUDIT_DATABASE_PASSWORD" PGSSLMODE="${PGSSLMODE:-require}" psql \
+    --dbname="$AUDIT_URI" --username="$AUDIT_DATABASE_USERNAME" \
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="$1"
 }
+
+echo "Connecting as read-only audit identity: user=$AUDIT_DATABASE_USERNAME (pooler-suffixed forms resolve to sanad_release_auditor)"
 
 # Verify the *actual* connected role, forbidden privilege/membership
 # escalations and read-only access before querying Flyway history.
@@ -120,8 +136,8 @@ REPO_MAX_VERSION=$(
 REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
 # Ledger head MUST be derived by application order (installed_rank DESC), NOT
 # by max(version): `version` is VARCHAR, so a SQL max() is a lexicographic
-# maximum — the canonical ledger contains legacy numeric versions ("9", "14",
-# "15") which sort ABOVE every "2026..." version, making a text max() report
+# maximum — the canonical production ledger contains legacy numeric versions ("9",
+# "14", "15") which sort ABOVE every "2026..." version, making a text max() report
 # the ledger head as "9" (production release 34291484570 failed exactly this
 # way). installed_rank ordering is how Flyway itself defines the applied head;
 # repeatable migrations carry version IS NULL and are excluded like DELETE
@@ -152,6 +168,10 @@ require_y2_table "workflow_event_outbox"
 require_y2_table "workflow_event_inbox"
 
 # (c) Workflow Y2 sentinels — definition graph metadata column.
+#     Read from pg_catalog (world-readable) instead of information_schema
+#     columns so the read-only audit identity needs NO privilege on the
+#     workflow_definitions business table itself. attnum > 0 excludes
+#     system columns; NOT attisdropped excludes dropped ones.
 DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'workflow_definitions' AND a.attname = 'definition_family_id' AND a.attnum > 0 AND NOT a.attisdropped;")
 [ "${DEF_FAMILY// /}" = "1" ] || { echo "::error::Y2 sentinel column absent: workflow_definitions.definition_family_id"; exit 1; }
 echo "Y2 SENTINEL COLUMN workflow_definitions.definition_family_id: PASS"

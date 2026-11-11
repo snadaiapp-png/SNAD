@@ -9,9 +9,9 @@ version="$(sudo -u postgres psql -X -At -d postgres -c 'SHOW server_version;')"
 [[ "$version" == 17.* ]] || { echo "BLOCKED: expected PG17, got $version"; exit 1; }
 echo "ISOLATED_POSTGRES_VERSION=$version"
 audit_pw="$(openssl rand -hex 24)"
-export FLYWAY_AUDIT_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/g1_auditor_cert?sslmode=disable'
-export FLYWAY_AUDIT_USERNAME=sanad_release_auditor
-export FLYWAY_AUDIT_PASSWORD="$audit_pw"
+export AUDIT_DATABASE_URL='jdbc:postgresql://127.0.0.1:5432/g1_auditor_cert?sslmode=disable'
+export AUDIT_DATABASE_USERNAME=sanad_release_auditor
+export AUDIT_DATABASE_PASSWORD="$audit_pw"
 export PGSSLMODE=disable
 umask 077
 sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d postgres >/dev/null <<SQL

@@ -4,9 +4,15 @@ name: Database Migration Production (Migrator Identity)
 # SANAD P0 (Issue #1462) — PROTECTED production migration path.
 #
 # G2-C hardened contract — EVERY condition fails closed:
-#  * IDENTITY    — the connection must be EXACTLY `sanad_migrator`
-#                  (secrets PROD_FLYWAY_MIGRATOR_USER / _PASSWORD);
-#                  `postgres` and the runtime role are refused.
+#  * IDENTITY    — the connection must be the dedicated migrator identity
+#                  `sanad_migrator` (secrets PROD_FLYWAY_MIGRATOR_USER /
+#                  _PASSWORD), supplied either as the bare role name or with
+#                  the Supabase pooler project suffix
+#                  `sanad_migrator.tkbrvupemreqabwzdpyq` (session-mode
+#                  routing requires the suffix; the pooler strips it and
+#                  PostgreSQL sees exactly `sanad_migrator`, which the
+#                  catalog pre-flight asserts). `postgres` and the runtime
+#                  role are refused in both forms.
 #  * SECRETS     — Flyway credentials reach the CLI ONLY through
 #                  environment variables (FLYWAY_URL / FLYWAY_USER /
 #                  FLYWAY_PASSWORD); never as CLI arguments
@@ -44,6 +50,10 @@ on:
         description: "Expected Flyway chain head after migration (e.g. 20261103.3)"
         required: true
         default: ""
+      confirm_topology:
+        description: "Type 'separated' to declare the target topology (Supabase blocks persistent custom GUCs; the declaration rides with this authorized dispatch)"
+        required: true
+        default: ""
 
 permissions:
   contents: read
@@ -64,6 +74,12 @@ jobs:
       FLYWAY_URL: ${{ secrets.PROD_JDBC_URL }}
       FLYWAY_USER: ${{ secrets.PROD_FLYWAY_MIGRATOR_USER }}
       FLYWAY_PASSWORD: ${{ secrets.PROD_FLYWAY_MIGRATOR_PASSWORD }}
+      # Supabase (PG17) blocks persistent custom GUCs (ALTER DATABASE/ROLE SET
+      # are denied for placeholder parameters), and the session pooler strips
+      # startup `options`. The admin's topology declaration therefore rides
+      # with this authorized dispatch: the typed confirm_topology input maps
+      # to this session-level SET, applied to every Flyway connection.
+      FLYWAY_INIT_SQL: "SET sanad.deployment_topology = 'separated'"
       FLYWAY_LOCATIONS: filesystem:apps/sanad-platform/src/main/resources/db/migration,filesystem:apps/sanad-platform/src/main/resources/db/vendor/postgresql
       FLYWAY_VALIDATE_ON_MIGRATE: "true"
       FLYWAY_CONNECT_RETRIES: "5"
@@ -76,6 +92,10 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event.inputs.confirm }}" != "migrate-as-migrator" ]; then
             echo "::error::typed confirmation missing"
+            exit 1
+          fi
+          if [ "${{ github.event.inputs.confirm_topology }}" != "separated" ]; then
+            echo "::error::typed topology confirmation missing (expected 'separated') — the production run requires the separated migrator/runtime topology"
             exit 1
           fi
           APPROVED="${{ github.event.inputs.approved_sha }}"
@@ -123,11 +143,11 @@ jobs:
             echo "::error::PROD_FLYWAY_MIGRATOR_PASSWORD is not provisioned — provision it per docs/security/migrator-runtime-separation/RUNBOOK.md §2 before dispatching"
             exit 1
           fi
-          if [ "${FLYWAY_USER:-}" != "sanad_migrator" ]; then
-            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be exactly 'sanad_migrator' (got '${FLYWAY_USER:-unset}')"
+          if [ "${FLYWAY_USER:-}" != "sanad_migrator" ] && [ "${FLYWAY_USER:-}" != "sanad_migrator.tkbrvupemreqabwzdpyq" ]; then
+            echo "::error::PROD_FLYWAY_MIGRATOR_USER must be the dedicated migrator identity, either bare 'sanad_migrator' or with the Supabase pooler project suffix 'sanad_migrator.tkbrvupemreqabwzdpyq' (got '${FLYWAY_USER:-unset}')"
             exit 1
           fi
-          echo "pre-flight: migrator identity pinned to sanad_migrator (exact match, fail closed)"
+          echo "pre-flight: migrator identity pinned to sanad_migrator (bare or pooler-suffixed form; the database-side current_user assertion below is the authoritative identity gate)"
 
       - name: "Pre-flight — catalog assertions (identity, role contract, membership isolation, separated topology — fail closed)"
         shell: bash
@@ -137,7 +157,11 @@ jobs:
         run: |
           set -euo pipefail
           PSQL_URL="${FLYWAY_URL/jdbc:postgresql:/postgresql:}"
+          # The topology declaration rides with this authorized dispatch
+          # (Supabase blocks ALTER DATABASE/ROLE SET for placeholder GUCs —
+          #  verified 2026-11-11 — and the pooler strips startup options).
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -X <<'SQL'
+          SET sanad.deployment_topology = 'separated';
           DO $check$
           DECLARE
               v_superuser  BOOLEAN;
@@ -228,7 +252,9 @@ jobs:
         run: |
           set -euo pipefail
           PSQL_URL="${FLYWAY_URL/jdbc:postgresql:/postgresql:}"
+          # Same session-level topology declaration as the pre-flight.
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -X <<'SQL'
+          SET sanad.deployment_topology = 'separated';
           DO $check$
           DECLARE
               v_bad   TEXT;

@@ -41,13 +41,21 @@ jobs:
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CANONICAL_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
+      # G1 read-only release audit identity (CAB 2026-11-10 §C): separately
+      # governed Production environment secrets for the Flyway audit;
+      # scripts/production/verify-flyway.sh rejects the runtime/migrator/admin
+      # roles and never reads Flyway history with backend runtime credentials.
+      AUDIT_DATABASE_URL: ${{ secrets.PROD_RELEASE_AUDIT_URL }}
+      AUDIT_DATABASE_USERNAME: ${{ secrets.PROD_RELEASE_AUDIT_USER }}
+      AUDIT_DATABASE_PASSWORD: ${{ secrets.PROD_RELEASE_AUDIT_PASSWORD }}
 
     steps:
       - name: Validate protected Users release inputs
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL CANONICAL_OWNER_PASSWORD; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL CANONICAL_OWNER_PASSWORD \
+            AUDIT_DATABASE_URL AUDIT_DATABASE_USERNAME AUDIT_DATABASE_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           GOVERNANCE_SHA='${{ inputs.governance_sha }}'

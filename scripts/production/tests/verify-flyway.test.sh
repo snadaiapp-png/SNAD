@@ -21,11 +21,19 @@ set -euo pipefail
 #   1. ledger with legacy "9"/"14"/"15" rows + rank head == repo head → PASS
 #   2. rank head strictly older than repo head  → MUST FAIL (pending guard kept)
 #   3. rank head strictly newer than repo head  → MUST FAIL (drift guard kept)
+#   4. only the dedicated read-only audit identity (bare or Supabase
+#      pooler-suffixed) may connect; every runtime/migrator/admin form is
+#      rejected, the connected-role/ACL contract is enforced and the audit
+#      password must never fall back to runtime credentials.
 #
-# The harness runs the REAL verify-flyway.sh against stub `curl`/`psql`
-# executables that emulate the exact PostgreSQL semantics of each query shape
+# The harness runs the REAL verify-flyway.sh against a stub `psql`
+# executable that emulates the exact PostgreSQL semantics of each query shape
 # (text max for max(version), application-order for installed_rank DESC).
-# No production access.
+# A stub `curl` FAILS the run if the verifier ever calls the Render API.
+# No production access; all credentials are ephemeral (`openssl rand`) so
+# nothing here can trip the secret scanner or leak a real secret.
+# Run from the repository root (the script derives REPO_MAX_VERSION from the
+# checkout's migration locations).
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/verify-flyway.sh"
 
@@ -42,11 +50,13 @@ STUB_BIN="$WORK/bin"
 mkdir -p "$STUB_BIN"
 
 # ---------------------------------------------------------------------------
-# Stub curl — serves a fixed Render env-vars payload.
+# Stub curl — protected audit connection fixture: the verifier MUST NOT call
+# the Render API. Any invocation fails the run loudly.
 # ---------------------------------------------------------------------------
 cat > "$STUB_BIN/curl" << 'EOF'
 #!/usr/bin/env bash
-cat "${CURL_FIXTURE:?}"
+echo "ERROR: unexpected Render API access" >&2
+exit 99
 EOF
 chmod +x "$STUB_BIN/curl"
 
@@ -114,24 +124,18 @@ esac
 EOF
 chmod +x "$STUB_BIN/psql"
 
-# Protected audit connection fixture: the verifier MUST NOT call the Render API.
-# Stub curl exits nonzero if unexpectedly called in the new implementation.
-cat > "$STUB_BIN/curl" << 'EOF'
-#!/usr/bin/env bash
-echo "ERROR: unexpected Render API access" >&2
-exit 99
-EOF
-chmod +x "$STUB_BIN/curl"
+# Legacy numeric rows are part of the canonical production ledger (see
+# installed_rank 9/14/15 in the real ledger) — every scenario includes them.
 export STUB_LEDGER_VERSIONS="9 14 15 20260702.1 20260702.2 20260702.3 20260904.1"
 
 run_verify() {
   local scenario_head="$1"
   export STUB_DB_RANK_HEAD="$scenario_head"
-  export FLYWAY_AUDIT_JDBC_URL="${STUB_OVERRIDE_URL:-jdbc:postgresql://stubhost:5432/stubdb?sslmode=require}"
-  export FLYWAY_AUDIT_USERNAME="${STUB_OVERRIDE_USERNAME:-sanad_release_auditor}"
-  export FLYWAY_AUDIT_PASSWORD="$(openssl rand -hex 24)"
+  export AUDIT_DATABASE_URL="${STUB_OVERRIDE_URL:-jdbc:postgresql://stubhost:5432/stubdb?sslmode=require}"
+  export AUDIT_DATABASE_USERNAME="${STUB_OVERRIDE_USERNAME:-sanad_release_auditor}"
+  export AUDIT_DATABASE_PASSWORD="$(openssl rand -hex 24)"
   export PATH="$STUB_BIN:$PATH"
-  if [[ "${STUB_UNSET_PASSWORD:-0}" == "1" ]]; then unset FLYWAY_AUDIT_PASSWORD; fi
+  if [[ "${STUB_UNSET_PASSWORD:-0}" == "1" ]]; then unset AUDIT_DATABASE_PASSWORD; fi
   bash "$SCRIPT_UNDER_TEST"
 }
 
@@ -182,11 +186,20 @@ assert_fail_with "rank head older than repo head still fails (pending guard)" \
 assert_fail_with "rank head newer than repo head still fails (drift guard)" \
   "20261108.1" "Schema drift"
 
-# 4. Role alias, runtime and migration identities must be rejected.
-for forbidden in sanad sanad_migrator postgres; do
+# 4. Runtime, migrator and admin identities must be rejected in EVERY form
+#    (bare and Supabase pooler-suffixed).
+for forbidden in sanad sanad_migrator postgres supabase_admin service_role \
+  sanad.tkbrvupemreqabwzdpyq sanad_migrator.tkbrvupemreqabwzdpyq postgres.tkbrvupemreqabwzdpyq; do
   export STUB_OVERRIDE_USERNAME="$forbidden"
-  assert_fail_with "forbidden audit identity $forbidden" "20261107.1" "must equal sanad_release_auditor"
+  assert_fail_with "forbidden audit identity $forbidden" "20261107.1" "must be the dedicated read-only audit identity"
 done
+unset STUB_OVERRIDE_USERNAME
+
+# 4b. The Supabase session pooler connects with the project-suffixed form;
+#     the pooler strips it and current_user is sanad_release_auditor (which
+#     the connected-role assertion inside the script enforces).
+export STUB_OVERRIDE_USERNAME="sanad_release_auditor.tkbrvupemreqabwzdpyq"
+assert_pass "pooler-suffixed audit username accepted" "20261107.1"
 unset STUB_OVERRIDE_USERNAME
 
 # 5. Authenticated identity must match the permitted role (even when the
@@ -203,7 +216,7 @@ unset STUB_ACTUAL_ACL
 
 # 7. No silent fallback to the Render runtime password.
 export STUB_UNSET_PASSWORD=1
-assert_fail_with "missing independent audit password fails" "20261107.1" "FLYWAY_AUDIT_PASSWORD is required"
+assert_fail_with "missing independent audit password fails" "20261107.1" "AUDIT_DATABASE_PASSWORD is required"
 unset STUB_UNSET_PASSWORD
 
 # 8. Connection string may not embed or override database credentials.
@@ -212,7 +225,13 @@ url_scheme="jdbc:postgresql://"
 auth_fragment="sanad:${generated_pw}@"
 export STUB_OVERRIDE_URL="${url_scheme}${auth_fragment}stubhost:5432/stubdb"
 unset generated_pw url_scheme auth_fragment
-assert_fail_with "embedded runtime connection credentials rejected" "20261107.1" "Invalid audit JDBC URL"
+assert_fail_with "embedded runtime connection credentials rejected" "20261107.1" "Invalid audit database URL"
+unset STUB_OVERRIDE_URL
+
+# 8b. URI parameters that could switch the authenticated identity are
+#     rejected even without an embedded userinfo fragment.
+export STUB_OVERRIDE_URL="jdbc:postgresql://stubhost:5432/stubdb?user=postgres"
+assert_fail_with "identity-overriding URI parameter rejected" "20261107.1" "Invalid audit database URL"
 unset STUB_OVERRIDE_URL
 
 # 9. Never approve a failed Flyway migration or missing SQL checksum.

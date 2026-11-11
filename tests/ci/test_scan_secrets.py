@@ -302,7 +302,7 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
         ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 301),
         ("generic-password", ".github/workflows/show-admin-email.yml", 45),
         ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 42),
-        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 52),
+        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 59),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 56),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 61),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 93),

@@ -47,9 +47,15 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REQUESTED_RELEASE_SHA: ${{ inputs.commit_sha }}
       CAB_CHANGE_TICKET: ${{ inputs.change_ticket }}
-      FLYWAY_AUDIT_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
-      FLYWAY_AUDIT_USERNAME: ${{ secrets.PROD_FLYWAY_AUDIT_USER }}
-      FLYWAY_AUDIT_PASSWORD: ${{ secrets.PROD_FLYWAY_AUDIT_PASSWORD }}
+      # G1 read-only release audit identity (CAB 2026-11-10 §C): separately
+      # governed Production environment secrets for the Flyway audit;
+      # scripts/production/verify-flyway.sh pins the identity to
+      # sanad_release_auditor (bare or Supabase-pooler-suffixed), validates the
+      # connection URI against embedded credentials/identity overrides and
+      # never reads Flyway history with backend runtime credentials.
+      AUDIT_DATABASE_URL: ${{ secrets.PROD_RELEASE_AUDIT_URL }}
+      AUDIT_DATABASE_USERNAME: ${{ secrets.PROD_RELEASE_AUDIT_USER }}
+      AUDIT_DATABASE_PASSWORD: ${{ secrets.PROD_RELEASE_AUDIT_PASSWORD }}
       # Dedicated production-only G2 identities. These are role-scoped QA
       # principals; never substitute Control Plane or Tenant B admin credentials.
       E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
@@ -64,6 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL \
+            AUDIT_DATABASE_URL AUDIT_DATABASE_USERNAME AUDIT_DATABASE_PASSWORD \
             E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD \
             E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD \
             E2E_HR_EMAIL E2E_HR_PASSWORD; do

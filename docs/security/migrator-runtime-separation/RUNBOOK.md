@@ -28,16 +28,47 @@ END $do$;
 --     Run the file scripts/ops/migrator-separation/transfer-ownership-to-migrator.sql
 --     (it also transfers schema public and flyway_schema_history).
 
+-- (b-pre) Supabase-specific bootstrap order (empirically verified on the
+--     isolated DR project 2026-11-11; the GitHub-runner rehearsal runs as
+--     superuser and does not exercise these platform constraints):
+--
+--     The Supabase SQL-editor identity (`postgres`) is NOSUPERUSER (CREATEROLE,
+--     database owner; schema public is owned by `pg_database_owner`), so BEFORE
+--     any ALTER ... OWNER TO sanad_migrator can succeed it needs:
+GRANT sanad_migrator TO postgres;                       -- membership for ALTER OWNER
+GRANT USAGE, CREATE ON SCHEMA public TO sanad_migrator; -- new owner needs CREATE to receive tables
+--     (CREATE becomes implicit once the schema ownership transfers to the
+--      migrator; the grant is idempotent and only bridges the pre-transfer
+--      ALTER statements inside the transfer script.)
+
 -- (c) declare the target topology for the production database.
---     On Supabase the production database is named `postgres`
---     (verified read-only 2026-11-03: current_database() = postgres).
-ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
+--     PLATFORM CONSTRAINT (verified 2026-11-11 on Supabase PG 17.6):
+--     `ALTER DATABASE ... SET sanad.deployment_topology` and
+--     `ALTER ROLE ... SET sanad.deployment_topology` are DENIED for
+--     placeholder/custom GUCs (parameter privilege wall; GRANT SET ON
+--     PARAMETER is likewise superuser-only and unavailable), and the
+--     session pooler strips startup `options`. The topology declaration
+--     therefore rides with the authorized migrator dispatch instead:
+--     the `confirm_topology='separated'` typed input of the protected
+--     workflow maps to a session-level SET (FLYWAY_INIT_SQL for every
+--     Flyway connection + the pre/post-flight psql sessions). The
+--     original ALTER DATABASE form below remains valid on self-hosted /
+--     vanilla PostgreSQL where the migration chain is provisioned by a
+--     superuser:
+--     ALTER DATABASE postgres SET sanad.deployment_topology = 'separated';
 ```
 
 Then store the migrator credentials **only** in the GitHub secret store:
 
-* `PROD_FLYWAY_MIGRATOR_USER` = `sanad_migrator`
+* `PROD_FLYWAY_MIGRATOR_USER` = `sanad_migrator.tkbrvupemreqabwzdpyq`
+  (Supabase session-mode pooler form; the pooler strips the `.tkbrvupemreqabwzdpyq`
+  suffix and PostgreSQL sees exactly `sanad_migrator`, which the workflow's
+  `current_user` assertion enforces. The bare form `sanad_migrator` is accepted
+  by the workflow only for non-pooler connection paths, which the Supabase
+  platform does not offer to IPv4-only GitHub runners — the direct
+  `db.<ref>.supabase.co:5432` endpoint resolves IPv6-only.)
 * `PROD_FLYWAY_MIGRATOR_PASSWORD` = a long random secret
+* `PROD_JDBC_URL` = `jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require`
 
 and enable LOGIN with that password:
 
@@ -45,6 +76,30 @@ and enable LOGIN with that password:
 -- Use the privileged psql provisioning session and its protected variable:
 SELECT format('ALTER ROLE sanad_migrator LOGIN PASSWORD %L', :'migrator_secret') \gexec
 ```
+
+### 2b. Read-only release audit identity (`sanad_release_auditor`) — required by the production release gate
+
+The canonical production release workflow audits Flyway through a separately
+governed READ-ONLY identity (CAB 2026-11-10 §C); the runtime role must never
+regain `flyway_schema_history` access. Provision it in the same one-time admin
+session, BEFORE the ownership transfer (run
+`scripts/ops/migrator-separation/provision-release-auditor.sql`, which
+creates the role, grants the exact least-privilege set and verifies it
+fail-closed):
+
+* role `sanad_release_auditor`: `NOLOGIN` until the operator sets the password;
+  `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`;
+* exact privileges: `USAGE` on schema `public`, `SELECT` on
+  `flyway_schema_history` and `access_capabilities` (Y2 sentinel rows);
+* store in the GitHub **Production** environment secret store:
+  `PROD_RELEASE_AUDIT_USER` = `sanad_release_auditor`,
+  `PROD_RELEASE_AUDIT_PASSWORD` = a long random secret,
+  `PROD_RELEASE_AUDIT_URL` = production database URL;
+* enable LOGIN with that password via the operator's governed channel (the
+  provisioning script documents the `\gexec` pattern);
+* if the grants must be re-asserted AFTER the migrator ownership transfer,
+  run the `GRANT` statements from the owner context (`SET ROLE
+  sanad_migrator` as the bootstrap admin).
 
 Finally verify the runtime contract (fail closed if violated):
 
