@@ -118,8 +118,10 @@ describe("Provisioning — retry gating (Blocker F)", () => {
         <ProvisioningPage />
       </ScpAccessProvider>,
     );
-    await settle();
-    const retry = screen.getByRole("button", { name: "scp.provisioning.retry" });
+    // Wait for both asynchronous job loading and backend capability resolution.
+    // A synchronous query can race the fail-closed access-check and report a
+    // false failure even though the authorized control appears on the next render.
+    const retry = await screen.findByRole("button", { name: "scp.provisioning.retry" });
     expect(retry).toBeEnabled();
   });
 
