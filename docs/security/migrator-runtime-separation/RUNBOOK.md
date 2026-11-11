@@ -178,6 +178,12 @@ never runs migrations and never needs DDL privileges. Deploy order:
 
 * All CI provisioning blocks now create `sanad_migrator` (NOLOGIN,
   cluster-wide) so V20261103_1 passes in every topology.
+* The same holds for the P0 callback-replay cleanup role (§2c): every CI
+  provisioning block — the 27 workflows that provision the chain identities
+  and run the chain — creates `sanad_callback_replay_cleanup` and grants it
+  to `sanad` NON-INHERITING (SET-only), so V20261111_1 passes in every
+  topology (33 provisioning blocks verified executable on isolated PG 17.11,
+  PR #1509 evidence).
 * The CI scenario databases keep the documented `migration-fixture` topology
   (owner-as-runner) — required by the migration-mechanics tests
   (`flyway.clean()/migrate()` cycles in `MigrationTestSchemaSupport`

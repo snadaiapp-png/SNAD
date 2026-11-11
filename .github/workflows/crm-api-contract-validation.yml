@@ -154,6 +154,26 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
+          -- requires the dedicated expired-row cleanup role cluster-wide, with a
+          -- NON-INHERITING (SET-only) membership for the runtime identity — the
+          -- scheduled sweep switches to it inside its own transaction, but the
+          -- runtime must never inherit its cross-tenant expired-row visibility.
+          SELECT 'CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_callback_replay_cleanup')\gexec
+          ALTER ROLE sanad_callback_replay_cleanup NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+                             JOIN pg_roles g ON g.oid = m.roleid
+                             JOIN pg_roles r ON r.oid = m.member
+                            WHERE g.rolname = 'sanad_callback_replay_cleanup'
+                              AND r.rolname = 'sanad') THEN
+              GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+            END IF;
+          END $$;
+
           DO $guard$
           BEGIN
             IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN

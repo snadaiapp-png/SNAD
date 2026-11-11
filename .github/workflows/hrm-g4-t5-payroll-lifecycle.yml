@@ -51,6 +51,26 @@ jobs:
           SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS', :'sanad_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad WITH LOGIN PASSWORD :'sanad_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+
+          -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
+          -- requires the dedicated expired-row cleanup role cluster-wide, with a
+          -- NON-INHERITING (SET-only) membership for the runtime identity — the
+          -- scheduled sweep switches to it inside its own transaction, but the
+          -- runtime must never inherit its cross-tenant expired-row visibility.
+          SELECT 'CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_callback_replay_cleanup')\gexec
+          ALTER ROLE sanad_callback_replay_cleanup NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+                             JOIN pg_roles g ON g.oid = m.roleid
+                             JOIN pg_roles r ON r.oid = m.member
+                            WHERE g.rolname = 'sanad_callback_replay_cleanup'
+                              AND r.rolname = 'sanad') THEN
+              GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+            END IF;
+          END $$;
+
           SELECT 'role-ready';
           SQL
           sudo -u postgres dropdb --if-exists sanad
