@@ -273,7 +273,10 @@ jobs:
 
       - name: Install Playwright Chromium
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          node -e 'const { chromium } = require("playwright"); chromium.launch({ headless: true }).then(async b => { await b.close(); console.log("Chromium launch OK"); }).catch(e => { console.error(e); process.exit(1); });'
 
       - name: Build Next.js frontend
         working-directory: apps/web
