@@ -13,7 +13,7 @@ on:
         description: Redeploy and verify the previously live image if any Users production gate fails
         type: boolean
         required: true
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +48,9 @@ jobs:
       AUDIT_DATABASE_URL: ${{ secrets.PROD_RELEASE_AUDIT_URL }}
       AUDIT_DATABASE_USERNAME: ${{ secrets.PROD_RELEASE_AUDIT_USER }}
       AUDIT_DATABASE_PASSWORD: ${{ secrets.PROD_RELEASE_AUDIT_PASSWORD }}
+      # Untrusted dispatch values must not be expanded directly into shell source.
+      GOVERNANCE_SHA_INPUT: ${{ inputs.governance_sha }}
+      DEPLOYMENT_IMAGE_SHA_INPUT: ${{ inputs.deployment_image_sha }}
 
     steps:
       - name: Validate protected Users release inputs
@@ -58,8 +61,8 @@ jobs:
             AUDIT_DATABASE_URL AUDIT_DATABASE_USERNAME AUDIT_DATABASE_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
-          GOVERNANCE_SHA='${{ inputs.governance_sha }}'
-          DEPLOYMENT_IMAGE_SHA='${{ inputs.deployment_image_sha }}'
+          GOVERNANCE_SHA="$GOVERNANCE_SHA_INPUT"
+          DEPLOYMENT_IMAGE_SHA="$DEPLOYMENT_IMAGE_SHA_INPUT"
           [[ "$GOVERNANCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::governance_sha must be a full lowercase SHA"; exit 1; }
           [[ "$DEPLOYMENT_IMAGE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::deployment_image_sha must be a full lowercase SHA"; exit 1; }
           [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::PRODUCTION_BASE_URL must use HTTPS"; exit 1; }
@@ -70,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          GOVERNANCE_SHA='${{ inputs.governance_sha }}'
+          GOVERNANCE_SHA="$GOVERNANCE_SHA_INPUT"
           remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
           test "$remote_main" = "$GOVERNANCE_SHA" || {
             echo "::error::Requested governance SHA is not the current main head"
@@ -90,8 +93,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          GOVERNANCE_SHA='${{ inputs.governance_sha }}'
-          DEPLOYMENT_IMAGE_SHA='${{ inputs.deployment_image_sha }}'
+          GOVERNANCE_SHA="$GOVERNANCE_SHA_INPUT"
+          DEPLOYMENT_IMAGE_SHA="$DEPLOYMENT_IMAGE_SHA_INPUT"
           git cat-file -e "$DEPLOYMENT_IMAGE_SHA^{commit}"
           git merge-base --is-ancestor "$DEPLOYMENT_IMAGE_SHA" "$GOVERNANCE_SHA" || {
             echo "::error::deployment_image_sha is not an ancestor of governance_sha"
@@ -128,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DEPLOYMENT_IMAGE_SHA='${{ inputs.deployment_image_sha }}'
+          DEPLOYMENT_IMAGE_SHA="$DEPLOYMENT_IMAGE_SHA_INPUT"
           IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${DEPLOYMENT_IMAGE_SHA}"
           token=$(curl --fail-with-body --silent --show-error \
             --user "$GITHUB_ACTOR:$GITHUB_TOKEN" \
@@ -183,6 +186,38 @@ jobs:
       - name: Verify Control Plane tenant in production database
         shell: bash
         run: bash scripts/production/verify-control-plane-tenant.sh
+
+      - name: Preflight backend Flyway-disabled topology before Render mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/users-render-live-env.json
+          live_env() {
+            jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == $k) | .value // empty' --arg k "$1" /tmp/users-render-live-env.json
+          }
+          jq -e 'type == "array" and length < 100' /tmp/users-render-live-env.json >/dev/null || {
+            echo "::error::Render environment query incomplete or changed shape"
+            exit 1
+          }
+          FLYWAY_ENABLED_LIVE="$(live_env FLYWAY_ENABLED)"
+          FLYWAY_OUT_OF_ORDER_LIVE="$(live_env FLYWAY_OUT_OF_ORDER)"
+          test "$FLYWAY_ENABLED_LIVE" = "false" || {
+            echo "::error::FLYWAY_ENABLED must be false in separated-topology production; only sanad_migrator applies migrations"
+            exit 1
+          }
+          if [ -n "$FLYWAY_OUT_OF_ORDER_LIVE" ] && [ "$FLYWAY_OUT_OF_ORDER_LIVE" != "false" ]; then
+            echo "::error::FLYWAY_OUT_OF_ORDER must be false or unset in production"
+            exit 1
+          fi
+          echo "Flyway runtime invariants: PASS"
+
+      - name: Preflight production Flyway head and auditor privileges before Render mutation
+        shell: bash
+        run: bash scripts/production/verify-flyway.sh
 
       - name: Capture previous live image reference
         id: previous
@@ -264,34 +299,6 @@ jobs:
           done
           echo "::error::Production readiness did not become UP"
           exit 1
-
-      - name: Verify Flyway runtime invariants on live service
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Accept: application/json" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
-            > /tmp/users-render-live-env.json
-          live_env() {
-            jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == $k) | .value // empty' --arg k "$1" /tmp/users-render-live-env.json
-          }
-          FLYWAY_ENABLED_LIVE="$(live_env FLYWAY_ENABLED)"
-          FLYWAY_OUT_OF_ORDER_LIVE="$(live_env FLYWAY_OUT_OF_ORDER)"
-          test "$FLYWAY_ENABLED_LIVE" = "true" || {
-            echo "::error::FLYWAY_ENABLED must be true in production"
-            exit 1
-          }
-          if [ -n "$FLYWAY_OUT_OF_ORDER_LIVE" ] && [ "$FLYWAY_OUT_OF_ORDER_LIVE" != "false" ]; then
-            echo "::error::FLYWAY_OUT_OF_ORDER must be false or unset in production"
-            exit 1
-          fi
-          echo "Flyway runtime invariants: PASS"
-
-      - name: Verify Flyway production compatibility
-        shell: bash
-        run: bash scripts/production/verify-flyway.sh
 
       - name: Verify production security boundary
         shell: bash
@@ -392,8 +399,8 @@ jobs:
         shell: bash
         run: |
           jq -n \
-            --arg governanceSha '${{ inputs.governance_sha }}' \
-            --arg deploymentImageSha '${{ inputs.deployment_image_sha }}' \
+            --arg governanceSha "$GOVERNANCE_SHA_INPUT" \
+            --arg deploymentImageSha "$DEPLOYMENT_IMAGE_SHA_INPUT" \
             --arg imageRef '${{ steps.image.outputs.image_ref }}' \
             --arg deploymentId '${{ steps.deploy.outputs.id }}' \
             --arg previousImageRef '${{ steps.previous.outputs.image_ref }}' \
