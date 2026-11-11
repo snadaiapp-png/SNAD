@@ -115,6 +115,34 @@ jobs:
             END IF;
           END $role$;
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+
+          -- V20261103_1 (migrator/runtime role separation): the chain requires the
+          -- dedicated migrator role cluster-wide. These path-filtered workflows had
+          -- not run since before V20261103_1 landed, so the propagated provisioning
+          -- missed them; PR #1509 unmasked the latent gap (SANAD_MIGRATOR_ROLE_REQUIRED).
+          SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
+          ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
+          -- requires the dedicated expired-row cleanup role cluster-wide, with a
+          -- NON-INHERITING (SET-only) membership for the runtime identity — the
+          -- scheduled sweep switches to it inside its own transaction, but the
+          -- runtime must never inherit its cross-tenant expired-row visibility.
+          SELECT 'CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_callback_replay_cleanup')\gexec
+          ALTER ROLE sanad_callback_replay_cleanup NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+                             JOIN pg_roles g ON g.oid = m.roleid
+                             JOIN pg_roles r ON r.oid = m.member
+                            WHERE g.rolname = 'sanad_callback_replay_cleanup'
+                              AND r.rolname = 'sanad') THEN
+              GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+            END IF;
+          END $$;
+
           SQL
           contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
           test "$contract" = "true|false|false|false|false|false" || {

@@ -176,7 +176,7 @@ assert_fail_with() {
 
 # 1. REGRESSION: legacy numeric rows must not fake an older ledger head.
 #    (RED against the max(version) implementation, GREEN after the fix.)
-assert_pass "rank head == repo head with legacy numeric rows present" "20261107.1"
+assert_pass "rank head == repo head with legacy numeric rows present" "20261111.1"
 
 # 2. The pending guard must survive the fix.
 assert_fail_with "rank head older than repo head still fails (pending guard)" \
@@ -184,14 +184,14 @@ assert_fail_with "rank head older than repo head still fails (pending guard)" \
 
 # 3. The drift guard must survive the fix.
 assert_fail_with "rank head newer than repo head still fails (drift guard)" \
-  "20261108.1" "Schema drift"
+  "20261112.1" "Schema drift"
 
 # 4. Runtime, migrator and admin identities must be rejected in EVERY form
 #    (bare and Supabase pooler-suffixed).
 for forbidden in sanad sanad_migrator postgres supabase_admin service_role \
   sanad.tkbrvupemreqabwzdpyq sanad_migrator.tkbrvupemreqabwzdpyq postgres.tkbrvupemreqabwzdpyq; do
   export STUB_OVERRIDE_USERNAME="$forbidden"
-  assert_fail_with "forbidden audit identity $forbidden" "20261107.1" "must be the dedicated read-only audit identity"
+  assert_fail_with "forbidden audit identity $forbidden" "20261111.1" "must be the dedicated read-only audit identity"
 done
 unset STUB_OVERRIDE_USERNAME
 
@@ -199,24 +199,24 @@ unset STUB_OVERRIDE_USERNAME
 #     the pooler strips it and current_user is sanad_release_auditor (which
 #     the connected-role assertion inside the script enforces).
 export STUB_OVERRIDE_USERNAME="sanad_release_auditor.tkbrvupemreqabwzdpyq"
-assert_pass "pooler-suffixed audit username accepted" "20261107.1"
+assert_pass "pooler-suffixed audit username accepted" "20261111.1"
 unset STUB_OVERRIDE_USERNAME
 
 # 5. Authenticated identity must match the permitted role (even when the
 # client claims to connect as the auditor).
 export STUB_ACTUAL_ROLE="sanad"
-assert_fail_with "actual DB role mismatch fails" "20261107.1" "role or privilege contract invalid"
+assert_fail_with "actual DB role mismatch fails" "20261111.1" "role or privilege contract invalid"
 unset STUB_ACTUAL_ROLE
 
 # 6. The auditor cannot be allowed to write Flyway history or inherit the
 # runtime/migrator role. This fixture mimics an unexpected UPDATE privilege.
 export STUB_ACTUAL_ACL="$(printf "t\\tt\\tf\\tf\\tt\\tf\\tf\\tf")"
-assert_fail_with "auditor with Flyway UPDATE fails" "20261107.1" "minimum read-only contract"
+assert_fail_with "auditor with Flyway UPDATE fails" "20261111.1" "minimum read-only contract"
 unset STUB_ACTUAL_ACL
 
 # 7. No silent fallback to the Render runtime password.
 export STUB_UNSET_PASSWORD=1
-assert_fail_with "missing independent audit password fails" "20261107.1" "AUDIT_DATABASE_PASSWORD is required"
+assert_fail_with "missing independent audit password fails" "20261111.1" "AUDIT_DATABASE_PASSWORD is required"
 unset STUB_UNSET_PASSWORD
 
 # 8. Connection string may not embed or override database credentials.
@@ -225,31 +225,31 @@ url_scheme="jdbc:postgresql://"
 auth_fragment="sanad:${generated_pw}@"
 export STUB_OVERRIDE_URL="${url_scheme}${auth_fragment}stubhost:5432/stubdb"
 unset generated_pw url_scheme auth_fragment
-assert_fail_with "embedded runtime connection credentials rejected" "20261107.1" "Invalid audit database URL"
+assert_fail_with "embedded runtime connection credentials rejected" "20261111.1" "Invalid audit database URL"
 unset STUB_OVERRIDE_URL
 
 # 8b. URI parameters that could switch the authenticated identity are
 #     rejected even without an embedded userinfo fragment.
 export STUB_OVERRIDE_URL="jdbc:postgresql://stubhost:5432/stubdb?user=postgres"
-assert_fail_with "identity-overriding URI parameter rejected" "20261107.1" "Invalid audit database URL"
+assert_fail_with "identity-overriding URI parameter rejected" "20261111.1" "Invalid audit database URL"
 unset STUB_OVERRIDE_URL
 
 # 9. Never approve a failed Flyway migration or missing SQL checksum.
 export STUB_FAILED_MIGRATIONS=1
-assert_fail_with "failed migration detected" "20261107.1" "Failed migrations"
+assert_fail_with "failed migration detected" "20261111.1" "Failed migrations"
 unset STUB_FAILED_MIGRATIONS
 export STUB_MISSING_SQL_CHECKSUMS=1
-assert_fail_with "missing SQL checksum detected" "20261107.1" "missing checksums"
+assert_fail_with "missing SQL checksum detected" "20261111.1" "missing checksums"
 unset STUB_MISSING_SQL_CHECKSUMS
 
 # 10. Runtime cannot gain migration-history SELECT even if auditor is valid.
 export STUB_RUNTIME_DENIALS="$(printf "t\tf\tf")"
-assert_fail_with "runtime history access remains denied" "20261107.1" "Runtime sanad has unauthorized Flyway"
+assert_fail_with "runtime history access remains denied" "20261111.1" "Runtime sanad has unauthorized Flyway"
 unset STUB_RUNTIME_DENIALS
 
 # 11. The auditor must be able to verify the Y2 capability catalog.
 export STUB_CAPABILITY_COUNT=0
-assert_fail_with "required active capability absent" "20261107.1" "Y2 sentinel capability"
+assert_fail_with "required active capability absent" "20261111.1" "Y2 sentinel capability"
 unset STUB_CAPABILITY_COUNT
 
 if [ "$fail_count" -gt 0 ]; then

@@ -30,7 +30,7 @@ INSERT INTO public.flyway_schema_history VALUES
   (2,'20260702.1','SQL','create unified crm core',true,11),
   (3,'20260702.2','SQL','reconcile admin role and capabilities',true,12),
   (4,'20260702.3','SQL','complete crm imports custom fields',true,13),
-  (5,'20261107.1','SQL','synthetic version head',true,14);
+  (5,'20261111.1','SQL','synthetic version head',true,14);
 CREATE TABLE public.access_capabilities(code TEXT PRIMARY KEY, status TEXT NOT NULL);
 INSERT INTO public.access_capabilities VALUES
   ('WORKFLOW.TASK_EXECUTE','ACTIVE'),

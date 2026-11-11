@@ -1,0 +1,137 @@
+name: Callback Replay RLS Closure Certification (P0, 2026-11-11)
+
+# ============================================================
+# SANAD G1 / P0 executive order 2026-11-11 — service_callback_replay
+# RLS closure acceptance matrix: dedicated expired-row cleanup role,
+# fail-closed tenant policies, cross-tenant isolation, missing-GUC
+# denials, owner FORCE-binding and callback regression — proven with
+# REAL connections on an isolated host-native PostgreSQL 17 +
+# project-pinned Flyway CLI 11.7.2. No production access. No test
+# weakening.
+# ============================================================
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/callback-replay-rls-cert.yml'
+      - 'tests/security/callback-replay-rls/**'
+      - 'apps/sanad-platform/src/main/resources/db/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/integration/security/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/integration/**'
+      - 'docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: callback-replay-rls-cert-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  callback-replay-rls-certification:
+    name: Isolated PG17 — service_callback_replay P0 RLS acceptance matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install isolated PostgreSQL 17.x (prefer 17.6, record deviation; host-native)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop postgresql 2>/dev/null || true
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
+          sudo apt-get update -qq
+          PG_OK=no
+          for v in "17.6-1.pgdg24.04+1" "17.6-*"; do
+            if sudo apt-get install -y -qq --allow-downgrades "postgresql-17=$v" "postgresql-client-17=$v"; then PG_OK=yes; break; fi
+          done
+          if [ "$PG_OK" != "yes" ]; then
+            echo '::warning::PostgreSQL 17.6 exact package unavailable; testing fallback 17.x, NOT 17.6 certification'
+            sudo apt-get install -y -qq postgresql-17 postgresql-client-17
+          fi
+          sudo pg_dropcluster 16 main --stop 2>/dev/null || true
+          sudo pg_dropcluster 17 main --stop 2>/dev/null || true
+          sudo pg_createcluster 17 main --start >/dev/null
+          sudo pg_lsclusters
+          PGV=$(sudo -u postgres psql -Atqc "SHOW server_version;" | grep -oE '^17\.[0-9]+' | head -1)
+          echo "POSTGRES_VERSION=$PGV (server)" >> "$GITHUB_ENV"
+          test "${PGV%%.*}" = "17" || { echo "::error::UNEXPECTED_POSTGRES_MAJOR=$PGV"; exit 1; }
+          if [ "$PGV" != "17.6" ]; then echo "::warning::POSTGRES_17_6_EXACT_PIN_UNVERIFIED_ACTUAL=$PGV"; fi
+
+      - name: Install Flyway CLI 11.7.2 (project-pinned version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_mvn() { # $1=group path $2=filename $3=dest
+            for base in "https://maven-central.storage-download.googleapis.com/maven2" "https://repo1.maven.org/maven2"; do
+              if curl -fsS -m 600 -o "$3" "$base/$1/$2"; then return 0; fi
+            done
+            return 1
+          }
+          fetch_mvn "org/flywaydb/flyway-commandline/11.7.2" "flyway-commandline-11.7.2-linux-x64.tar.gz" /tmp/fw.tgz
+          mkdir -p /tmp/flyway && tar -xzf /tmp/fw.tgz -C /tmp/flyway --strip-components=1
+          test -s /tmp/flyway/lib/flyway/flyway-database-postgresql-11.7.2.jar
+          test -s /tmp/flyway/drivers/postgresql-42.7.2.jar
+          /tmp/flyway/flyway -v | head -2
+
+      - name: Run service_callback_replay P0 RLS acceptance matrix
+        shell: bash
+        env:
+          CRL_PGHOST: 127.0.0.1
+          CRL_PGPORT: '5432'
+          CRL_FLYWAY: /tmp/flyway/flyway
+          CRL_ADMIN_PSQL: sudo -u postgres psql
+        run: |
+          set -euo pipefail
+          # Ephemeral per-run migrator password: generated at runtime, masked,
+          # never a repository literal (cluster is destroyed with the runner).
+          # The certification script provisions roles only after isolated-cluster checks.
+          other_dbs="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname <> 'postgres'")"
+          test "$other_dbs" = "0" || { echo "::error::Non-disposable PostgreSQL cluster; refusing role mutation"; exit 1; }
+          mig_pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$mig_pw"
+          CRL_ISOLATED_CLUSTER=1 CRL_KEEP_DB=1 CRL_MIG_PW="$mig_pw" bash tests/security/callback-replay-rls/run-rls-cert.sh 2>&1 | tee /tmp/callback-replay-rls-run.log
+
+      - name: Verify release catalog guard on the isolated database (structural only)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -X -t -A -F '|' -v ON_ERROR_STOP=1 \
+            -d callback_replay_rls_cert \
+            -f docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql \
+            | tee /tmp/callback-replay-catalog-gate.log
+          if grep -q '|FAIL|' /tmp/callback-replay-catalog-gate.log; then
+            echo "::error::RELEASE_CATALOG_GATE=FAIL (isolated source chain)"
+            exit 1
+          fi
+          count="$(grep -c '|PASS|' /tmp/callback-replay-catalog-gate.log)"
+          test "$count" = "14" || {
+            echo "::error::RELEASE_CATALOG_GATE_MISSING_CHECKS=$count"
+            exit 1
+          }
+          echo "RELEASE_CATALOG_GATE=PASS (14/14 structural catalog, isolated PG17 only)"
+
+      - name: Upload certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: callback-replay-rls-evidence
+          path: |
+            /tmp/callback-replay-rls-run.log
+            /tmp/callback-replay-catalog-gate.log
+            /tmp/callback-replay-rls-cert-artifacts/
+          if-no-files-found: warn
+          retention-days: 30
