@@ -282,9 +282,7 @@ class TestSecretScanner(unittest.TestCase):
 
 
 class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
-    """Regression: the 10 known repository false positives (variable references and
-    a deliberate redaction-proof test fixture) must remain allowlisted with exact
-    fingerprints, so the Post-Merge secret scan stays PASS (green, not hidden)."""
+    """Pinned scanner allowlist checks and fail-closed password-source regressions."""
 
     REPO_ROOT = Path(__file__).resolve().parent.parent.parent
     ALLOWLIST = REPO_ROOT / "scripts" / "ci" / "secret-scan-allowlist.json"
@@ -303,8 +301,6 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
         ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 310),
         ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 328),
         ("generic-password", ".github/workflows/show-admin-email.yml", 45),
-        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 42),
-        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 60),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 56),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 61),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 93),
@@ -348,6 +344,39 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
             if e["approvalReference"].startswith("SCP-PMV-FALSEPOSITIVE"):
                 self.assertGreater(len(e["reason"]), 20, "reason must be descriptive")
                 self.assertEqual(e["owner"], "System Owner")
+
+    def test_03_control_plane_password_references_are_safe_indirection(self):
+        import re
+        rel_path = "scripts/production/verify-control-plane-tenant.sh"
+        path = self.REPO_ROOT / rel_path
+        source = path.read_text().splitlines()
+        pattern = dict((rule[0], rule[1]) for rule in scan_module.RULES)["generic-password"]
+        matches = [(line, re.search(pattern, line)) for line in source]
+        matches = [(line, match) for line, match in matches if match is not None]
+        self.assertEqual(len(matches), 2, "Both psql password references must remain source indirections")
+        for line, match in matches:
+            self.assertIn('PGPASSWORD="$DATABASE_PASSWORD"', line)
+            sample = match.group(1) if match.lastindex else match.group(0)
+            self.assertTrue(scan_module.is_safe_source_indirection("generic-password", sample, line))
+        errors = []
+        findings = scan_module.scan_file(path, scan_module.RULES, errors, self.REPO_ROOT)
+        self.assertEqual(errors, [])
+        self.assertEqual(findings, [], "Unexpected actual scanner findings in the release verifier")
+        self.assertFalse(any(e["path"] == rel_path for e in self._entries()),
+                         "Stale line-bound exceptions must not mask this script")
+
+    def test_04_control_plane_literal_password_is_still_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="snad-control-plane-negative-") as tmp:
+            root = Path(tmp)
+            script = root / "synthetic.sh"
+            script.write_text('PGPASSWORD="' + _PW + '"\n')
+            errors = []
+            findings = scan_module.scan_file(script, scan_module.RULES, errors, root)
+            self.assertEqual(errors, [])
+            self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings),
+                            "A literal password must never be exempt")
+
 
 
 if __name__ == "__main__":

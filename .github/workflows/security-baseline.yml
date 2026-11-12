@@ -152,6 +152,7 @@ jobs:
           python3 -m unittest discover -s tests/ci -p 'test_scan_secrets*.py' -v
 
       - name: Scan full repository with supplemental scanner
+        id: supplemental_scan
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/ci/scan_secrets.py
@@ -162,7 +163,9 @@ jobs:
             --workflow-run-id "${{ github.run_id }}"
 
       - name: Upload supplemental scanner report
-        if: always()
+        # A failed unit test must not generate a second, misleading artifact error.
+        # If a scanner actually ran and failed, retain its report for forensics.
+        if: ${{ always() && steps.supplemental_scan.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: supplemental-secret-scan-${{ github.run_id }}-${{ github.run_attempt }}
