@@ -267,6 +267,8 @@ jobs:
           python3 -m pytest
           tests/ci/test_workflow_security_policy.py
           tests/ci/test_post_merge_collect_all.py
+          tests/ci/test_post_merge_artifact_attempt_isolation.py
+          tests/ci/test_validate_post_merge_evidence.py
           -q
 
       - name: Run workflow security scanner
