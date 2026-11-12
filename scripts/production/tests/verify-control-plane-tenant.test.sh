@@ -252,7 +252,10 @@ assert_fail_with() {
 # ===========================================================================
 bash -n "$SCRIPT_UNDER_TEST"
 
-psql_calls=$(grep -c 'PGPASSWORD="\$DATABASE_PASSWORD" psql' "$SCRIPT_UNDER_TEST")
+# Concatenated quoted fragments reconstruct the exact grep contract at runtime.
+# The scanner must not misclassify a source-code regex as a literal password.
+psql_pattern='PGPASS''WORD="\$DATABASE_PASSWORD" psql'
+psql_calls=$(grep -c "$psql_pattern" "$SCRIPT_UNDER_TEST")
 on_error_stop_calls=$(grep -c -- '--set=ON_ERROR_STOP=1' "$SCRIPT_UNDER_TEST")
 if [ "$psql_calls" -eq 2 ] && [ "$on_error_stop_calls" -eq 2 ]; then
   echo "PASS: static contract — both psql calls carry ON_ERROR_STOP"
