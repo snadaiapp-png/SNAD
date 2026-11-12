@@ -40,6 +40,10 @@ name: Post-Merge Main Verification
 # ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (fail closed) —
 # never a Docker fallback.
 #
+# Artifact uploads and downloads are scoped to github.run_attempt, preventing
+# rerun name collisions and accidental cross-attempt evidence aggregation.
+# A partial job rerun must fail closed when required same-attempt fragments are absent.
+#
 # Dependency-aware collect-all verification is preserved: checks record
 # their real outcomes without hiding independent later checks. Evidence
 # is always emitted (fragments + artifacts, if: always()); the final
@@ -231,7 +235,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-fragment-frontend
+          name: pmv-fragment-frontend-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/pmv-fragment.json
           if-no-files-found: error
           retention-days: 90
@@ -241,7 +245,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vitest-log-${{ github.run_id }}
+          name: vitest-log-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/vitest.log
           if-no-files-found: error
           retention-days: 30
@@ -251,7 +255,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-smoke-evidence-${{ github.run_id }}
+          name: frontend-smoke-evidence-${{ github.run_id }}-att${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
@@ -338,7 +342,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-fragment-backend-compile
+          name: pmv-fragment-backend-compile-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/pmv-fragment.json
           if-no-files-found: error
           retention-days: 90
@@ -608,7 +612,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-fragment-pg-direct
+          name: pmv-fragment-pg-direct-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/pmv-fragment.json
           if-no-files-found: error
           retention-days: 90
@@ -618,7 +622,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-surefire-reports
+          name: pmv-surefire-reports-att${{ github.run_attempt }}
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: error
           retention-days: 14
@@ -628,7 +632,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-smoke-evidence-${{ github.run_id }}
+          name: backend-smoke-evidence-${{ github.run_id }}-att${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/backend.log
             ${{ runner.temp }}/backend-health.json
@@ -781,7 +785,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hrm-surefire-reports
+          name: hrm-surefire-reports-att${{ github.run_attempt }}
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: error
           retention-days: 14
@@ -891,7 +895,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-fragment-hrm
+          name: pmv-fragment-hrm-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/pmv-fragment.json
           if-no-files-found: error
           retention-days: 90
@@ -1019,7 +1023,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pmv-fragment-security
+          name: pmv-fragment-security-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/pmv-fragment.json
           if-no-files-found: error
           retention-days: 90
@@ -1029,7 +1033,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: secret-scan-report-${{ github.run_id }}
+          name: secret-scan-report-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/secret-scan-report.json
           if-no-files-found: error
           retention-days: 90
@@ -1075,7 +1079,7 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/verification-manifest.json" <<JSON
-          {"verificationType":"post-merge-main","exactMainSha":"${{ github.sha }}","workflowRunId":"${{ github.run_id }}","result":"FAIL","failedGate":"aggregation-not-completed","checks":{},"passedChecks":[],"failedChecks":[],"skippedChecks":[],"cancelledChecks":[],"missingChecks":[],"criticalFailures":["aggregation-not-completed"]}
+          {"verificationType":"post-merge-main","exactMainSha":"${{ github.sha }}","workflowRunId":"${{ github.run_id }}","workflowRunAttempt":"${{ github.run_attempt }}","result":"FAIL","failedGate":"aggregation-not-completed","checks":{},"passedChecks":[],"failedChecks":[],"skippedChecks":[],"cancelledChecks":[],"missingChecks":[],"criticalFailures":["aggregation-not-completed"]}
           JSON
 
       # === Download every per-job outcome fragment (always, never hide) ===
@@ -1085,7 +1089,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: pmv-fragment-frontend
+          name: pmv-fragment-frontend-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/fragments/frontend
 
       - name: Download JOB B fragment
@@ -1094,7 +1098,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: pmv-fragment-backend-compile
+          name: pmv-fragment-backend-compile-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/fragments/backend-compile
 
       - name: Download JOB C fragment
@@ -1103,7 +1107,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: pmv-fragment-pg-direct
+          name: pmv-fragment-pg-direct-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/fragments/pg-direct
 
       - name: Download JOB D fragment
@@ -1112,7 +1116,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: pmv-fragment-hrm
+          name: pmv-fragment-hrm-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/fragments/hrm
 
       - name: Download JOB E fragment
@@ -1121,7 +1125,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: pmv-fragment-security
+          name: pmv-fragment-security-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/fragments/security
 
       # === Download cross-job evidence consumed by the validator ===
@@ -1131,7 +1135,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: secret-scan-report-${{ github.run_id }}
+          name: secret-scan-report-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/evidence
 
       - name: Download backend smoke evidence
@@ -1140,7 +1144,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: backend-smoke-evidence-${{ github.run_id }}
+          name: backend-smoke-evidence-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/evidence/backend
 
       - name: Download frontend smoke evidence
@@ -1149,7 +1153,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: frontend-smoke-evidence-${{ github.run_id }}
+          name: frontend-smoke-evidence-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/evidence/frontend
 
       - name: Download vitest log
@@ -1158,7 +1162,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: vitest-log-${{ github.run_id }}
+          name: vitest-log-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/evidence
 
       # === Truthful collect-all manifest (merged from fragments) ===
@@ -1196,6 +1200,7 @@ jobs:
               'verificationType': 'post-merge-main',
               'exactMainSha': '${{ github.sha }}',
               'workflowRunId': '${{ github.run_id }}',
+              'workflowRunAttempt': '${{ github.run_attempt }}',
               'triggerType': '${{ github.event_name }}',
               'startedAtUtc': '${{ steps.metadata.outputs.start_ts }}',
               'completedAtUtc': '${END_TS}',
@@ -1221,7 +1226,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: verification-manifest-${{ github.run_id }}
+          name: verification-manifest-${{ github.run_id }}-att${{ github.run_attempt }}
           path: ${{ runner.temp }}/verification-manifest.json
           if-no-files-found: error
           retention-days: 90
