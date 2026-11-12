@@ -62,3 +62,7 @@ No GitHub Secret is used to store this policy decision. Secrets remain for crede
 ## 6. Change control
 
 This decision is not proof that the implementation branch has merged or that the CI validation has passed. Merge remains subject to the repository's normal protected-branch and required-review rules. The current security holds remain unchanged until separately and validly resolved.
+
+## 7. Proposed implementation simplification — 2026-11-12
+
+The project proposes a lean, single-comment internal attestation pathway in [SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md](SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md). If and only if duly approved and merged, it is the controlling internal documentary procedure for G1 isolated Criterion 3 and development milestones: no handwritten signature, redundant paper/PDF certificate, or publicly accessible permanent ZIP URL is imposed by internal governance merely to record a reviewed criterion. An authenticated, accountable, unambiguous reviewer comment with version-bound inspectable evidence suffices. This does not confer personal independence on owner-linked accounts, erase technical test gates, or authorize production/payments.
