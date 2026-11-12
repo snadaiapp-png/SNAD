@@ -1,34 +1,35 @@
-# SANAD — Lean Security Governance (proposed amendment, 2026-11-12)
+# SANAD — Single-Approval Internal Security Governance
+**Revision:** 2026-11-12 | **Status:** PROPOSED — effective only after authorized merge into main
 
-**Status:** PROPOSED / NOT EFFECTIVE UNTIL MERGED AND APPROVED BY AUTHORIZED GOVERNANCE OWNER  
-**Scope:** Project-internal development milestones and the isolated PostgreSQL Criterion 3 of G1; does not itself grant production or payment authorization.  
-**Supersedes for this scope:** Any older internal checklist requiring paper signatures, mandatory PDF certificates, multiple attestations by separate accounts, or additional formal links *solely* to accept a technically evidenced internal criterion.  
-**Interpretation:** Read with `SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`; external and technical controls listed there remain mandatory where applicable.
+## 1. Sole administrative sign-off
 
-## 1 — One accountable decision, not repeated bureaucracy
+For project-internal security reviews, G1 development-stage approvals, acceptance records, and **internal** security certificates, the **only additional administrative sign-off required** is a GitHub **APPROVE** review submitted personally from the designated independent reviewer's verified, authorized GitHub account on the relevant approval pull request.
 
-An authorized, named reviewer may issue a **single, dated, plain-text GitHub comment** containing: reviewer name and GitHub account, actual review role and any conflicts, exact SHA and environment, decision `APPROVED | HOLD | REJECTED`, scope, material evidence identifier (a SHA-256 manifest or existing repository/Actions artifact reference), and critical open findings. The comment **is the electronic attestation**; a handwritten signature, scanned PDF, notarization, additional named certificate, and repeated approval across multiple issues are **not required by this internal policy**.
+That single native GitHub approval is the internal electronic signature, decision timestamp and authorization record. **No** paper signature, handwritten image, PDF certificate, separate declaration or oath, repeated issue-comment approval, redundant attestations, notarization, or mandatory public/permanent ZIP hyperlink is required for internal sign-off. The project may automatically generate a certificate or issue-status record from the approved PR; this is a record of internal acceptance, not a third-party certification.
 
-A reviewer must actually examine the underlying evidence before asserting approval. An owner or implementer may issue an **internal** acceptance only while honestly identifying it as owner/implementer-attested; **independent** may only be claimed where the reviewer's different identity and separation from implementation have been established. No person may sign or attest for a named reviewer without explicit verified authorization. Reviewer's GitHub identity and human identity are not interchangeable.
+The reviewer needs no prescribed approval-text template. Ordinary GitHub review metadata (account, APPROVED status, PR and reviewed commit) is sufficient as a decision record. No other person's account may issue approval in the reviewer's name. GitHub approval of a PR alone does not establish that an account belongs to a particular named human or is independent; the designated account-to-person identity and independence must have been established *once* through the authorized reviewer appointment process, not re-certified for every task.
 
-## 2 — Evidence proportionate to the risk
+## 2. Approved scope and retained evidence
 
-One version-bound evidence manifest referenced in the approval comment is enough for *documentary linkage* of an internal development criterion, as long as the underlying evidence is preserved and retrievable by authorized auditors. A publicly accessible permanent binary ZIP URL is **not an independent prerequisite**. Private GitHub artifacts, access-controlled repository evidence, or controlled retained records are acceptable. Do not publish credentials or customer data. Evidence hashes alone do not prove real test execution.
+The approval is valid for the review's actual commit SHA and defined scope. The underlying engineering evidence must exist, be inspectable by authorized parties, and truthfully support the stated result. Evidence can be retained in existing CI artifacts or controlled storage; a duplicate ZIP upload, public URL or separate evidence-manifest approval is **not mandatory**. Technical failures, missing runs, skipped gates, unsupported PASS claims and material vulnerabilities cannot be converted to PASS merely by clicking APPROVE.
 
-A technical criterion is `PASS` only where the supporting test results and negative-path checks truly passed on the declared environment and SHA. `SKIPPED`, `BLOCKED`, missing cases, and conflicting decisions remain explicitly visible.
+**Independent reviewer:** independence is factual, not inferred from a username or the owner's assertion. If the proposed account is owned or controlled by the project owner or remediation executor, its approval is **internal owner/implementer approval**, not an independent review. Independence of a human reviewer must not be fabricated; a signed document from another account does not cure it.
 
-## 3 — Distinct approval tiers
+## 3. Internal certificate issuance
 
-- **Development milestone / isolated G1 Criterion 3:** One truthful and accountable GitHub decision, supported by inspectable evidence, may satisfy the *internal documentary acceptance requirement*; a check box may be updated thereafter by an authorized maintainer referencing that decision.
-- **Independent security certification:** Must not be claimed from an owner self-review or a purported signature by someone else. If required by an external party, follow its independently applicable requirements.
-- **Production RLS, backups/restores, operational tests, release GO/NO-GO, and payments:** Require actual technical proofs and the separate authorized release decision. This document does **not** waive production security gates, emergency change authorization, statutory/contractual controls, branch protection, credentials, or incident response.
+When the single authorized independent reviewer's native GitHub APPROVE occurs, the project may issue an **internal, scope-limited acceptance certificate** stating the PR, SHA, reviewed scope, decision and date. No separate certificate-issuer approval or reviewer signature is required under *internal* policy. Any resulting record must accurately state technical caveats and must not claim externally accredited, independent third-party or regulator-recognized certification unless that scheme's own requirements have actually been met. A certificate cannot be marked technical PASS without adequate underlying evidence.
 
-## 4 — G1 #1462 application
+## 4. Non-waivable boundaries
 
-For Criterion 3, the 66-case isolated matrix / 13 Red Team findings may be cited as **reported technical results** after review, together with SHA `286f905e39fb67723bdc79f46187b8d1671edc3a` and a retained SHA-256 manifest. One reviewer comment suffices in lieu of paper signature and redundant uploads if the evidence is inspectable by authorized reviewers. The reviewer must identify their *actual* account and disclose owner/executor involvement. Previous contradictory/check-all-three approval comments are not cured retroactively by this policy: one unambiguous newer decision is required.
+This policy changes **paperwork and approval workflow only**. It does not relax RLS/ACL, fail-closed tenant isolation, source integrity, authentication, privileged-role separation, secure backup and restore, production checks, incident response, current required branch/environment protections, or any applicable law, contract, regulator/customer commitment or external certification rules. External obligations take precedence; this internal change cannot waive them.
 
-Until its legitimate internal criterion is accepted and recorded, that checkbox remains open. Even after acceptance: `P0_SECURITY_HOLD=ACTIVE`, `G1=HOLD`, `PRODUCTION_RELEASE=NO-GO`, `PAYMENTS=OFF` pending their **independent technical and release gates**.
+A reviewer APPROVE may complete the internal documentary sign-off for **G1 Criterion 3** after the technical tests are adequately evidenced. It does **not** itself certify a live production deployment, approve an operational change, activate payments, or satisfy other untested G1 gates.
 
-## 5 — Change control
+## 5. Application and transition
 
-This document is **a governance proposal** and does not become effective merely by opening a PR. Authorized reviewers must merge it in accordance with existing branch protections; any code/workflow changes to align validation must be separately tested and reviewed. Do not rewrite historical evidence or falsely represent earlier approvals.
+Existing contradictory approvals/comments are retained for audit. Future internal approvals use the single native GitHub APPROVE mechanism after this proposal merges. Pending historical approvals may be reconciled to a specific reviewed commit/PR by authorized maintainers, without impersonating a reviewer or backdating a sign-off.
+
+Until separately authorized release gates and production tests have actually succeeded:
+`P0_SECURITY_HOLD=ACTIVE` / `G1=HOLD` / `PRODUCTION_RELEASE=NO-GO` / `PAYMENTS=OFF`.
+
+This document implements the documentary simplification consistent with `SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md`; that existing decision already waived **optional** independent certificates as a general project-development completion condition.
