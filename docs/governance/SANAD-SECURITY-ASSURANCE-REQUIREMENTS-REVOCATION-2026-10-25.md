@@ -62,3 +62,7 @@ No GitHub Secret is used to store this policy decision. Secrets remain for crede
 ## 6. Change control
 
 This decision is not proof that the implementation branch has merged or that the CI validation has passed. Merge remains subject to the repository's normal protected-branch and required-review rules. The current security holds remain unchanged until separately and validly resolved.
+
+## 7. Proposed implementation simplification — 2026-11-12
+
+See [SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md](SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md). Once authorized and merged, **one native GitHub APPROVE review** from the genuinely independent, verified and designated reviewer account is the sole **internal administrative sign-off** for in-scope G1 development assurance and internal certificate issuance. There is no separate handwritten/electronic-document signature, PDF, duplicated issue attestation, or mandatory public binary artifact URL requirement. This procedural simplification does not turn untested technical controls into PASS, establish independence of owner-controlled accounts, override current protections or external obligations, or authorize production release or payments.
