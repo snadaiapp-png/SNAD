@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION hr_assert_migration_tenant_scope(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_caller_tenant TEXT;
@@ -27,7 +27,7 @@ CREATE OR REPLACE FUNCTION hr_default_migration_as_of_date(p_tenant_id UUID)
 RETURNS DATE
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -51,7 +51,7 @@ CREATE OR REPLACE FUNCTION hr_precheck_tenant(p_tenant_id UUID, p_as_of_date DAT
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_emp RECORD;
@@ -262,7 +262,7 @@ CREATE OR REPLACE FUNCTION hr_precheck_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
