@@ -28,7 +28,7 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_workflow_external_action_token_index()
 
 DO $cases$
 DECLARE
-  action_id constant uuid := 'aaaaaaaa-1111-2222-3333-444444444444';
+  fixture_action_id constant uuid := 'aaaaaaaa-1111-2222-3333-444444444444';
   tenant_a constant uuid := 'bbbbbbbb-1111-2222-3333-444444444444';
   tenant_b constant uuid := 'cccccccc-1111-2222-3333-444444444444';
   token_a constant text := 'c4-rotation-before-aaaaaaaa-1111';
@@ -43,44 +43,44 @@ BEGIN
     RAISE EXCEPTION 'C4_TOKEN_FIXTURE_COLLISION';
   END IF;
   INSERT INTO pg_temp.c4_token_rotation_source(id,tenant_id,token_hash)
-  VALUES (action_id,tenant_a,token_a);
+  VALUES (fixture_action_id,tenant_a,token_a);
   SELECT count(*) INTO n FROM public.workflow_external_action_token_index idx
-    WHERE idx.token_hash=token_a AND idx.action_id=action_id AND idx.tenant_id=tenant_a;
+    WHERE idx.token_hash=token_a AND idx.action_id=fixture_action_id AND idx.tenant_id=tenant_a;
   IF n <> 1 THEN RAISE EXCEPTION 'C4_TOKEN_INITIAL_POINTER_MISSING'; END IF;
   passed := passed+1;
 
-  UPDATE pg_temp.c4_token_rotation_source SET token_hash=token_b WHERE id=action_id;
+  UPDATE pg_temp.c4_token_rotation_source SET token_hash=token_b WHERE id=fixture_action_id;
   IF EXISTS (SELECT 1 FROM public.workflow_external_action_token_index WHERE token_hash=token_a) THEN
     RAISE EXCEPTION 'C4_TOKEN_OLD_HASH_STALE_AFTER_ROTATION';
   END IF;
   passed := passed+1;
   IF NOT EXISTS (SELECT 1 FROM public.workflow_external_action_token_index idx
-                 WHERE idx.token_hash=token_b AND idx.action_id=action_id AND idx.tenant_id=tenant_a) THEN
+                 WHERE idx.token_hash=token_b AND idx.action_id=fixture_action_id AND idx.tenant_id=tenant_a) THEN
     RAISE EXCEPTION 'C4_TOKEN_NEW_HASH_MISSING_AFTER_ROTATION';
   END IF;
   passed := passed+1;
 
-  UPDATE pg_temp.c4_token_rotation_source SET tenant_id=tenant_b WHERE id=action_id;
+  UPDATE pg_temp.c4_token_rotation_source SET tenant_id=tenant_b WHERE id=fixture_action_id;
   IF NOT EXISTS (SELECT 1 FROM public.workflow_external_action_token_index idx
-                 WHERE idx.token_hash=token_b AND idx.action_id=action_id AND idx.tenant_id=tenant_b) THEN
+                 WHERE idx.token_hash=token_b AND idx.action_id=fixture_action_id AND idx.tenant_id=tenant_b) THEN
     RAISE EXCEPTION 'C4_TOKEN_TENANT_POINTER_NOT_UPDATED';
   END IF;
   passed := passed+1;
 
-  UPDATE pg_temp.c4_token_rotation_source SET token_hash=NULL WHERE id=action_id;
+  UPDATE pg_temp.c4_token_rotation_source SET token_hash=NULL WHERE id=fixture_action_id;
   IF EXISTS (SELECT 1 FROM public.workflow_external_action_token_index WHERE token_hash=token_b) THEN
     RAISE EXCEPTION 'C4_TOKEN_POINTER_STALE_AFTER_CLEAR';
   END IF;
   passed := passed+1;
 
-  UPDATE pg_temp.c4_token_rotation_source SET token_hash=token_c WHERE id=action_id;
+  UPDATE pg_temp.c4_token_rotation_source SET token_hash=token_c WHERE id=fixture_action_id;
   IF NOT EXISTS (SELECT 1 FROM public.workflow_external_action_token_index idx
-                 WHERE idx.token_hash=token_c AND idx.action_id=action_id AND idx.tenant_id=tenant_b) THEN
+                 WHERE idx.token_hash=token_c AND idx.action_id=fixture_action_id AND idx.tenant_id=tenant_b) THEN
     RAISE EXCEPTION 'C4_TOKEN_POINTER_MISSING_AFTER_REISSUE';
   END IF;
   passed := passed+1;
 
-  DELETE FROM pg_temp.c4_token_rotation_source WHERE id=action_id;
+  DELETE FROM pg_temp.c4_token_rotation_source WHERE id=fixture_action_id;
   IF EXISTS (SELECT 1 FROM public.workflow_external_action_token_index WHERE token_hash=token_c) THEN
     RAISE EXCEPTION 'C4_TOKEN_POINTER_STALE_AFTER_DELETE';
   END IF;
