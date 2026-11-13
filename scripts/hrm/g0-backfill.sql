@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION hr_backfill_tenant(p_tenant_id UUID, p_as_of_date DAT
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_org_id UUID;
@@ -293,7 +293,7 @@ CREATE OR REPLACE FUNCTION hr_backfill_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
