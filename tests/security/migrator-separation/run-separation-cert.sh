@@ -48,7 +48,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261111.1"
+EXPECTED_HEAD="20261113.1"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
