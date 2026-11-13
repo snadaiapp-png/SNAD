@@ -44,8 +44,8 @@ BEGIN
   END IF;
   INSERT INTO pg_temp.c4_token_rotation_source(id,tenant_id,token_hash)
   VALUES (action_id,tenant_a,token_a);
-  SELECT count(*) INTO n FROM public.workflow_external_action_token_index
-    WHERE token_hash=token_a AND action_id = 'aaaaaaaa-1111-2222-3333-444444444444'::uuid AND tenant_id=tenant_a;
+  SELECT count(*) INTO n FROM public.workflow_external_action_token_index idx
+    WHERE idx.token_hash=token_a AND idx.action_id=action_id AND idx.tenant_id=tenant_a;
   IF n <> 1 THEN RAISE EXCEPTION 'C4_TOKEN_INITIAL_POINTER_MISSING'; END IF;
   passed := passed+1;
 
