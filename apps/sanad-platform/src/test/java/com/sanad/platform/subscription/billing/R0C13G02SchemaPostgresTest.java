@@ -136,7 +136,7 @@ class R0C13G02SchemaPostgresTest {
             // NO ACTION alignment; V20261111_1 (P0 service_callback_replay RLS
             // closure) heads the chain with ENABLE+FORCE RLS, the fail-closed
             // tenant policies and the dedicated expired-row cleanup role.
-            assertThat(rs.getString(1)).isEqualTo("20261111.1");
+            assertThat(rs.getString(1)).isEqualTo("20261113.1");
         }
     }
 

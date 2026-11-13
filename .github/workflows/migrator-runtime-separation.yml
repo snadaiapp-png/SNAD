@@ -197,6 +197,26 @@ jobs:
           echo 'C4_HR_RUNTIME_TENANT_DENIAL=PASS 20/20 (isolated PostgreSQL)'
           # Raw test transcript is uploaded by the following always() artifact step.
 
+      - name: G1 C4 — external action token rotation trigger regression (7 cases)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only use the disposable separation_cert DB produced by earlier
+          # isolated-cluster verification. Never execute against production.
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = 'sanad_migrator'
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = '0'
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose \
+            -d separation_cert \
+            -f tests/security/g1-c4/external-token-rotation-regression.sql \
+            > /tmp/c4-catalog-artifacts/external-token-rotation-regression.log 2>&1 || {
+              cat /tmp/c4-catalog-artifacts/external-token-rotation-regression.log
+              exit 1
+            }
+          grep -q 'C4_TOKEN_ROTATION_REGRESSION=PASS 7/7 isolated' /tmp/c4-catalog-artifacts/external-token-rotation-regression.log
+          echo 'C4_TOKEN_ROTATION_REGRESSION=PASS 7/7 (isolated PostgreSQL)'
+          # Raw transcript uploaded by the always() evidence step.
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
