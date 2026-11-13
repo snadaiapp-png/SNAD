@@ -21,6 +21,7 @@ on:
     paths:
       - '.github/workflows/migrator-runtime-separation.yml'
       - 'tests/security/migrator-separation/**'
+      - 'tests/security/g1-c4/**'
       - 'apps/sanad-platform/src/main/resources/db/**'
       - 'docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql'
   workflow_dispatch:
@@ -164,6 +165,17 @@ jobs:
           }
           echo "G1_ADDENDUM_CATALOG_GATE=PASS (14/14 structural catalog, isolated PG17 only)"
 
+      - name: G1 C4 — PostgreSQL 17 SECURITY DEFINER / owner / ACL catalog probes
+        if: success()
+        shell: bash
+        env:
+          C4_ISOLATED_CLUSTER: '1'
+          C4_DB: separation_cert
+          C4_ARTIFACTS: /tmp/c4-catalog-artifacts
+        run: |
+          set -euo pipefail
+          bash tests/security/g1-c4/run-catalog-probes.sh 2>&1 | tee /tmp/c4-probe-run.log
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -173,6 +185,8 @@ jobs:
             /tmp/separation-run.log
             /tmp/separation-forensic-inventory.log
             /tmp/g1-addendum-catalog-gate.log
+            /tmp/c4-probe-run.log
+            /tmp/c4-catalog-artifacts/
             /tmp/separation-cert-artifacts/
           if-no-files-found: warn
           retention-days: 30

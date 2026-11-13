@@ -43,13 +43,26 @@ jobs:
           # not modified or deleted; preserve the immutable applied history.
           changed=$(git diff --name-status origin/main HEAD -- "$MIG_LOC" "$VEN_LOC")
           echo "$changed"
-          if echo "$changed" | grep -E '^(M|D|R|C)[[:space:]]' ; then
-            echo "::error::APPLIED_MIGRATION_MODIFIED_OR_REMOVED"
+          # Versioned (V__) migration immutability remains absolute.
+          # A Flyway repeatable (R__) is intentionally re-applied on content
+          # checksum change; permit ONLY the reviewed HR repeatable file here,
+          # never arbitrary historical edits, deletes, renames or copies.
+          if echo "$changed" | grep -E '^(D|R|C)[[:space:]]'; then
+            echo "::error::APPLIED_MIGRATION_REMOVED_RENAMED_OR_COPIED"
             exit 1
           fi
+          # git --name-status output is separated by whitespace (tab by default).
+          # The sole modified-file exception is the explicitly named repeatable.
+          while read -r change file; do
+            [ -n "$change" ] || continue
+            if [ "$change" = "M" ] && [ "$file" != "$MIG_LOC/R__finalize_hr_backfill_closure.sql" ]; then
+              echo "::error::APPLIED_VERSIONED_OR_UNAPPROVED_MIGRATION_MODIFIED"
+              exit 1
+            fi
+          done <<< "$changed"
           # Pin to actual test tree; do not certify a historical release SHA.
           echo "CERTIFIED_TREE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "CHAIN_ADDITIONS_REVIEWED: new migrations allowed; existing migration changes rejected"
+          echo "CHAIN_ADDITIONS_REVIEWED: versioned migrations immutable; one explicit HR repeatable allowed"
 
       - name: Install isolated PostgreSQL 17.x (prefer 17.6, record deviation; host-native)
         shell: bash

@@ -4,9 +4,9 @@
 -- Old versioned migrations remain immutable; this repeatable unit keeps function
 -- deployment synchronized with the source scripts and re-applies on checksum change.
 -- ============================================================
--- SOURCE_SHA256 g0-backfill-precheck.sql 6bfcb05e5dea8fe140ebf9719d42f8c821f2891a5e60956f1dbbc91094851c19
--- SOURCE_SHA256 g0-reconcile.sql 03d0aedf4335228b9e46dccf4ac5ba11dbdcefd6cb76a3eb104957d1ed5e7e1c
--- SOURCE_SHA256 g0-backfill.sql 6ed522b153208679d060c2b7a3d7d6f9474b0ea34c923518d55092bd79d6ecbb
+-- SOURCE_SHA256 g0-backfill-precheck.sql b9809b62a152e898a635a04fad13bc6bad5f48b01b4117c176d3e8832b0baf83
+-- SOURCE_SHA256 g0-reconcile.sql f52fe6fe3f338a9bb77b317223e8f245251d5d92a213de3f050bb8c7bd5e2291
+-- SOURCE_SHA256 g0-backfill.sql bde37bc0793c9cf482a086841ef74d14c71d6da34f73ba01f07bbaed04351a81
 
 -- ============================================================
 -- HRM-G0 / WS2 / Task 6 — Final Backfill Precheck
@@ -18,7 +18,7 @@ CREATE OR REPLACE FUNCTION hr_assert_migration_tenant_scope(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_caller_tenant TEXT;
@@ -37,7 +37,7 @@ CREATE OR REPLACE FUNCTION hr_default_migration_as_of_date(p_tenant_id UUID)
 RETURNS DATE
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -61,7 +61,7 @@ CREATE OR REPLACE FUNCTION hr_precheck_tenant(p_tenant_id UUID, p_as_of_date DAT
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_emp RECORD;
@@ -272,7 +272,7 @@ CREATE OR REPLACE FUNCTION hr_precheck_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -303,7 +303,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant_report(p_tenant_id UUID, p_as_of_
 RETURNS TABLE(gate_name TEXT, gate_value BIGINT, passed BOOLEAN)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_legacy_total BIGINT;
@@ -585,7 +585,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant_report(p_tenant_id UUID)
 RETURNS TABLE(gate_name TEXT, gate_value BIGINT, passed BOOLEAN)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -602,7 +602,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant(p_tenant_id UUID, p_as_of_date DA
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_legacy_total BIGINT;
@@ -640,7 +640,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -671,7 +671,7 @@ CREATE OR REPLACE FUNCTION hr_backfill_tenant(p_tenant_id UUID, p_as_of_date DAT
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_org_id UUID;
@@ -956,7 +956,7 @@ CREATE OR REPLACE FUNCTION hr_backfill_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
