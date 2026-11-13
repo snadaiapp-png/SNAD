@@ -85,6 +85,43 @@ BEGIN
 END $c4$;
 SQL
 
+# Mandatory HR definer pin: pg_temp must be explicitly LAST to prevent
+# temporary relation shadowing. This is a regression gate, not just inventory.
+psql_cert -f - >"$ART/hr-search-path-gate.txt" <<'SQL'
+DO $c4_path$
+DECLARE cnt integer;
+BEGIN
+ SELECT count(*) INTO cnt FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+ WHERE n.nspname='public' AND p.prosecdef AND p.proname LIKE 'hr_%'
+   AND p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']::text[];
+ IF cnt <> 10 THEN
+   RAISE EXCEPTION 'C4_HR_DEFINER_PIN_COUNT=% expected=10',cnt USING ERRCODE='42501';
+ END IF;
+ RAISE NOTICE 'C4_HR_DEFINER_SEARCH_PATH_PINNED=10/10';
+END $c4_path$;
+SQL
+
+# Controlled negative test against pg_temp shadowing with an artificial
+# tenant that has no rows in the database. The definer must resolve public.
+# All temp objects and GUC changes are rolled back at the end of this txn.
+psql_cert -f - >"$ART/hr-temp-shadow-negative.txt" <<'SQL'
+BEGIN;
+SET LOCAL ROLE sanad;
+SELECT set_config('app.tenant_id','aaaaaaaa-0000-0000-0000-000000000004',true);
+CREATE TEMP TABLE hr_employees (tenant_id uuid, hire_date date);
+INSERT INTO hr_employees VALUES ('aaaaaaaa-0000-0000-0000-000000000004','2099-12-31'::date);
+DO $c4_shadow$
+DECLARE got date;
+BEGIN
+ SELECT public.hr_default_migration_as_of_date('aaaaaaaa-0000-0000-0000-000000000004') INTO got;
+ IF got IS DISTINCT FROM DATE '1970-01-01' THEN
+    RAISE EXCEPTION 'C4_TEMP_SHADOWED_HR_EMPLOYEES got=%',got USING ERRCODE='42501';
+ END IF;
+ RAISE NOTICE 'C4_HR_TEMP_SHADOW_NEGATIVE=PASS expected=1970-01-01';
+END $c4_shadow$;
+ROLLBACK;
+SQL
+
 # Real attempted DDL under SET LOCAL ROLE sanad, never commits anything. A
 # PostgreSQL privilege denial must be 42501; any other error fails the gate.
 set +e
