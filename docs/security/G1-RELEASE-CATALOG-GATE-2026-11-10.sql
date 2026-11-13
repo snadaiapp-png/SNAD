@@ -1,5 +1,5 @@
 -- SANAD G1 Amendment A01: READ-ONLY release catalog guard.
--- Valid for chain head 20261111.1 (V20261111_1 — P0 service_callback_replay RLS
+-- Valid for chain head 20261113.1 (V20261111_1 — P0 service_callback_replay RLS
 -- closure; executive order 2026-11-11, base main cac06b8825a676971e731ace62a93f8d60e1a509).
 -- This is not a tenant A/B functional RLS test and does not certify security or authorize changes.
 -- Run only with separately approved production access; NEVER connect using application secrets in logs.
@@ -82,8 +82,8 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
   UNION ALL
   SELECT 'FLYWAY:installed_head',
     (SELECT version FROM public.flyway_schema_history
-      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261111.1',
-    'expected=20261111.1; actual=' ||
+      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261113.1',
+    'expected=20261113.1; actual=' ||
       COALESCE((SELECT version FROM public.flyway_schema_history
         WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'NONE') ||
       '; latest successful VERSIONED migration (ignore later repeatable rows)'
