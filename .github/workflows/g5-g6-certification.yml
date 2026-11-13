@@ -51,7 +51,16 @@ jobs:
             echo "::error::APPLIED_MIGRATION_REMOVED_RENAMED_OR_COPIED"
             exit 1
           fi
-          while IFS=
+          # git --name-status output is separated by whitespace (tab by default).
+          # The sole modified-file exception is the explicitly named repeatable.
+          while read -r change file; do
+            [ -n "$change" ] || continue
+            if [ "$change" = "M" ] && [ "$file" != "$MIG_LOC/R__finalize_hr_backfill_closure.sql" ]; then
+              echo "::error::APPLIED_VERSIONED_OR_UNAPPROVED_MIGRATION_MODIFIED"
+              exit 1
+            fi
+          done <<< "$changed"
+          # Pin to actual test tree; do not certify a historical release SHA.
           echo "CERTIFIED_TREE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "CHAIN_ADDITIONS_REVIEWED: versioned migrations immutable; one explicit HR repeatable allowed"
 
