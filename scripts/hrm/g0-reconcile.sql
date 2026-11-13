@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant_report(p_tenant_id UUID, p_as_of_
 RETURNS TABLE(gate_name TEXT, gate_value BIGINT, passed BOOLEAN)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_legacy_total BIGINT;
@@ -290,7 +290,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant_report(p_tenant_id UUID)
 RETURNS TABLE(gate_name TEXT, gate_value BIGINT, passed BOOLEAN)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
@@ -307,7 +307,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant(p_tenant_id UUID, p_as_of_date DA
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_legacy_total BIGINT;
@@ -345,7 +345,7 @@ CREATE OR REPLACE FUNCTION hr_reconcile_tenant(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_as_of DATE;
