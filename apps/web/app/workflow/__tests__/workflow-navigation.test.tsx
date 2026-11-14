@@ -6,7 +6,7 @@ const workflowUrl = (relative: string) => new URL(`../${relative}`, import.meta.
 function readRequired(relative: string) {
   const url = workflowUrl(relative);
   expect(existsSync(url), `${relative} must exist`).toBe(true);
-  return existsSync(url) ? readFileSync(url, "utf8") : "";
+  return existsSync(url) ? readFileSync(url, "utf8").replace(/\r\n?/g, "\n") : "";
 }
 
 const DESTINATIONS = [
