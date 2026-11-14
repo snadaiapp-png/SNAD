@@ -2,6 +2,10 @@
 
 **Target:** the four failure modes behind the G1 governance drift (Issue #1462 forensic report). Implemented here as repository controls where possible; the branch-protection diff requires an authorized administrator.
 
+## Policy scope (2026-11-14 proposed revision)
+
+The new continuous-security model removes mandatory independent *certification paperwork*, not the technical G1 closure/evidence or actual configured GitHub branch protections. Where an older issue checkbox still says independent review, it remains unchecked until formally revised through approved governance; do not tick it merely because reviewer #1529 was cancelled. [Canonical policy](../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md).
+
 ## C1 — Acceptance checkboxes are not evidence (Issue-body protocol)
 
 1. Each of the six G1 checkboxes may only be ticked **after** a comment on Issue #1462 that contains: the exact SHA tested, the CI run URL(s), the artifact link(s), and a PASS/FAIL per requirement.
@@ -35,7 +39,7 @@ Branch-protection settings to apply on `main` (administrator action):
 ## C5 — Reviews bind to a SHA
 
 1. A review approval is only valid for the exact head SHA it was submitted on; any push invalidates it (this is what `dismiss_stale_reviews=true` enforces mechanically).
-2. Independent security review must state: reviewer identity, independence attestation, the SHA reviewed, and findings. Empty-body approvals are not security reviews.
+2. Security-sensitive changes require an evidence-backed, SHA-bound technical assessment identifying reviewer/owner, findings, test scope and limitations. A separately **independent** G1 reviewer or certificate is **not** the default internal prerequisite under the [continuous security governance](../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md). An empty-body PR approval satisfies only GitHub's configured code-review workflow, not any unexecuted security test or production GO. Retain any independent/external review requirement arising from documented high-risk circumstances, regulations or contracts.
 
 ## C6 — Certification binds to a tested version
 
