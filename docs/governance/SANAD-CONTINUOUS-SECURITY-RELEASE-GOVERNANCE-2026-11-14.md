@@ -1,8 +1,8 @@
 # SANAD — Canonical Continuous Security & Release Governance
 **Decision reference:** DEC-GOV-CONTINUOUS-SECURITY-2026-11-14-001  
-**Proposed:** 2026-11-14 | **Authority:** project owner `snadaiapp-png` (explicit user direction; repository change effective after protected merge)  
+**Adopted:** 2026-11-14 through protected merge [PR #1531](https://github.com/snadaiapp-png/SNAD/pull/1531) | **Authority:** project owner `snadaiapp-png` (owner-directed governance change)  
 **Baseline assessed:** `fa12c64eb0a9b45a7a0201fdd6a0a86e84d11dd4`  
-**Change status:** PROPOSED IN PR; NOT A RELEASE AUTHORIZATION
+**Change status:** MERGED / EFFECTIVE ON `main` at `6d4effbcf41128b72979d0affe7c862495510a8f`; **NOT A PRODUCTION RELEASE AUTHORIZATION**. Post-merge verification [run #43636059170](https://github.com/snadaiapp-png/SNAD/actions/runs/43636059170) returned `PMV_FINAL_GATE=PASS`, with [manifest artifact #14132292219](https://github.com/snadaiapp-png/SNAD/actions/runs/43636059170/artifacts/14132292219). The production three-user gate was `SKIPPED`, not PASS.
 
 ## 1. Decision and precedence
 
@@ -14,7 +14,7 @@ SANAD adopts **Continuous Security & Release Gates** instead of a mandatory proj
 - A regular PR code-review rule, CODEOWNERS setting, required GitHub status check or protected environment reviewer (if actually configured) is a **separate engineering control**, not automatically retired by removing security-certificate bureaucracy. Changes to settings need owner approval and implementation evidence.
 - Historic review packets, PRs, security certifications and declarations stay available as archival records, not current truth or authority.
 
-**Precedence for new internal work:** this decision, after approved and merged, overrides conflicting *administrative independent-review/certificate prerequisites* in [SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md](SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md), older stage/assurance documents, and issue templates. It builds on [2026-10-25 project-wide revocation](SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md). It does not automatically amend protected GitHub settings or issue-body checkboxes and does not supersede technical controls or external duties.
+**Precedence for new internal work:** this adopted decision overrides conflicting *administrative independent-review/certificate prerequisites* in [SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md](SANAD-LEAN-SECURITY-GOVERNANCE-2026-11-12.md), older stage/assurance documents, and issue templates. It builds on [2026-10-25 project-wide revocation](SANAD-SECURITY-ASSURANCE-REQUIREMENTS-REVOCATION-2026-10-25.md). It does not automatically amend protected GitHub settings or issue-body checkboxes and does not supersede technical controls or external duties.
 
 ## 2. Two deliberately separate lanes
 
@@ -85,3 +85,9 @@ As of the evidence baseline `fa12c64e`, production read-only pg_catalog inspecti
 - [ ] Confirm future new releases cite this document rather than demanding independent certificate as a default.
 - [ ] Record CI results and any remaining contradictory documents or workflow gates for a follow-up.
 - [ ] #1462 / #1528 stay OPEN and no production/payment write is attempted.
+
+## 7. Governance reconciliation addendum — 2026-11-15
+
+The release-management requirement is **evidence-based internal owner/delegate release authorization**, not a separate independent security **certificate**. Historic G1/C4 packets remain truthful archival records and cannot have their PENDING or HOLD statuses retroactively converted to PASS. For current gates, consult [#1462](https://github.com/snadaiapp-png/SNAD/issues/1462) (technical security findings) and [#1528](https://github.com/snadaiapp-png/SNAD/issues/1528) (operational release request). Any existing issue checklist claiming a mandatory independent sign-off must be transitioned to **risk-based technical validation of the same underlying privileged functions/tables**; unverified validations remain unchecked. #1529 is cancelled, not a technical closure. The security findings and production restrictions are unchanged.
+
+Evidence boundary: documentation merge + CI success do not establish that V20261113_1 migrated into production, production restore succeeded, real tenant paths were retested or an approved GO exists. A new SHA after any further document change requires its own checks.
