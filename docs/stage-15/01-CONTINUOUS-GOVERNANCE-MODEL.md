@@ -1,4 +1,7 @@
-# Stage 15 — Continuous Governance Model
+# Stage 15 — Continuous Governance Model (Historical Stage Record)
+
+> **Governance transition (proposed 2026-11-14):** This 2026-07-08 stage plan is historical wherever it assigns mandatory independent reviewer/certification decisions. New internal review/release decisions follow [Canonical Continuous Security & Release Governance](../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md) after approval and protected merge. Independent specialist review is risk-triggered rather than a standing prerequisite. Configured PR review rules, owner GO/NO-GO authority, test evidence, and production holds are unchanged. Historical claims of live production are **not** current deployment verification.
+
 
 **Date**: 2026-07-08
 
