@@ -1,5 +1,8 @@
 # 07 — INDEPENDENT SECURITY APPROVAL (Phase 5)
 
+> **Historical record — noncurrent administrative gate (2026-11-15):** This file records the results and limitations of the 2026-11-02 review on its then-targeted SHA. Current internal governance [Continuous Security & Release Governance](../../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md) no longer requires a separately appointed independent C4 reviewer or certificate by default. This does not reclassify past evidence or waive current G1 security/production verification requirements; the cancelled reviewer issue #1529 is not a technical PASS. Preserve the factual text below as history.
+
+
 **Requirement:** an approval by a reviewer **independent of the remediation executor**, recorded on the certified scope, covering SHA `f95a30b64e75815d571e582e1b555c01bcd53abe`.
 **Verdict: INDEPENDENT_SECURITY_REVIEW = BLOCKED (not satisfied for the certified scope).** The user's assertion that independent approvals are complete was checked against actual records rather than assumed — the records do not support it **for this scope and SHA**.
 
