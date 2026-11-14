@@ -89,6 +89,12 @@ public class SecurityConfig {
                                 // The controller rejects the request unless the configured
                                 // provider adapter verifies the raw-body signature first.
                                 "/api/v1/billing/provider/webhook",
+                                // Zid webhook ingress: intentionally JWT-free (Zid servers
+                                // cannot present a SANAD session). ZidWebhookIngestService
+                                // verifies the raw-body HMAC BEFORE any database lookup and
+                                // fails closed: 503 when unconfigured, 401 on signature
+                                // mismatch, 422 for unbound stores — nothing persists.
+                                "/api/v1/integrations/zid/webhook",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 // One-time, token-gated Control Plane admin bootstrap.
