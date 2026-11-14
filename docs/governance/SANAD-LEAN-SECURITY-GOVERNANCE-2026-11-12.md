@@ -1,4 +1,7 @@
-# SANAD — Single-Approval Internal Security Governance
+# SANAD — Single-Approval Internal Security Governance (Historical Proposal)
+
+> **SUPERSEDED FOR NEW WORK (proposed 2026-11-14):** The mandatory single independent-reviewer APPROVE model below is historical and is replaced by [SANAD Continuous Security & Release Governance](SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md) once its PR merges. Routine development no longer requires a separately appointed independent G1 reviewer or internal security certificate. Existing branch protection and technical security gates remain applicable; no security hold or production restriction is waived. This record is retained for decision history.
+
 **Revision:** 2026-11-12 | **Status:** PROPOSED — effective only after authorized merge into main
 
 ## 1. Sole administrative sign-off
