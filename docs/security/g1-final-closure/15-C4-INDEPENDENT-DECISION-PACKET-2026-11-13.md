@@ -1,5 +1,8 @@
 # SNAD G1/C4 — signed-review decision packet, exact main 354598c1
 
+> **Historical evidence, not an active independent-signoff prerequisite (2026-11-15):** This 2026-11-13 packet documents technical facts and then-pending individual independent review on older SHA `354598c1`. The controlling current policy is [Continuous Security & Release Governance](../../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md), adopted in PR #1531. Technical C4 test/privilege/RLS findings still require evidence-based remediation/assessment, but mandatory independently issued G1 certificates are retired as an internal requirement. The #1529 reviewer task was cancelled `not_planned`; that is **not** a technical PASS. All statuses and historical evidence below are retained unchanged.
+
+
 **State: TECHNICAL SOURCE/CATALOG ASSESSMENT ONLY — INDEPENDENT HUMAN SECURITY SIGNATURE PENDING.**  
 Release: `354598c17bdbf66fe349e6a94bb9cf084be6ba7c` · Current result: `C4=HOLD`, `G1=HOLD`, `PRODUCTION_RELEASE=NO-GO`, `PAYMENTS=OFF`.  
 Prepared 2026-11-13. No production mutations, release dispatch, signature, or payment changes.
