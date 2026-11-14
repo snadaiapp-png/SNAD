@@ -1,5 +1,8 @@
 # G1-CERTIFICATION-READINESS.md
 
+> **Historical status snapshot (2026-11-15 note):** The statuses and old PR references below refer to a previous release assessment, not the canonical ongoing release policy. [Continuous Security & Release Governance](../../governance/SANAD-CONTINUOUS-SECURITY-RELEASE-GOVERNANCE-2026-11-14.md) replaced mandatory internal independent certification with continuously enforced technical gates and a SHA-bound owner/delegate release GO/NO-GO decision. Former independent-review absence is **not** by itself a development or routine internal-release blocker; all actual technical security, backup/restore, branch protection and live release constraints remain. Nothing below is retroactively marked PASS. #1462 and #1528 remain unresolved until separately evidenced.
+
+
 **Flags (unchanged by this command):** `P0_SECURITY_HOLD=ACTIVE` · `G1_CERTIFICATION=HOLD` · `PAYMENTS=OFF` · `PRODUCTION_RELEASE=NO-GO` · `PRODUCTION_DEPLOYMENT=PROHIBITED` · `PRODUCTION_SQL_WRITE=PROHIBITED` · `AUTOMATIC_MERGE=PROHIBITED` · `SECURITY_GATE_BYPASS=PROHIBITED`
 
 ## Decisions requested by the command
