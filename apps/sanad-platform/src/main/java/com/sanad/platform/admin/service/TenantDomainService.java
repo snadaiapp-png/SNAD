@@ -60,17 +60,35 @@ public class TenantDomainService {
     private final PlatformAuditService auditService;
     private final HostRoutingService hostRoutingService;
     private final DomainOwnershipVerifier ownershipVerifier;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     public TenantDomainService(
             JdbcTemplate jdbc,
             PlatformAuditService auditService,
             HostRoutingService hostRoutingService,
-            DomainOwnershipVerifier ownershipVerifier
+            DomainOwnershipVerifier ownershipVerifier,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext
     ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.hostRoutingService = hostRoutingService;
         this.ownershipVerifier = ownershipVerifier;
+        this.tenantRlsContext = com.sanad.platform.security.rls.TenantRlsTransactionContext.class.cast(
+                java.util.Objects.requireNonNull(tenantRlsContext, "tenantRlsContext"));
+    }
+
+    /**
+     * Control-plane re-scoping: the acting principal's transaction is bound to
+     * the ACTING tenant (TenantRlsConnectionHandler), while every operation in
+     * this service targets the PATH tenant. tenant_domains is fail-closed FORCE
+     * RLS, so without re-scoping the trusted control-plane path could neither
+     * read nor write another tenant's domains. Authorization for control-plane
+     * domain management is decided upstream (control-plane guard + capability
+     * aspect); this only attaches the correct tenant scope, exactly like the
+     * atomic provisioning flow already does.
+     */
+    private void scopeToPathTenant(UUID tenantId) {
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
     }
 
     // ============================================================
@@ -79,6 +97,7 @@ public class TenantDomainService {
 
     @Transactional
     public DomainResponse createDomain(UUID tenantId, CreateDomainRequest request, Authentication auth) {
+        scopeToPathTenant(tenantId);
         ensureTenant(tenantId);
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
@@ -129,8 +148,13 @@ public class TenantDomainService {
                     0L, Timestamp.from(now), Timestamp.from(now), actorUserId(auth)
             );
         } catch (DuplicateKeyException e) {
+            // Covers both the per-tenant unique index and the global
+            // lower(hostname) index (V20261116_1): with FORCE RLS the
+            // application-level availability check can only see the bound
+            // tenant's claims, so the global index is the structural backstop
+            // for cross-tenant duplicates.
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "hostname already claimed by this tenant: " + hostname);
+                    "hostname already claimed: " + hostname);
         }
 
         audit(tenantId, auth, "DOMAIN.CREATED", id, "tenant_domains", hostname);
@@ -152,6 +176,7 @@ public class TenantDomainService {
             DomainType type,
             Authentication auth
     ) {
+        scopeToPathTenant(tenantId);
         ensureTenant(tenantId);
         DomainType effectiveType = type == null ? DomainType.APPLICATION : type;
         if (effectiveType != DomainType.APPLICATION) {
@@ -248,6 +273,7 @@ public class TenantDomainService {
 
     @Transactional(readOnly = true)
     public List<DomainResponse> listDomains(UUID tenantId, DomainType filterType) {
+        scopeToPathTenant(tenantId);
         ensureTenant(tenantId);
         if (filterType == null) {
             return jdbc.query(
@@ -262,12 +288,14 @@ public class TenantDomainService {
 
     @Transactional(readOnly = true)
     public DomainResponse getDomain(UUID tenantId, UUID domainId) {
+        scopeToPathTenant(tenantId);
         ensureTenant(tenantId);
         return getDomainOrThrow(tenantId, domainId);
     }
 
     @Transactional(readOnly = true)
     public DomainSummary summarize(UUID tenantId) {
+        scopeToPathTenant(tenantId);
         ensureTenant(tenantId);
         Integer total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenant_domains WHERE tenant_id = ?",
@@ -309,6 +337,7 @@ public class TenantDomainService {
 
     @Transactional
     public DomainResponse updateDomain(UUID tenantId, UUID domainId, UpdateDomainRequest request, Authentication auth) {
+        scopeToPathTenant(tenantId);
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         Instant now = Instant.now();
 
@@ -355,6 +384,7 @@ public class TenantDomainService {
 
     @Transactional
     public DomainResponse verifyDomain(UUID tenantId, UUID domainId, VerifyDomainRequest request, Authentication auth) {
+        scopeToPathTenant(tenantId);
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         if (request == null || request.verificationToken() == null
                 || request.verificationToken().isBlank()) {
@@ -397,6 +427,7 @@ public class TenantDomainService {
 
     @Transactional
     public DomainResponse activateDomain(UUID tenantId, UUID domainId, Authentication auth) {
+        scopeToPathTenant(tenantId);
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         if (existing.status() != Status.VERIFIED && existing.status() != Status.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -413,6 +444,7 @@ public class TenantDomainService {
 
     @Transactional
     public DomainResponse deactivateDomain(UUID tenantId, UUID domainId, String reason, Authentication auth) {
+        scopeToPathTenant(tenantId);
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         Instant now = Instant.now();
         jdbc.update(
@@ -429,6 +461,7 @@ public class TenantDomainService {
 
     @Transactional
     public void deleteDomain(UUID tenantId, UUID domainId, Authentication auth) {
+        scopeToPathTenant(tenantId);
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         // Preserve routing history. The public DELETE contract is retained for
         // compatibility, but its storage semantics are a governed soft remove.
