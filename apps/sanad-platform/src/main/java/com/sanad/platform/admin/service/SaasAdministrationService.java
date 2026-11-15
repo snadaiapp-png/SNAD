@@ -381,6 +381,15 @@ public class SaasAdministrationService {
 
     @Transactional(readOnly = true)
     public SubscriptionResponse getSubscription(UUID subscriptionId) {
+        // D5 (UAT-07/17/18, 2026-11-16): control-plane operations are addressed
+        // by subscription id while the HTTP transaction is RLS-bound to the
+        // ACTING tenant. tenant_subscriptions is fail-closed FORCE RLS, so the
+        // read below returns zero rows for any other tenant's subscription
+        // ("Subscription not found") even for the EXECUTIVE_MANAGE operator.
+        // Resolve the owner through the trusted security-definer primitive
+        // (V20261116_2) and re-scope; authorization was already enforced
+        // upstream (control-plane guard + @RequireCapability).
+        scopeToSubscriptionOwner(subscriptionId);
         List<SubscriptionResponse> rows = jdbcTemplate.query(
                 subscriptionSelect() + " WHERE s.id = ?",
                 this::mapSubscription,
@@ -389,6 +398,23 @@ public class SaasAdministrationService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Subscription not found");
         }
         return rows.get(0);
+    }
+
+    /**
+     * Trusted control-plane re-scoping to the owning tenant of a subscription.
+     * No-op when no RLS context is wired (bare test harnesses).
+     */
+    private void scopeToSubscriptionOwner(UUID subscriptionId) {
+        if (tenantRlsContext == null) {
+            return;
+        }
+        UUID ownerTenant = jdbcTemplate.queryForObject(
+                "SELECT tenant_id FROM platform_subscription_owners WHERE subscription_id = ?",
+                UUID.class, subscriptionId);
+        if (ownerTenant == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Subscription not found");
+        }
+        tenantRlsContext.applyForCurrentTransaction(ownerTenant);
     }
 
     @Transactional(readOnly = true)
