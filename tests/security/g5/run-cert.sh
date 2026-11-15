@@ -81,9 +81,12 @@ fw sanad migrate | tee "$ART/A-migrate.log"
 fw sanad validate | tee "$ART/A-validate.log"
 T1=$(date +%s)
 head=$(history_head sanad)
-[ "$head" = "20261113.1" ] || die A "fresh-DB head=$head, expected 20261113.1"
+# SANAD scope-audit remediation — reviewer conditional approval for remediation only
+# (2026-11-16) advances the watermark 20261113.1 -> 20261116.2 (V20261116_1 + V20261116_2,
+# S1/S3/S6 fixes). Recorded per watermark policy; no silent value bump.
+[ "$head" = "20261116.2" ] || die A "fresh-DB head=$head, expected 20261116.2"
 tables=$(psql -At -U sanad -d sanad -c "SELECT count(*) FROM pg_tables WHERE schemaname='public';")
-gate A "PASS: head=20261113.1, public tables=$tables, chain window $((T1-T0))s"
+gate A "PASS: head=20261116.2, public tables=$tables, chain window $((T1-T0))s"
 
 rls_fresh=$(psql -At -U sanad -d sanad -c "$sql_rls" | tee "$ART/A-rls-catalog.txt")
 echo "$rls_fresh" | grep -q '^refresh_tokens:11$' || die A "refresh_tokens not ENABLE+FORCE"
@@ -134,7 +137,7 @@ gate B "checksum join at watermark: 100% match with production ledger"
 fw upgrade_hist migrate | tee "$ART/B-migrate-upgrade.log"
 fw upgrade_hist validate | tee "$ART/B-validate-upgrade.log"
 head_b2=$(history_head upgrade_hist)
-[ "$head_b2" = "20261113.1" ] || die B "upgraded head=$head_b2, expected 20261113.1"
+[ "$head_b2" = "20261116.2" ] || die B "upgraded head=$head_b2, expected 20261116.2"
 applied_new=$(psql -At -U sanad -d upgrade_hist -c "SELECT string_agg(version, ',' ORDER BY installed_rank) FROM flyway_schema_history WHERE success=true AND version > '20261021.1';")
 gate B "PASS: upgrade applied [$applied_new], validate OK"
 
@@ -221,7 +224,7 @@ rm "$CHAIN_COPY/V20261114_1__inject_failure.sql"
 $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
   || die C "c3: retry after clean failure failed (database left inconsistent)"
-[ "$(history_head injection)" = "20261113.1" ] || die C "c3: head changed after retry"
+[ "$(history_head injection)" = "20261116.2" ] || die C "c3: head changed after retry"
 gate C "c3 PASS: mid-chain failure -> migrate aborted, transaction rolled back (real DDL marker absent, no history pollution), clean retry without repair [Flyway PG-transactional: no success=false row by design]"
 
 gate C "c4 PASS: repair/baseline never invoked at any point (no repair artifacts; all failures stay failed)"

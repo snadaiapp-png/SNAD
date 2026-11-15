@@ -367,6 +367,10 @@ class CrmFlywayHistoryAssertionTest {
             , "20261107.1"   // forward-only NO ACTION child FK policy
             , "20261111.1"   // P0 service_callback_replay RLS closure (executive order 2026-11-11)
             , "20261113.1"   // C4-TOKEN-01 external action token pointer rotation fix
+            // SANAD scope-audit remediation — reviewer conditional approval for
+            // remediation only (2026-11-16); S1/S3/S6 fixes recorded in V20261116_2:
+            , "20261116.1"   // WS6 global hostname uniqueness index (tenant_domains)
+            , "20261116.2"   // platform subscription-owner resolver (per-tenant backfill, delete cycle, default-deny ACL)
     );
 
 
