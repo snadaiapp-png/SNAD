@@ -176,6 +176,23 @@ jobs:
           set -euo pipefail
           bash tests/security/g1-c4/run-catalog-probes.sh 2>&1 | tee /tmp/c4-probe-run.log
 
+      - name: G1 C4 — effective runtime/service/PUBLIC ACL and RLS-OFF risk inventory
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read-only catalog snapshot, only in disposable separated PG17.
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = 'sanad_migrator'
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = '0'
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 \
+            -d separation_cert -f tests/security/g1-c4/c4-effective-privilege-inventory.sql \
+            > /tmp/c4-catalog-artifacts/c4-effective-privilege-inventory.log 2>&1 || {
+              cat /tmp/c4-catalog-artifacts/c4-effective-privilege-inventory.log
+              exit 1
+            }
+          grep -q 'C4_INVENTORY_SCOPE_ONLY_NOT_SECURITY_PASS' /tmp/c4-catalog-artifacts/c4-effective-privilege-inventory.log
+          echo 'C4_EFFECTIVE_PRIVILEGE_INVENTORY=CAPTURED (isolated DB only; full security adjudication remains HOLD)'
+
       - name: G1 C4 — HR SECURITY DEFINER 20-case runtime tenant-denial matrix
         if: success()
         shell: bash
