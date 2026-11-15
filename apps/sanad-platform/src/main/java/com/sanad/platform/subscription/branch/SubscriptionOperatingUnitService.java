@@ -691,13 +691,13 @@ public class SubscriptionOperatingUnitService {
         // returns zero rows for any other tenant's subscription. Authorization
         // was already enforced upstream (control-plane guard + capability).
         if (tenantRlsContext != null) {
-            UUID ownerTenant = jdbc.queryForObject(
+            List<UUID> owners = jdbc.queryForList(
                     "SELECT tenant_id FROM platform_subscription_owners WHERE subscription_id = ?",
                     UUID.class, subscriptionId);
-            if (ownerTenant == null) {
+            if (owners.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "subscription not found");
             }
-            tenantRlsContext.applyForCurrentTransaction(ownerTenant);
+            tenantRlsContext.applyForCurrentTransaction(owners.get(0));
         }
         List<SubscriptionScope> rows = jdbc.query("""
                 SELECT s.tenant_id, s.status,

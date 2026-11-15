@@ -408,13 +408,13 @@ public class SaasAdministrationService {
         if (tenantRlsContext == null) {
             return;
         }
-        UUID ownerTenant = jdbcTemplate.queryForObject(
+        List<UUID> owners = jdbcTemplate.queryForList(
                 "SELECT tenant_id FROM platform_subscription_owners WHERE subscription_id = ?",
                 UUID.class, subscriptionId);
-        if (ownerTenant == null) {
+        if (owners.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Subscription not found");
         }
-        tenantRlsContext.applyForCurrentTransaction(ownerTenant);
+        tenantRlsContext.applyForCurrentTransaction(owners.get(0));
     }
 
     @Transactional(readOnly = true)
