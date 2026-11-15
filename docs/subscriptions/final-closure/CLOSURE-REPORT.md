@@ -62,7 +62,7 @@ Failed tests: **none**. Skipped tests: **none** on every executed batch (the bat
 
 ## 8. Session-2 addendum (2026-11-16) — Playwright unblocked and executed; corrected test accounting
 
-Controller instruction of 2026-11-16: re-verify every claim of §2/§4 against executable evidence, correct the test accounting (unique vs re-runs; skipped ≠ success), resolve the Playwright blocker in a Chrome-equipped (or equivalent approved) environment without touching acceptance criteria, run the Subscription Authenticated E2E on real PostgreSQL with isolated seed data, and hand Human UAT to the user. All holds stay active; nothing merged; payments untouched.
+Controller instruction of 2026-11-16: re-verify every claim of §2/§4 against executable evidence, correct the test accounting (unique vs re-runs; skipped ≠ success), resolve the Playwright blocker in a Chrome-equipped (or equivalent approved) environment without touching acceptance criteria, run the Subscription Authenticated E2E on real PostgreSQL with isolated seed data, and hand Human UAT to the user (`HUMAN-UAT-PACK.md`). All holds stay active; nothing merged; payments untouched.
 
 ### 8.1 Environment resolution
 
