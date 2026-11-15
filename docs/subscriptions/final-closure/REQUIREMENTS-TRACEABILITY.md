@@ -48,6 +48,10 @@ The previous session's local artifacts (including its Surefire XML evidence and 
 
 Frontend gates: TypeScript `tsc --noEmit` PASS; Vitest **171 files / 1426 tests / 0 failed / 0 skipped**; `next build` PASS (prebuild `validate:integrity` PASS); gitleaks current-tree secret scan (CI parity `--no-git`) **0 leaks**; Python closure contract `tests/ci/test_subscription_1055_comprehensive_closure.py` **12/12 OK**.
 
+### Session-2 re-verification (2026-11-16, PR #1536 HEAD `5f7db7f4`)
+
+All frontend gates were re-executed at this docs-only descendant of `4c9d7e68` with identical results (`tsc` PASS; Vitest 171/1426/0 failed/0 skipped, 112.31 s; `next build` PASS in **both** CI build variants — with and without `NEXT_PUBLIC_API_BASE_URL`), and the Playwright blocker was resolved and both browser suites executed with branded Google Chrome — see §3 and `EVIDENCE-MANIFEST-SESSION2.md`. Corrected test accounting (unique vs re-runs vs skipped) is in the manifest §1: backend 694 unique / 679 first-pass executed / 15 gated skips re-run clean under the CI contract (0 effective skips); standard browser suite 330 executions = 282 passed / 48 skipped (8 credential-gated unique cases × 6 projects, CI-identical, **not counted as success**) / 0 failed; subscription authenticated E2E 1/1 passed with all three CI durability contracts verified.
+
 ## 2. Workstream traceability
 
 ### WS1 — Tenant UI recovery — **VERIFIED** (via absorbing PRs)
@@ -57,7 +61,7 @@ Frontend gates: TypeScript `tsc --noEmit` PASS; Vitest **171 files / 1426 tests 
 - **Absorption evidence:** `apps/web/components/sds/Modal.tsx` 100% of added lines present in main; `Modal.test.tsx` 100%; `tenant-management.test.tsx` 75%; `executive/tenants/page.tsx` 42% literal (page was later restructured by merged PR #1156 and wave-1 perf split `fc382d3a` — dialog chunks dynamically imported; semantic behavior preserved, see contract test below).
 - **Absorbing PRs (merged into main):** #1138 (2026-09-23), #1156 (2026-09-26, "restore final subscription convergence and #1055 closure").
 - **Tests (green):** Vitest suite incl. `tenant-management.test.tsx`, `components/sds/__tests__/Modal.test.tsx` (1426/1426); Python contract `test_ws1_tenant_login_is_audited_and_not_left_blank`, `test_ws1_pending_tenant_can_be_governedly_activated` (12/12 OK).
-- **Gap:** none blocking; E2E-level browser proof blocked by environment (see §3).
+- **Browser-level proof (session 2):** standard Playwright suite executed with branded Google Chrome 157.0.8103.78 at the canonical path (see §3): 330 executions → 282 passed / 48 credential-gated skips / 0 failed; tenant/auth surfaces, bilingual-theme matrix and protected-route redirects green.
 
 ### WS2 — Application catalog lifecycle — **VERIFIED**
 
@@ -97,13 +101,15 @@ Frontend gates: TypeScript `tsc --noEmit` PASS; Vitest **171 files / 1426 tests 
 - **Requirement:** branch model under tenant; branch-scoped applications and entitlements; branch-aware RBAC and usage attribution; PER_BRANCH pricing; consolidated or per-branch billing profiles; sites/stores/POS linked to branch.
 - **Tests (green):** `SubscriptionOperatingUnitPostgresTest` (4 — PER_BRANCH pricing semantics, operating-unit model); branch-aware usage attribution `UsageMeteringServiceTest` (16); branch-scoped entitlements `EntitlementProvisioningIsolationPostgresTest` (8); billing profiles exercised in ExecutiveBillingQueryService PG tests.
 
-## 3. Gate-level items not yet provable in this environment
+## 3. Gate-level browser items — session-2 resolution (2026-11-16)
 
-| Item | Status | Precise cause | Resumption |
-| --- | --- | --- | --- |
-| Playwright standard suite (36 browser cases) | **BLOCKED** | Repo configs pin `channel: "chrome"` (branded Google Chrome at `/opt/google/chrome/chrome`, CI runners have it). Sandbox has no root and read-only `/opt`; PATH shims and cached Chromium do not satisfy Playwright's fixed-path resolution. | Run on a runner with `google-chrome-stable`, or a temporary config override by the controller (deviation from CI parity — controller decision). Harness itself proven: Next production server boots and serves HTTP 200; 6 channel-independent cases passed. |
-| `subscription-executive-acceptance.spec.ts` E2E | **BLOCKED** (same root cause) | Same `channel: "chrome"` pinning in `playwright.subscription-acceptance.config.ts`. Backend half of its contract is already proven by batch2/3/3b (lifecycle 409 guard, detail API, RBAC). | Same runner requirement; then follow `.github/workflows/playwright-ci.yml` (backend on 8080 `crm-acceptance` profile, `sanad_test` DB, acceptance seeds, Next on 3001). |
-| Human UAT re-run | **UNVERIFIED** | Requires a human operator per Issue #1055 acceptance clause. | Controller schedules with the reviewer account; final closure stays gated. |
+The session-1 blocker (sandbox without Google Chrome and without root) was resolved **without changing any acceptance criterion and without disabling any test**: the official `google-chrome-stable` .deb was extracted into user space and bind-mounted at the canonical `/opt/google/chrome/chrome` path inside a user+mount namespace (`unshare -rm`), so Playwright's `channel: "chrome"` fixed-path resolution is exercised exactly as in CI (`google-chrome --version` → Google Chrome 157.0.8103.78). No repo config, spec, or threshold was modified. Controller instruction of 2026-11-16 explicitly authorizes a Chrome-equipped or equivalent approved environment.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Playwright standard suite (CI job-1 parity: frontend-only, no backend) | **EXECUTED — 330 executions: 282 passed / 48 skipped / 0 failed** | Real Chrome 157.0.8103.78 at canonical path; 55 unique cases × 6 projects; the 48 skips are 8 unique credential-gated cases (`test.skip(!E2E_EXEC…)` in `auth-login-v2.spec.ts:57`, `test.skip(!CRM_TENANT_A…)` in `crm-tags-production-verification.spec.ts:13`) × 6 projects — CI job 1 does not provide those credentials either, so the skip set is CI-identical and **none are counted as success**. JUnit shards + logs archived (`EVIDENCE-MANIFEST-SESSION2.md` §1). |
+| `subscription-executive-acceptance.spec.ts` E2E (CI job-3 parity: real PostgreSQL + Spring Boot + Next) | **EXECUTED — 1 passed / 0 failed / 0 skipped**, all three CI durability contracts verified (`CANCELLED\|false`, commands ledger = 1, events ledger = 1) | Fresh `sanad_subscription_test`, 261 Flyway migrations, CI seed files, restricted role contract verified, ephemeral credentials; generic-route `CANCEL` 409 fail-closed guard, UI-governed cancellation, durable readback — with branded Chrome, not a mock. |
+| Human UAT re-run | **UNVERIFIED** | Still requires a human operator per the Issue #1055 acceptance clause; final closure remains gated on it. A UAT scenario pack was prepared for the controller (see CLOSURE-REPORT §8). |
 
 ## 4. Old draft PRs disposition (checked, not merged)
 

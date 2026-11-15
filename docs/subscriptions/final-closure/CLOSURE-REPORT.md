@@ -55,7 +55,35 @@ Failed tests: **none**. Skipped tests: **none** on every executed batch (the bat
 
 ## 7. Next resumption point
 
-1. Controller decision on Playwright runner (Chrome channel) → then run standard + `playwright.subscription-acceptance.config.ts` suites per `.github/workflows/playwright-ci.yml`.
+1. ~~Controller decision on Playwright runner (Chrome channel)~~ → **RESOLVED 2026-11-16 (session 2, §8): executed with branded Chrome at the canonical path, zero config changes.**
 2. Human UAT re-run per Issue #1055 acceptance clause (8 workstreams, screenshots as evidence).
 3. Close superseded drafts #1056/#1057/#1058 after controller review.
 4. Final closure decision remains gated on the above; all phase-0/1 evidence in this report is reproducible at HEAD `4c9d7e68`.
+
+## 8. Session-2 addendum (2026-11-16) — Playwright unblocked and executed; corrected test accounting
+
+Controller instruction of 2026-11-16: re-verify every claim of §2/§4 against executable evidence, correct the test accounting (unique vs re-runs; skipped ≠ success), resolve the Playwright blocker in a Chrome-equipped (or equivalent approved) environment without touching acceptance criteria, run the Subscription Authenticated E2E on real PostgreSQL with isolated seed data, and hand Human UAT to the user. All holds stay active; nothing merged; payments untouched.
+
+### 8.1 Environment resolution
+
+- **Playwright blocker (session-1 root cause):** official `google-chrome-stable` .deb extracted to user space and bind-mounted at `/opt/google/chrome/chrome` inside a user+mount namespace (`unshare -rm`). Playwright's `channel:"chrome"` resolution is therefore exercised exactly as on CI runners (`Google Chrome 157.0.8103.78`). No config/spec/threshold was modified; no test disabled; `chrome --version` verified per CI step.
+- **Backend start failure `CRM_ACCEPTANCE_TENANT_WIDE_GRANT_NORMALIZATION_FAILED … updated 0`:** root cause proven from the raw stack trace + Flyway log line — restart commands omitted `SPRING_DATASOURCE_URL`/`USERNAME`, so the app silently used the base default `localhost:5432/sanad` dev database (incomplete acceptance seed). JDBC-level reproduction (`RlsRepro2.java`, including the exact connection-proxy wrapper) passed 4/4/1/1 against the correct DB, ruling out RLS. Fix: full CI env restored; log then shows `Database: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test` and clean start.
+- **Background reaping:** `setsid --fork` daemonization keeps servers alive across tool calls (replaces session-1's synchronous-only workaround).
+- **Reporter parity:** authoritative E2E run executed after a clean CI-style re-provision (drop DB → 261 migrations → both seed files) with `--reporter=html,list`.
+
+### 8.2 Corrected accounting (details: `EVIDENCE-MANIFEST-SESSION2.md` §1)
+
+| Suite | Unique | Re-runs | Passed | Skipped | Failed |
+| --- | --- | --- | --- | --- | --- |
+| Backend Surefire (81 classes, 8 batches) | **694** | 0 (the batch3b 15 replace the 15 gated skips of batch3 — not extra tests) | **694** (679 first-pass + 15 CI-contract re-run) | **0 effective** (15 skipped → re-run clean; never counted as success) | 0 |
+| Vitest | **1426** | 0 | **1426** | 0 | 0 |
+| Playwright standard suite (55 cases × 6 projects) | 55 cases / **330 executions** | by-design matrix, no retries | **282** | **48** (8 credential-gated unique × 6; CI job 1 skips the same set; not counted as success) | **0** |
+| Playwright subscription acceptance E2E | **1** | 1 planned re-provision + re-run for reporter parity (documented) | **1** | 0 | 0 |
+
+### 8.3 Workstream impact
+
+Browser-level evidence now exists for the surfaces that were previously blocked: WS1 (tenant/auth surfaces, bilingual-theme matrix), WS3/WS4 (subscription control-plane E2E incl. generic-route 409 fail-closed guard and governed cancellation), WS5 (detail/billing readbacks in the E2E durable readback). WS1–WS8 classifications in `REQUIREMENTS-TRACEABILITY.md` remain VERIFIED on backend+unit+contract+browser evidence; **final closure remains BLOCKED solely on the Human UAT re-run** (and the controller-review items in §7.3). No domain is classified VERIFIED with a mandatory acceptance test blocked: the previously-blocked mandatory browser tests have now executed green, and the Human UAT clause is tracked as the remaining gate, not attributed to any single workstream.
+
+### 8.4 Holds (re-verified unchanged)
+
+`G1=HOLD` · `P0_SECURITY_HOLD=ACTIVE` · `PRODUCTION_RELEASE=NO-GO` · `PAYMENTS=OFF` — no PR merged, no production change, no payment activation, no branch-protection interaction. FULLY_CERTIFIED has **not** been declared.
