@@ -110,12 +110,21 @@ public class ApplicationRepository {
 
     @Transactional
     public void insert(ApplicationEntity a) {
+        // jsonb columns are supported_countries (position 12) and dependencies
+        // (position 13): the VALUES list must carry exactly one plain ? per
+        // varchar column (1-11) and the CAST(? AS jsonb) bind form the
+        // repository convention requires (see management audit writer note —
+        // a String parameter needs an explicit CAST for a jsonb column).
+        // Defect fixed here: the casts previously sat at positions 11-12,
+        // which failed every insert with non-null supportedCountries or
+        // dependencies ("column \"dependencies\" is of type jsonb but
+        // expression is of type character varying").
         jdbc.update("""
                         INSERT INTO applications (
                             id, code, name, localized_name, description, category, status,
                             version, display_order, icon_key, provisioning_mode,
                             supported_countries, dependencies, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?)
                         """,
                 a.getId(), a.getCode(), a.getName(), a.getLocalizedName(), a.getDescription(),
                 a.getCategory(), a.getStatus(), a.getVersion(), a.getDisplayOrder(),

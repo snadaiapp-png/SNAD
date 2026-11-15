@@ -136,7 +136,12 @@ class R0C13G02SchemaPostgresTest {
             // NO ACTION alignment; V20261111_1 (P0 service_callback_replay RLS
             // closure) heads the chain with ENABLE+FORCE RLS, the fail-closed
             // tenant policies and the dedicated expired-row cleanup role.
-            assertThat(rs.getString(1)).isEqualTo("20261113.1");
+            // SANAD scope-audit remediation — reviewer conditional approval for remediation
+            // only (2026-11-16) heads the chain at V20261116_1 (WS6 global hostname
+            // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
+            // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
+            // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
+            assertThat(rs.getString(1)).isEqualTo("20261116.2");
         }
     }
 

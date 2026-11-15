@@ -684,6 +684,21 @@ public class SubscriptionOperatingUnitService {
     }
 
     private SubscriptionScope subscriptionScope(UUID subscriptionId) {
+        // D5 (UAT-17/18, 2026-11-16): resolve the owning tenant through the
+        // trusted security-definer primitive (V20261116_2) BEFORE any
+        // tenant_subscriptions read — the table is fail-closed FORCE RLS and
+        // the HTTP transaction is bound to the ACTING tenant, so a direct read
+        // returns zero rows for any other tenant's subscription. Authorization
+        // was already enforced upstream (control-plane guard + capability).
+        if (tenantRlsContext != null) {
+            List<UUID> owners = jdbc.queryForList(
+                    "SELECT tenant_id FROM platform_subscription_owners WHERE subscription_id = ?",
+                    UUID.class, subscriptionId);
+            if (owners.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "subscription not found");
+            }
+            tenantRlsContext.applyForCurrentTransaction(owners.get(0));
+        }
         List<SubscriptionScope> rows = jdbc.query("""
                 SELECT s.tenant_id, s.status,
                        COALESCE(pv.currency_code, p.currency_code) AS currency_code

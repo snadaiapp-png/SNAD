@@ -299,7 +299,14 @@ class CrmPostgresMigrationTest {
     // TEST_ALIGNMENT_REASON: SANAD G1 / P0 (executive order 2026-11-11) adds
     // V20261111_1 (service_callback_replay fail-closed tenant RLS + FORCE + the
     // dedicated least-privilege cleanup role) at the sequence tail.
-    private static final String LATEST_MIGRATION_VERSION = "20261113.1";
+    // TEST_ALIGNMENT_REASON: SANAD scope-audit remediation — reviewer conditional
+    // approval for remediation only (2026-11-16) heads the chain at V20261116_1
+    // (WS6 global hostname uniqueness index) + V20261116_2 (platform
+    // subscription-owner resolver: S1 per-tenant FORCE-RLS backfill with
+    // fail-loud counter, S3 delete-cycle trigger, S6 default-deny ACL + pinned
+    // search_path). Watermark advanced from 20261113.1 under that documented
+    // decision; no silent value bump.
+    private static final String LATEST_MIGRATION_VERSION = "20261116.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -619,7 +626,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -881,7 +890,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
