@@ -32,7 +32,7 @@ SELECT 'C4_DEFINER_ACL' AS record_type,
        CASE WHEN EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role')
             THEN has_function_privilege('service_role',p.oid,'EXECUTE')
             ELSE NULL END AS service_execute,
-       has_function_privilege('PUBLIC',p.oid,'EXECUTE') AS public_execute,
+       EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute,
        CASE WHEN EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated')
             THEN has_function_privilege('authenticated',p.oid,'EXECUTE')
             ELSE NULL END AS authenticated_execute,
@@ -59,7 +59,7 @@ SELECT 'C4_RLS_OFF' AS record_type,
        CASE WHEN EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role')
             THEN has_table_privilege('service_role',c.oid,'SELECT')
             ELSE NULL END AS service_select,
-       has_table_privilege('PUBLIC',c.oid,'SELECT') AS public_select,
+       EXISTS (SELECT 1 FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='SELECT') AS public_select,
        CASE WHEN EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated')
             THEN has_table_privilege('authenticated',c.oid,'SELECT')
             ELSE NULL END AS authenticated_select,
