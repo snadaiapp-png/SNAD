@@ -87,3 +87,20 @@ Browser-level evidence now exists for the surfaces that were previously blocked:
 ### 8.4 Holds (re-verified unchanged)
 
 `G1=HOLD` · `P0_SECURITY_HOLD=ACTIVE` · `PRODUCTION_RELEASE=NO-GO` · `PAYMENTS=OFF` — no PR merged, no production change, no payment activation, no branch-protection interaction. FULLY_CERTIFIED has **not** been declared.
+
+## 9. Session-3 addendum (2026-11-16) — full audit of every claim + evidence-gap-closing re-run
+
+Controller instruction of 2026-11-16: verify every claim of this report and of `REQUIREMENTS-TRACEABILITY.md` against real execution evidence, correct the test accounting (unique vs re-runs; skipped ≠ success), resolve the Playwright blocker without changing acceptance criteria or disabling browser tests, run the Subscription Authenticated E2E on real PostgreSQL with isolated data, and extract reports, screenshots and any failure reasons.
+
+### 9.1 Audit outcome
+
+Every claim was re-checked by independently re-parsing the archived artifacts (81 Surefire XMLs re-counted; the three standard-suite JUnit shards re-parsed; the session-2 E2E HTML report's embedded zip re-extracted; all 13 session-2 manifest hashes recomputed — 13/13 match; governance holds re-confirmed at HEAD). **All numbers and classifications CONFIRMED; no counting error found** — §2's corrected accounting and §8.2's unique/re-run/skipped table stand as written. Two evidence-preservation gaps were identified and closed: the session-2 durable-contract outputs and the chrome-version string existed only in console transcripts; neither was a false claim, but both are now archived artifacts.
+
+### 9.2 CI-parity re-run at PR HEAD `679ad47e` (all steps archived)
+
+The full `subscription-authenticated` CI contract was re-executed from an empty database: Chrome at the canonical `/opt/google/chrome/chrome` path (**Google Chrome 157.0.8103.78**, now archived); role-contract assertions; 261 Flyway migrations; CI seed files + seeded-contract assertion; Spring Boot healthy (log: `Database: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test`); CI smoke login PASS; production `next build` + `next start`; E2E run exactly once with the CI command → **1 passed (6.8 s), 0 failed, 0 skipped**; durable contracts verified and archived (`SUBSCRIPTION_FINAL_STATE=CANCELLED|false`, commands ledger = 1, events ledger = 1); 5 evidence screenshots of the real authenticated UI captured (list surface shows `Tenant A (Acceptance)` in the post-run CANCELLED state). Failure reasons: **none** — zero failures across all suites this session. Full detail: `EVIDENCE-MANIFEST-SESSION3.md`.
+
+### 9.3 State after session 3
+
+- Requirements outcome (§4) is unchanged: WS1–WS8 all VERIFIED on backend + unit + contract + browser evidence, now additionally audited claim-by-claim.
+- Remaining open gates: **Human UAT re-run** (`HUMAN-UAT-PACK.md`, awaiting the human operator — not claimed done) and the controller-review disposition of superseded drafts #1056/#1057/#1058. Final closure and Phase 2 remain blocked on these; holds unchanged (`G1=HOLD`, `P0_SECURITY_HOLD=ACTIVE`, `PRODUCTION_RELEASE=NO-GO`, `PAYMENTS=OFF`); FULLY_CERTIFIED remains undeclared.
