@@ -197,6 +197,23 @@ jobs:
           echo 'C4_HR_RUNTIME_TENANT_DENIAL=PASS 20/20 (isolated PostgreSQL)'
           # Raw test transcript is uploaded by the following always() artifact step.
 
+      - name: G1 C4 — HR synthetic authorized-positive scope (2 safe read-only calls)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = 'sanad_migrator'
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = '0'
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose \
+            -d separation_cert \
+            -f tests/security/g1-c4/hr-definer-positive-synthetic-scope.sql \
+            > /tmp/c4-catalog-artifacts/hr-positive-synthetic-scope.log 2>&1 || {
+              cat /tmp/c4-catalog-artifacts/hr-positive-synthetic-scope.log
+              exit 1
+            }
+          grep -q 'C4_HR_POSITIVE_SYNTHETIC=PASS 2/2' /tmp/c4-catalog-artifacts/hr-positive-synthetic-scope.log
+          echo 'C4_HR_POSITIVE_SYNTHETIC=PASS 2/2 (isolated PostgreSQL; not business-flow acceptance)'
+
       - name: G1 C4 — external action token rotation trigger regression (7 cases)
         if: success()
         shell: bash
