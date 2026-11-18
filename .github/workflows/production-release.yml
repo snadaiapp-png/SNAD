@@ -258,6 +258,16 @@ jobs:
       - name: Verify Flyway production compatibility
         run: bash scripts/production/verify-flyway.sh
 
+      - name: Post-migration append-only security gate (protected deployment)
+        # G1/C4 S10 — the protected deployment path FAILS CLOSED unless the
+        # security effect of V20261115_1 (append-only runtime ACL on the
+        # audit and subscription ledgers, separated topology, no inherited
+        # privilege bypass) is actually present in the target database.
+        # Flyway history success alone is never accepted as proof; the gate
+        # verifies EFFECTIVE catalog privileges with the same read-only
+        # audit identity as the Flyway verification above.
+        run: bash scripts/production/verify-append-only-gate.sh
+
       - name: Capture previous live image reference
         id: previous
         shell: bash

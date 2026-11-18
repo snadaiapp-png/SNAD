@@ -48,7 +48,7 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261113.1"
+EXPECTED_HEAD="20261115.1"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -403,6 +403,57 @@ seq_ok=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_class c JOIN pg_names
 [ "$seq_ok" = "0" ] || die S7 "$seq_ok sequence(s) missing USAGE/SELECT for sanad"
 record S7_CATALOG PASS PASS "owners=[$own_stats] history=$hist_owner sanadCREATE=$runtime_create forceRLS=6/6 seqOK"
 gate S7 "PASS: $own_stats; history owner=$hist_owner; runtime CREATE=false; FORCE RLS 6/6; sequences OK"
+
+# ============================================================================
+# S9 — runtime append-only enforcement: real identity, effective + inherited
+#      privileges, and live DML denial on every append-only ledger table
+#      (subscription_commands + platform_audit_logs / V20261115_1)
+# ============================================================================
+gate S9 "runtime append-only enforcement (identity + effective/inherited ACL + live DML)"
+AL=eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee
+# 9.1 real runtime identity contract, proven on the live connection itself
+expect_value S9_IDENTITY "$SEP_DB" "SELECT current_user||'|'||session_user" "sanad|sanad"
+expect_value S9_ROLE_CONTRACT "$SEP_DB" "SELECT rolsuper::text||'|'||rolbypassrls::text||'|'||rolcreatedb::text||'|'||rolcreaterole::text||'|'||rolinherit::text FROM pg_roles WHERE rolname=current_user" "false|false|false|false|false"
+# 9.2 membership inventory: every role sanad belongs to. INHERIT FALSE
+#     memberships still matter: SET ROLE reaches those grants, so the set
+#     must match the documented contract exactly (fail closed on drift).
+s9_members=$(admin postgres "$SEP_DB" "SELECT coalesce(string_agg(r.rolname, ',' ORDER BY r.rolname),'') FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE u.rolname='sanad'") || die S9 "runtime membership inventory failed"
+[ "$s9_members" = "sanad_callback_replay_cleanup" ] || die S9 "unexpected runtime membership set: '$s9_members' (expected exactly sanad_callback_replay_cleanup)"
+record S9_MEMBERSHIP "sanad_callback_replay_cleanup" "$s9_members" "runtime membership inventory (NOINHERIT role + INHERIT FALSE member)"
+# 9.3 effective ACL matrix asserted by the runtime itself (has_table_privilege
+#     with no role argument = current_user effective privileges, including
+#     any inherited paths): SELECT/INSERT allowed, UPDATE/DELETE/TRUNCATE denied
+expect_value S9_ACL_SUBSCRIPTION_COMMANDS "$SEP_DB" "SELECT has_table_privilege('public.subscription_commands','SELECT')::text||'|'||has_table_privilege('public.subscription_commands','INSERT')::text||'|'||has_table_privilege('public.subscription_commands','UPDATE')::text||'|'||has_table_privilege('public.subscription_commands','DELETE')::text||'|'||has_table_privilege('public.subscription_commands','TRUNCATE')::text" "true|true|false|false|false"
+expect_value S9_ACL_PLATFORM_AUDIT_LOGS "$SEP_DB" "SELECT has_table_privilege('public.platform_audit_logs','SELECT')::text||'|'||has_table_privilege('public.platform_audit_logs','INSERT')::text||'|'||has_table_privilege('public.platform_audit_logs','UPDATE')::text||'|'||has_table_privilege('public.platform_audit_logs','DELETE')::text||'|'||has_table_privilege('public.platform_audit_logs','TRUNCATE')::text" "true|true|false|false|false"
+# 9.4 inherited-privilege bypass: no member role of sanad may hold
+#     UPDATE/DELETE/TRUNCATE on either append-only ledger (catalog check
+#     as admin; catches hostile grants made to any sanad-reachable role)
+s9_bypass=$(admin postgres "$SEP_DB" "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE u.rolname='sanad' AND r.rolname<>'sanad' AND (has_table_privilege(r.rolname,'public.subscription_commands','UPDATE') OR has_table_privilege(r.rolname,'public.subscription_commands','DELETE') OR has_table_privilege(r.rolname,'public.subscription_commands','TRUNCATE') OR has_table_privilege(r.rolname,'public.platform_audit_logs','UPDATE') OR has_table_privilege(r.rolname,'public.platform_audit_logs','DELETE') OR has_table_privilege(r.rolname,'public.platform_audit_logs','TRUNCATE'))") || die S9 "inherited-privilege bypass inventory failed"
+if [ "$s9_bypass" = "0" ]; then
+  record S9_NO_INHERITED_BYPASS "0" "$s9_bypass" "no member role holds ledger UPDATE/DELETE/TRUNCATE"
+else
+  record S9_NO_INHERITED_BYPASS "0" "$s9_bypass" "member-role privilege bypass detected"
+  fail
+fi
+# 9.5 live DML proof on the audit ledger as the runtime: INSERT allowed,
+#     UPDATE/DELETE/TRUNCATE denied with a real SQLSTATE
+expect_pass  S9_AUDIT_INSERT "$SEP_DB" "INSERT INTO public.platform_audit_logs (id,actor_tenant_id,action,resource_type,resource_id,result,created_at) VALUES ('$AL','$TA','SEP_CERT_PROBE','separation_cert','s9','SUCCESS',now())" "$TA"
+expect_value S9_AUDIT_PRESENT "$SEP_DB" "SELECT count(*) FROM public.platform_audit_logs WHERE id='$AL'" "1" "$TA"
+expect_deny  S9_AUDIT_UPDATE "$SEP_DB" "UPDATE public.platform_audit_logs SET reason='FORCED' WHERE id='$AL'" "$TA"
+expect_deny  S9_AUDIT_DELETE "$SEP_DB" "DELETE FROM public.platform_audit_logs WHERE id='$AL'" "$TA"
+expect_deny  S9_AUDIT_TRUNCATE "$SEP_DB" "TRUNCATE TABLE public.platform_audit_logs" "$TA"
+# 9.6 live TRUNCATE denial on the subscription ledger (complements S6)
+expect_deny  S9_SUB_TRUNCATE "$SEP_DB" "TRUNCATE TABLE public.subscription_commands" "$TA"
+# 9.7 admin-confirmed ledger integrity: the audit row is preserved verbatim
+s9_integrity=$(admin postgres "$SEP_DB" "SELECT (SELECT count(*) FROM public.platform_audit_logs WHERE id='$AL' AND action='SEP_CERT_PROBE' AND result='SUCCESS' AND reason IS NULL)||'|'||(SELECT count(*) FROM public.platform_audit_logs)") || die S9 "admin audit-ledger integrity query failed"
+if [ "$s9_integrity" = "1|1" ]; then
+  record S9_ADMIN_AUDIT_INTEGRITY "1|1" "$s9_integrity" "admin-confirmed append-only audit row preserved verbatim"
+else
+  record S9_ADMIN_AUDIT_INTEGRITY "1|1" "$s9_integrity" "audit row missing, modified or extra rows present"
+  fail
+fi
+[ $FAILURES -eq 0 ] || die S9 "append-only enforcement matrix failed"
+gate S9 "PASS: runtime identity+membership contract; effective+inherited ACL append-only on both ledgers; live INSERT allowed, UPDATE/DELETE/TRUNCATE denied (42501)"
 
 # ============================================================================
 # S8 — verdict

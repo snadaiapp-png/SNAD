@@ -298,8 +298,11 @@ class CrmPostgresMigrationTest {
     private static final String MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION = "20261103.2";
     // TEST_ALIGNMENT_REASON: SANAD G1 / P0 (executive order 2026-11-11) adds
     // V20261111_1 (service_callback_replay fail-closed tenant RLS + FORCE + the
-    // dedicated least-privilege cleanup role) at the sequence tail.
-    private static final String LATEST_MIGRATION_VERSION = "20261113.1";
+    // dedicated least-privilege cleanup role) at the sequence tail; C4-TOKEN-01
+    // advances the head to V20261113_1 (external action token pointer rotation
+    // fix); S9/S10 append-only hardening advances it to V20261115_1
+    // (platform_audit_logs append-only runtime ACL).
+    private static final String LATEST_MIGRATION_VERSION = "20261115.1";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -619,7 +622,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform_audit_logs append-only runtime ACL (S9/S10)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -881,7 +885,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform_audit_logs append-only runtime ACL (S9/S10)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

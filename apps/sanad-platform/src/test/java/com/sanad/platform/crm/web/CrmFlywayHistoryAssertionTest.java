@@ -367,6 +367,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261107.1"   // forward-only NO ACTION child FK policy
             , "20261111.1"   // P0 service_callback_replay RLS closure (executive order 2026-11-11)
             , "20261113.1"   // C4-TOKEN-01 external action token pointer rotation fix
+            , "20261115.1"   // V20261115_1 platform_audit_logs append-only runtime ACL (C4 audit-ledger hardening; S9/S10 enforcement)
     );
 
 
