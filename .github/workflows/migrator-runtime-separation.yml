@@ -7,12 +7,15 @@ name: Migrator/Runtime Separation Certification (P0, Issue #1462)
 # isolated host-native PostgreSQL 17.6 + project-pinned Flyway
 # CLI 11.7.2. No production access. No test weakening.
 #
-# 35 probes: Flyway-as-migrator, runtime DML positives, DDL /
+# 83 probes: Flyway-as-migrator, runtime DML positives, DDL /
 # TRUNCATE / flyway-history / SET ROLE / BYPASSRLS denials,
 # Tenant A/B isolation, missing/empty GUC fail-closed, auth
 # plane (user creation, refresh/reset tokens, trigger-maintained
 # pre-auth index, pre-auth resolver), append-only subscription
-# ledger, ownership/ACL/RLS catalog snapshot.
+# ledger, ownership/ACL/RLS catalog snapshot, S9 runtime
+# append-only enforcement (identity + effective/inherited ACL +
+# live DML on both append-only ledgers), plus the S10 7-case
+# protected-deployment append-only gate self-test.
 # ============================================================
 
 on:
@@ -23,6 +26,7 @@ on:
       - 'tests/security/migrator-separation/**'
       - 'tests/security/g1-c4/**'
       - 'apps/sanad-platform/src/main/resources/db/**'
+      - 'scripts/production/verify-append-only-gate.sh'
       - 'docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql'
   workflow_dispatch:
 
@@ -142,7 +146,20 @@ jobs:
             WHERE c.oid=to_regclass('public.subscription_commands');")"
           printf '%s\n' "LEDGER_EFFECTIVE_ACL=$ledger_acl" | tee -a /tmp/separation-forensic-inventory.log
           test "$ledger_acl" = "true|true|true|false|false|false"
-          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
+          # S9 / V20261115_1: the audit ledger must be append-only as well
+          # (SELECT/INSERT allowed; UPDATE/DELETE/TRUNCATE denied for runtime).
+          audit_acl="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "
+            SELECT (pg_get_userbyid(c.relowner) <> 'sanad')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'SELECT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'INSERT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'UPDATE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'DELETE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'TRUNCATE')::text
+            FROM pg_class c
+            WHERE c.oid=to_regclass('public.platform_audit_logs');")"
+          printf '%s\n' "AUDIT_LEDGER_EFFECTIVE_ACL=$audit_acl" | tee -a /tmp/separation-forensic-inventory.log
+          test "$audit_acl" = "true|true|true|false|false|false"
+          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only; both append-only ledgers enforced)"
 
       - name: Verify G1 certificate amendment catalog controls (isolated only)
         if: success()
@@ -251,6 +268,24 @@ jobs:
           echo 'C4_TOKEN_ROTATION_REGRESSION=PASS 7/7 (isolated PostgreSQL)'
           # Raw transcript uploaded by the always() evidence step.
 
+      - name: G1 S10 — protected-deployment append-only gate 7-case self-test
+        if: success()
+        shell: bash
+        env:
+          S10_PGHOST: 127.0.0.1
+          S10_PGPORT: '5432'
+          S10_FLYWAY: /tmp/flyway/flyway
+          S10_ADMIN_PSQL: sudo -u postgres psql
+          S10_ARTIFACTS: /tmp/s10-gate-artifacts
+        run: |
+          set -euo pipefail
+          # Only on the disposable isolated cluster provisioned by the
+          # separation matrix above (roles sanad / sanad_migrator already
+          # exist from S0). Never point this self-test at production.
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = "0"
+          bash tests/security/g1-c4/run-s10-protected-deployment-gate.sh 2>&1 | tee /tmp/s10-run.log
+          grep -q 'S10 GATE SELF-TEST: PASSED (7/7 cases)' /tmp/s10-run.log
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -261,7 +296,9 @@ jobs:
             /tmp/separation-forensic-inventory.log
             /tmp/g1-addendum-catalog-gate.log
             /tmp/c4-probe-run.log
+            /tmp/s10-run.log
             /tmp/c4-catalog-artifacts/
             /tmp/separation-cert-artifacts/
+            /tmp/s10-gate-artifacts/
           if-no-files-found: warn
           retention-days: 30

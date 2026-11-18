@@ -61,7 +61,9 @@ CRL_REPO="${CRL_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$CRL_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$CRL_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261113.1"
+# V20261115_1 (platform_audit_logs append-only runtime ACL, C4 audit-ledger
+# hardening) advances the chain head; aligned 2026-11-17 with S9/S10.
+EXPECTED_HEAD="20261115.1"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }

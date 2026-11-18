@@ -135,8 +135,10 @@ class R0C13G02SchemaPostgresTest {
             // V20261107_1 (PR #1486) heads the chain with the subscription child FK
             // NO ACTION alignment; V20261111_1 (P0 service_callback_replay RLS
             // closure) heads the chain with ENABLE+FORCE RLS, the fail-closed
-            // tenant policies and the dedicated expired-row cleanup role.
-            assertThat(rs.getString(1)).isEqualTo("20261113.1");
+            // tenant policies and the dedicated expired-row cleanup role;
+            // V20261115_1 (platform_audit_logs append-only runtime ACL, C4
+            // audit-ledger hardening with S9/S10 enforcement) heads the chain.
+            assertThat(rs.getString(1)).isEqualTo("20261115.1");
         }
     }
 
