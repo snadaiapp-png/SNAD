@@ -41,9 +41,10 @@
 #
 # Environment:
 #   RT_PGHOST (127.0.0.1)  RT_PGPORT (55432)
-#   RT_ADMIN_PSQL (psql command with superuser access; its target is PROVEN
-#                  identical to the runtime cluster by the IP proofs — an
-#                  override pointing elsewhere fails IP-02/IP-03 and aborts)
+#   RT_EXPECTED_SYSID (required: system identifier from fresh disposable
+#                      initdb/provisioning evidence, not discovered on demand)
+#   RT_BOOTSTRAP_PW (required: existing disposable runtime password, 48 hex)
+#   Admin uses the same explicit loopback host/port as runtime; overrides refused.
 #   RT_ARTIFACTS (fresh evidence directory; must be empty or nonexistent)
 #
 # This battery is an attack-surface CONFIRMATION exercise on an isolated
@@ -57,14 +58,17 @@ export PGCONNECT_TIMEOUT=15
 
 RT_PGHOST="${RT_PGHOST:-127.0.0.1}"
 RT_PGPORT="${RT_PGPORT:-55432}"
-RT_ADMIN_PSQL="${RT_ADMIN_PSQL:-psql -h ${RT_PGHOST} -p ${RT_PGPORT} -U postgres}"
+[ -z "${RT_ADMIN_PSQL:-}" ] || { echo "::error::RT_ADMIN_PSQL override refused" >&2; exit 1; }
+[[ "${RT_EXPECTED_SYSID:-}" =~ ^[0-9]+$ ]] || { echo "::error::RT_EXPECTED_SYSID from disposable provisioning required" >&2; exit 1; }
+# Do not allow implicit libpq settings to redirect either connection.
+unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGOPTIONS PGDATABASE PGHOST PGPORT PGUSER
 RT_DB="${RT_DB:-separation_cert}"
 ART="${RT_ARTIFACTS:-/tmp/redteam-artifacts}"
 umask 077
 
 [ "${RT_ISOLATED_CLUSTER:-0}" = "1" ] || { echo "::error::RT_ISOLATED_CLUSTER=1 required" >&2; exit 1; }
 case "$RT_PGHOST" in
-  127.0.0.1|localhost|::1) ;;
+  127.0.0.1|::1) ;;
   *) echo "::error::refusing non-loopback RT_PGHOST=$RT_PGHOST" >&2; exit 1 ;;
 esac
 [ "$RT_DB" = "separation_cert" ] || { echo "::error::non-certification DB rejected" >&2; exit 1; }
@@ -96,17 +100,19 @@ TT=44444444-4444-4444-4444-444444444444   # sacrificial tenants row (same UUID a
 CAP=55555555-5555-5555-5555-555555555555  # sacrificial access_capabilities row
 AUD=77777777-7777-7777-7777-777777777777  # forged audit row id
 
-admin() { $RT_ADMIN_PSQL -X -w -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
+admin() { PGOPTIONS="-c statement_timeout=20000" psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 admin_expect() { # admin_expect <id> <db> <sql> <expected>
   local out rc; out=$(admin postgres "$2" "$3"); rc=$?
   if [ $rc -eq 0 ] && [ "$out" = "$4" ]; then record "$1" "$4" "$out" "admin-verified"
   else record "$1" "$4" "FAIL(rc=$rc,out=$out)"; FAILURES=$((FAILURES+1)); fi
 }
-admin_secret() { printf '%s\n' "$1" | $RT_ADMIN_PSQL -X -w -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
+admin_secret() { printf '%s\n' "$1" | PGOPTIONS="-c statement_timeout=20000" psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 
-# Ephemeral per-run runtime password (hex, never logged).
-RT_PW="$(openssl rand -hex 24)"
-[[ "$RT_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::password generation failed" >&2; exit 1; }
+# Authenticate read-only isolation proofs using the existing disposable runtime
+# credential. Generate a NEW password only after every isolation proof succeeds.
+RT_PW="${RT_BOOTSTRAP_PW:-}"
+unset RT_BOOTSTRAP_PW
+[[ "$RT_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::RT_BOOTSTRAP_PW from disposable provisioning required" >&2; exit 1; }
 
 rt() { # rt <sql> [guc] — runtime probe as sanad; sets out/rc/state
   local opts="-c statement_timeout=20000"
@@ -117,7 +123,10 @@ rt() { # rt <sql> [guc] — runtime probe as sanad; sets out/rc/state
   err=$(cat "$ART/last-err.txt")
   state=$(printf '%s\n' "$err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
 }
-record() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(printf '%s' "${4:-}" | tr '\n' ' ' | cut -c1-160)" >> "$TSV"
+require_isolation() {
+  [ "$FAILURES" -eq 0 ] || { echo "::error::isolation proof failed; refusing further SQL" >&2; exit 1; }
+}
+record() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(printf '%s' "${4:-}" | tr '\n' ' ' | cut -c1-160)" >> "$TSV" || exit 1
            printf '  [%s] %s -> %s\n' "$1" "$2" "$3"; }
 expect_value() { # expect_value <id> <sql> <expected> [guc] — exact output match
   rt "$2" "${4:-}"
@@ -151,30 +160,26 @@ echo "-- 0. Isolation proofs (admin/runtime same-cluster; fail closed) --" | tee
 admin postgres postgres "SELECT 1" >/dev/null 2>&1 || { echo "::error::admin psql unavailable" >&2; exit 1; }
 
 # IP-01: the admin connection really is the postgres superuser.
-admin_expect IP-01_ADMIN_IS_SUPERUSER postgres "SELECT rolsuper::text FROM pg_roles WHERE rolname=current_user" "true"
+admin_expect IP-01_ADMIN_IS_SUPERUSER postgres "SELECT rolsuper::text FROM pg_roles WHERE rolname=current_user AND current_user='postgres' AND session_user='postgres'" "true"
+require_isolation
 
 # IP-02/03: identical cluster system identifier on BOTH connections.
 admin_sysid=$(admin postgres postgres "SELECT system_identifier::text FROM pg_control_system()") || { echo "::error::admin system_identifier read failed" >&2; exit 1; }
-[[ "$admin_sysid" =~ ^[0-9]+$ ]] || { echo "::error::admin system_identifier not numeric: '$admin_sysid'" >&2; exit 1; }
+[ "$admin_sysid" = "$RT_EXPECTED_SYSID" ] || { echo "::error::admin system_identifier does not match disposable provisioning" >&2; exit 1; }
 expect_value IP-02_RUNTIME_SYSID "SELECT system_identifier::text FROM pg_control_system()" "$admin_sysid"
+require_isolation
 
 # IP-04: identical postmaster start time on both connections.
 admin_start=$(admin postgres postgres "SELECT pg_postmaster_start_time()::text") || { echo "::error::admin start time read failed" >&2; exit 1; }
 expect_value IP-03_POSTMASTER_START "SELECT pg_postmaster_start_time()::text" "$admin_start"
+require_isolation
 
 # IP-04: both connections serve exactly RT_PGPORT.
 admin_port=$(admin postgres postgres "SHOW port") || { echo "::error::admin port read failed" >&2; exit 1; }
 [ "$admin_port" = "$RT_PGPORT" ] || { echo "::error::admin cluster port $admin_port != $RT_PGPORT" >&2; exit 1; }
 expect_value IP-04_PORT_CONSISTENT "SELECT current_setting('port')" "$RT_PGPORT"
 
-# IP-05/06: database-level sentinel — written by admin, read back by the
-# runtime on a NEW connection, then RESET and proven absent. Proves both
-# connections address the same database object, not merely the same port.
-SENTINEL="rt-$(openssl rand -hex 16)"
-admin postgres "$RT_DB" "ALTER DATABASE $RT_DB SET snad.rt_battery_sentinel = '$SENTINEL'" >/dev/null || { echo "::error::sentinel set failed" >&2; exit 1; }
-expect_value IP-05_SENTINEL_READBACK "SELECT current_setting('snad.rt_battery_sentinel', true)" "$SENTINEL"
-admin postgres "$RT_DB" "ALTER DATABASE $RT_DB RESET snad.rt_battery_sentinel" >/dev/null || { echo "::error::sentinel reset failed" >&2; exit 1; }
-expect_value IP-06_SENTINEL_CLEARED "SELECT coalesce(current_setting('snad.rt_battery_sentinel', true),'')" ""
+require_isolation
 
 # IP-07: runtime connection identity is exactly the restricted role.
 expect_value IP-07_RUNTIME_IDENTITY "SELECT current_user||'|'||session_user" "sanad|sanad"
@@ -192,7 +197,20 @@ admin_expect IP-10_DB_OWNER_MIGRATOR postgres "SELECT pg_get_userbyid(datdba) FR
 admin_expect IP-11_SEP_ROLES_PRESENT postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup')" "3"
 
 # IP-12: Flyway head is the certified head.
-admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT count(*) FROM public.flyway_schema_history WHERE version='20261115.1' AND success" "1"
+admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261115.1"
+require_isolation
+
+# IP-05/06: database-level sentinel — written by admin, read back by the
+# runtime on a NEW connection, then RESET and proven absent. Proves both
+# connections address the same database object, not merely the same port.
+SENTINEL="rt-$(openssl rand -hex 16)"
+[[ "$SENTINEL" =~ ^rt-[0-9a-f]{32}$ ]] || exit 1
+admin postgres "$RT_DB" "ALTER DATABASE $RT_DB SET snad.rt_battery_sentinel = '$SENTINEL'" >/dev/null || { echo "::error::sentinel set failed" >&2; exit 1; }
+expect_value IP-05_SENTINEL_READBACK "SELECT current_setting('snad.rt_battery_sentinel', true)" "$SENTINEL"
+admin postgres "$RT_DB" "ALTER DATABASE $RT_DB RESET snad.rt_battery_sentinel" >/dev/null || { echo "::error::sentinel reset failed" >&2; exit 1; }
+expect_value IP-06_SENTINEL_CLEARED "SELECT coalesce(current_setting('snad.rt_battery_sentinel', true),'')" ""
+
+require_isolation
 
 # Record the isolation facts for the evidence package (facts, not passes).
 {
@@ -211,9 +229,11 @@ admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT count(*) FROM public.flyway_sche
   echo "psql_version=$(psql --version)"
 } >> "$ISO"
 
-# Ephemeral runtime password: set, then PROVE authentication works before
-# any probe depends on it (fail fast instead of failing every probe later).
-admin_secret "ALTER ROLE sanad PASSWORD '$RT_PW';"
+# Ephemeral runtime password: rotate AFTER every isolation proof, then prove
+# authentication works before any attack probe depends on it.
+RT_PW="$(openssl rand -hex 24)"
+[[ "$RT_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::password generation failed" >&2; exit 1; }
+admin_secret "ALTER ROLE sanad PASSWORD '$RT_PW';" || { echo "::error::runtime password setup failed" >&2; exit 1; }
 rt "SELECT 1" ""
 [ "$rc" -eq 0 ] && [ "$out" = "1" ] || { echo "::error::runtime authentication smoke test failed (rc=$rc,state=$state)" >&2; exit 1; }
 
@@ -226,6 +246,7 @@ echo "-- A. RLS trust boundary and bypass attempts --" | tee -a "$LOG"
 # the admin on the same cluster — the exposure is confirmed WITH the exact
 # visible row count, not merely by rc=0.
 expected_rt01=$(admin postgres "$RT_DB" "SELECT count(*) FROM public.users WHERE tenant_id='$TB'") || { echo "::error::RT-01 expected-value query failed" >&2; exit 1; }
+[[ "$expected_rt01" =~ ^[1-9][0-9]*$ ]] || { echo "::error::RT-01 foreign tenant fixture missing" >&2; exit 1; }
 expect_confirmed_value RT-01_GUC_NOT_AUTHENTICATED "SET app.tenant_id='$TB'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "$expected_rt01"
 
 expect_denied RT-02_RLS_TENANT_SWAP "UPDATE public.users SET tenant_id='$TB' WHERE tenant_id='$TA'" 42501 "$TA"
@@ -344,7 +365,11 @@ admin_expect RT-35_SERVICE_ROLE_LOCAL_ABSENT postgres "SELECT count(*) FROM pg_r
 #    re-verification remains a G1 condition (doc 19 §4) and is BLOCKED.
 {
   echo "service_role classification (battery v2, $(date -u +%Y-%m-%dT%H:%M:%SZ))"
-  echo "LOCAL-ISOLATED-CLUSTER: VERIFIED-ABSENT (RT-35: pg_roles count=0, exact)"
+  if grep -q $'^RT-35_SERVICE_ROLE_LOCAL_ABSENT\t0\t0\t' "$TSV"; then
+    echo "LOCAL-ISOLATED-CLUSTER: VERIFIED-ABSENT (RT-35: pg_roles count=0, exact)"
+  else
+    echo "LOCAL-ISOLATED-CLUSTER: UNVERIFIED (RT-35 failed)"
+  fi
   echo "PRODUCTION: UNVERIFIED — no authorized production connection in this engagement;"
   echo "  no production probe executed or claimed; production re-verification is a G1"
   echo "  production-readiness condition (doc 19 §4) and remains BLOCKED."
