@@ -301,8 +301,14 @@ class CrmPostgresMigrationTest {
     // dedicated least-privilege cleanup role) at the sequence tail; C4-TOKEN-01
     // advances the head to V20261113_1 (external action token pointer rotation
     // fix); S9/S10 append-only hardening advances it to V20261115_1
-    // (platform_audit_logs append-only runtime ACL).
-    private static final String LATEST_MIGRATION_VERSION = "20261115.1";
+    // (platform_audit_logs append-only runtime ACL); SANAD scope-audit
+    // remediation — reviewer conditional approval for remediation only
+    // (2026-11-16) heads the chain at V20261116_1 (WS6 global hostname
+    // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
+    // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
+    // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
+    // Watermark advanced under documented decisions; no silent value bump.
+    private static final String LATEST_MIGRATION_VERSION = "20261116.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -623,7 +629,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
                         MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver (20261116.2)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -886,7 +894,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
                         MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver (20261116.2)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

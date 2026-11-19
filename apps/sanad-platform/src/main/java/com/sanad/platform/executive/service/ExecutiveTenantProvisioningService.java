@@ -7,6 +7,8 @@ import com.sanad.platform.admin.api.SaasAdminDtos.PlanResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
+import com.sanad.platform.admin.service.TenantDomainService;
+import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.http.HttpStatus;
@@ -41,6 +43,7 @@ public class ExecutiveTenantProvisioningService {
     private final TenantCommercialStateService commercialStateService;
     private final PlatformAuditService auditService;
     private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
+    private final TenantDomainService tenantDomainService;
 
     public ExecutiveTenantProvisioningService(
             JdbcTemplate jdbc,
@@ -48,7 +51,8 @@ public class ExecutiveTenantProvisioningService {
             SaasAdministrationService saasService,
             TenantCommercialStateService commercialStateService,
             PlatformAuditService auditService,
-            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
+            TenantDomainService tenantDomainService
     ) {
         this.jdbc = jdbc;
         this.registrationProvisioner = registrationProvisioner;
@@ -57,6 +61,8 @@ public class ExecutiveTenantProvisioningService {
         this.auditService = auditService;
         this.tenantRlsContext = java.util.Objects.requireNonNull(tenantRlsContext,
                 "tenantRlsContext");
+        this.tenantDomainService = java.util.Objects.requireNonNull(tenantDomainService,
+                "tenantDomainService");
     }
 
     public record ProvisionedExecutiveTenant(
@@ -131,6 +137,14 @@ public class ExecutiveTenantProvisioningService {
                         seats,
                         trialDays),
                 authentication);
+
+        // WS6 acceptance bullet "Auto-create tenant default subdomain from
+        // SANAD_BASE_DOMAIN": compose the default APPLICATION domain row
+        // (origin DEFAULT_GENERATED, ACTIVE, primary) inside the same atomic
+        // provisioning transaction. With sanad.tenancy.domains.base-domain
+        // absent the derivation returns null and is tolerated (no row is
+        // created) — the caller-decides contract of ensureDefaultDomain.
+        tenantDomainService.ensureDefaultDomain(tenantId, subdomain, DomainType.APPLICATION, authentication);
 
         // tenant.trial_ends_at is profile metadata only; subscription lifecycle remains
         // authoritative. Mirror the actual resolved trial timestamp for display without

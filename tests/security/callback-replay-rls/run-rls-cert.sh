@@ -62,8 +62,13 @@ MIG_LOC="$CRL_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$CRL_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # V20261115_1 (platform_audit_logs append-only runtime ACL, C4 audit-ledger
-# hardening) advances the chain head; aligned 2026-11-17 with S9/S10.
-EXPECTED_HEAD="20261115.1"
+# hardening) advanced the chain head, aligned 2026-11-17 with S9/S10;
+# SANAD scope-audit remediation — reviewer conditional approval for remediation only
+# (2026-11-16) advances the watermark: 20261113.1 -> 20261116.2 (V20261116_1 global
+# hostname uniqueness index + V20261116_2 platform subscription-owner resolver with
+# S1 per-tenant FORCE-RLS backfill / S3 delete-cycle trigger / S6 default-deny ACL).
+# Recorded per watermark policy; no silent value bump.
+EXPECTED_HEAD="20261116.2"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }
