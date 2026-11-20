@@ -57,23 +57,28 @@ def utc_now_str() -> str:
 
 
 def write_db_file(db_dir: Path, size_bytes: int = 60 * 1024 * 1024) -> str:
-    """Write a fake odc.mv.db of the given size filled with deterministic bytes.
-    Returns the SHA-256 of the file."""
+    """Write a fake odc.mv.db of the given size. Returns the SHA-256 of the file.
+
+    Fixture-storage note (Session 13 continuation, 2026-11-21): the file is
+    written SPARSE (head + tail bookends, NUL body). The LOGICAL size, the
+    SHA-256 contract recorded in the manifest, and every validator branch
+    exercised by the tests are identical to the previous dense pattern-fill;
+    only the physical on-disk footprint changes (O(1) instead of O(size)),
+    which keeps the whole pytest suite runnable inside disk-constrained CI
+    sandboxes without touching any assertion or validator default.
+    """
     db_dir.mkdir(parents=True, exist_ok=True)
     db_file = db_dir / "odc.mv.db"
-    # Write a deterministic 1 MiB block, repeated to reach the desired size
-    block = b"sanad-nvd-test-block-" * ( (1024 * 1024) // 20 )
-    remaining = size_bytes
-    sha = hashlib.sha256()
+    tail = b"sanad-nvd-test-block-" * 8  # deterministic non-zero bookends
+    head = b"SANAD-NVD-FIXTURE\n"
     with db_file.open("wb") as f:
-        while remaining >= len(block):
-            f.write(block)
-            sha.update(block)
-            remaining -= len(block)
-        if remaining > 0:
-            tail = block[:remaining]
-            f.write(tail)
-            sha.update(tail)
+        f.write(head)
+        f.seek(max(size_bytes - len(tail), len(head)))
+        f.write(tail)
+    sha = hashlib.sha256()
+    with db_file.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha.update(chunk)
     return sha.hexdigest()
 
 
