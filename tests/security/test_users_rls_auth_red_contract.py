@@ -19,7 +19,17 @@ class UsersRlsAuthenticationRedContract(unittest.TestCase):
     def test_unauthenticated_identity_resolution_must_not_use_unscoped_users_jpa(self):
         auth = AUTH.read_text(encoding="utf-8")
         repo = REPO.read_text(encoding="utf-8")
-        self.assertIn("findAllByEmail", repo, "Identify the existing tenantless lookup explicitly")
+        # The governed contract: identity resolution goes through the
+        # tenant-scoped repository lookups (findByTenantIdAndEmail /
+        # findByTenantIdAndUsername). The historical tenantless method name
+        # (findAllByEmail) no longer exists in the repository surface; the
+        # tripwire now pins the SCOPED lookup as the required path.
+        self.assertIn("findByTenantIdAndEmail", repo,
+                      "The governed tenant-scoped email lookup must exist.")
+        self.assertIn("findByTenantIdAndUsername", repo,
+                      "The governed tenant-scoped username lookup must exist.")
+        self.assertIn("userRepository.findByTenantIdAndEmail(", auth,
+                      "AuthService identity resolution must use the tenant-scoped lookup.")
         self.assertNotIn(
             "userRepository.findAllByEmail(", auth,
             "RED: tenantless email login currently queries RLS-protected users "
