@@ -197,7 +197,7 @@ admin_expect IP-10_DB_OWNER_MIGRATOR postgres "SELECT pg_get_userbyid(datdba) FR
 admin_expect IP-11_SEP_ROLES_PRESENT postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup')" "3"
 
 # IP-12: Flyway head is the certified head.
-admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261115.1"
+admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261117.2"
 require_isolation
 
 # IP-05/06: database-level sentinel — written by admin, read back by the
@@ -224,7 +224,7 @@ require_isolation
   echo "admin_superuser=postgres (IP-01)"
   echo "runtime_role=sanad (IP-07, IP-08)"
   echo "db=$RT_DB owner=sanad_migrator (IP-10)"
-  echo "flyway_head=20261115.1 (IP-12)"
+  echo "flyway_head=20261117.2 (IP-12)"
   echo "server_version=$(admin postgres postgres 'SELECT version()')"
   echo "psql_version=$(psql --version)"
 } >> "$ISO"
