@@ -67,8 +67,11 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # (2026-11-16) advances the watermark: 20261113.1 -> 20261116.2 (V20261116_1 global
 # hostname uniqueness index + V20261116_2 platform subscription-owner resolver with
 # S1 per-tenant FORCE-RLS backfill / S3 delete-cycle trigger / S6 default-deny ACL).
-# Recorded per watermark policy; no silent value bump.
-EXPECTED_HEAD="20261116.2"
+# SESSION 13 (2026-11-20) advances the recorded head to 20261117.2: V20261117_1 (WS7
+# website tenant-scoped integrity) + V20261117_2 (platform_subscription_owners runtime
+# grants) were byte-exact restored and checksum-certified against the 10c registry
+# (P1.6, 265/265). Recorded per watermark policy; no silent value bump.
+EXPECTED_HEAD="20261117.2"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }
