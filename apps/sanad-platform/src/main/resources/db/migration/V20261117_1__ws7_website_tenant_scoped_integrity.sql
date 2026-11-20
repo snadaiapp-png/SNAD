@@ -1,3 +1,4 @@
+-- ============================================================================
 -- V20261117_1 — WS7 WEBSITE MODULE TENANT-SCOPED INTEGRITY (Session 8)
 --               Re-implementation of the certified Session 7 migration whose
 --               local commit (71c8a51f, unified WS7+PR1537) was lost with the
@@ -47,6 +48,7 @@ BEGIN
             REFERENCES website_pages (tenant_id, id);
     END IF;
 END $$;
+
 -- W2: navigation items may only target pages of the SAME tenant.
 DO $$
 BEGIN
@@ -61,14 +63,17 @@ BEGIN
             REFERENCES website_pages (tenant_id, id);
     END IF;
 END $$;
+
 -- W3: exactly one primary website per tenant.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_websites_tenant_primary
     ON websites (tenant_id)
     WHERE is_primary;
+
 -- W4: exactly one primary domain per tenant+website.
 CREATE UNIQUE INDEX IF NOT EXISTS uk_website_domains_tenant_website_primary
     ON website_domains (tenant_id, website_id)
     WHERE is_primary;
+
 -- G3: post-apply verification — fail closed on any drift.
 DO $$
 DECLARE

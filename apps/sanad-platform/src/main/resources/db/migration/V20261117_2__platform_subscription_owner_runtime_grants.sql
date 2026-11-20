@@ -1,3 +1,4 @@
+-- ============================================================================
 -- V20261117_2 — D6/D5 follow-up: restricted runtime ACL for the
 --               platform_subscription_owners directory table.
 --
@@ -72,9 +73,11 @@ BEGIN
     RAISE EXCEPTION 'SUB_OWNER_RUNTIME_GRANTS_PRECONDITION: restricted runtime role sanad required';
   END IF;
 END $$;
+
 -- Restricted runtime ACL (mirrors the V20261102_1 contract for runtime mirrors)
 GRANT USAGE ON SCHEMA public TO sanad;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.platform_subscription_owners TO sanad;
+
 -- Exit guard: the full DML surface must be present or the migration fails
 DO $$
 BEGIN
