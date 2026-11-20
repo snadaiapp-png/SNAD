@@ -55,7 +55,11 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # hostname uniqueness index + V20261116_2 platform subscription-owner resolver with
 # S1 per-tenant FORCE-RLS backfill / S3 delete-cycle trigger / S6 default-deny ACL).
 # Recorded per watermark policy; no silent value bump.
-EXPECTED_HEAD="20261116.2"
+# Session 12 (2026-11-20) recovery: V20261117_1 (WS7 website tenant-scoped
+# integrity) + V20261117_2 (platform subscription owner runtime grants) restored
+# from certified 10c evidence (head 767ed0ee manifest watermark 20261117.2);
+# watermark advances 20261116.2 -> 20261117.2. Recorded here, not silent.
+EXPECTED_HEAD="20261117.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
