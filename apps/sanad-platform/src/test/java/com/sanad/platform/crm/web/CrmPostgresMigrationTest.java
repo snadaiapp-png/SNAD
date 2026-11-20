@@ -308,7 +308,11 @@ class CrmPostgresMigrationTest {
     // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
     // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
     // Watermark advanced under documented decisions; no silent value bump.
-    private static final String LATEST_MIGRATION_VERSION = "20261116.2";
+    // SESSION 13 (2026-11-20) advances the recorded head to 20261117.2: V20261117_1
+    // (WS7 website tenant-scoped integrity) + V20261117_2 (platform_subscription_owners
+    // runtime grants) were byte-exact restored and checksum-certified against the 10c
+    // registry (session13 P1.6, 265/265). Recorded per watermark policy; no silent bump.
+    private static final String LATEST_MIGRATION_VERSION = "20261117.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -631,7 +635,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
                         MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
                         MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver (20261116.2)
+                        MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
+                        MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // subscription-owner runtime grants (20261117.2)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -896,7 +902,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
                         MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
                         MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // platform subscription-owner resolver (20261116.2)
+                        MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
+                        MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // subscription-owner runtime grants (20261117.2)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

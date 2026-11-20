@@ -372,6 +372,10 @@ class CrmFlywayHistoryAssertionTest {
             // remediation only (2026-11-16); S1/S3/S6 fixes recorded in V20261116_2:
             , "20261116.1"   // WS6 global hostname uniqueness index (tenant_domains)
             , "20261116.2"   // platform subscription-owner resolver (per-tenant backfill, delete cycle, default-deny ACL)
+            // SESSION 13 (2026-11-20): byte-exact restored from the certified 10c evidence,
+            // checksum-certified against the 10c registry (session13 P1.6, 265/265):
+            , "20261117.1"   // WS7 website tenant-scoped integrity (composite FKs + partial unique indexes + drift guard)
+            , "20261117.2"   // platform_subscription_owners restricted runtime ACL (D6/D5 follow-up)
     );
 
 
