@@ -140,10 +140,14 @@ class R0C13G02SchemaPostgresTest {
             // audit-ledger hardening with S9/S10 enforcement) preceded it.
             // SANAD scope-audit remediation — reviewer conditional approval for remediation
             // only (2026-11-16) heads the chain at V20261116_1 (WS6 global hostname
+            // SESSION 13 (2026-11-20): head advanced to 20261117.2 (V20261117_1 WS7
+            // tenant-scoped integrity + V20261117_2 subscription-owner runtime grants,
+            // byte-exact restored and checksum-certified vs the 10c registry, P1.6 265/265).
+            // Prior head: V20261116_1 (WS6 global hostname
             // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
             // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
             // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
-            assertThat(rs.getString(1)).isEqualTo("20261116.2");
+            assertThat(rs.getString(1)).isEqualTo("20261117.2");
         }
     }
 
