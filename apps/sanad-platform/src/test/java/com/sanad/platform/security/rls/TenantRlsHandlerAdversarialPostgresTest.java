@@ -63,7 +63,11 @@ class TenantRlsHandlerAdversarialPostgresTest {
         raw.setDriverClass(Driver.class);
         raw.setUrl("jdbc:postgresql://127.0.0.1:5432/sanad");
         raw.setUsername("sanad");
-        raw.setPassword("");
+        String runtimePassword = System.getenv("SPRING_DATASOURCE_PASSWORD");
+        if (runtimePassword == null || runtimePassword.isBlank()) {
+            throw new IllegalStateException("SPRING_DATASOURCE_PASSWORD must be set for live PostgreSQL adversarial tests");
+        }
+        raw.setPassword(runtimePassword);
         rls = new TenantRlsDataSource(raw);
 
         // Catalog contract: the runtime identity must be non-bypass, and the

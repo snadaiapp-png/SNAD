@@ -177,7 +177,7 @@ class ControlPlaneBootstrapRlsPostgresTest {
                 TenantStatus.ACTIVE));
 
         String email = "cp-admin-" + UUID.randomUUID() + "@sanad.test";
-        String password = "Probe-Passphrase-2026!";
+        String password = "Probe-" + UUID.randomUUID() + "!aA1";
 
         // Pre-fix this call died with SQLSTATE 42501 (F-BOOT-01). Post-fix the
         // service classifies its privileged path and applies the trusted GUC.
