@@ -1,0 +1,116 @@
+name: G1 F-1 PostgreSQL 16.2 Regression
+on:
+  pull_request:
+    paths:
+      - 'scripts/ops/migrator-separation/provision-release-auditor.sql'
+      - '.github/workflows/g1-f1-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  f1-regression:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.2
+        env:
+          POSTGRES_PASSWORD: test-only-f1
+          POSTGRES_DB: f1_regression
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d f1_regression"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: test-only-f1
+      PGDATABASE: f1_regression
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify PostgreSQL 16.2 server and bootstrap synthetic fixture
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -Atc 'SHOW server_version' | tee server-version.txt
+          grep -Eq '^16\.2(\.|$)' server-version.txt
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE sanad NOLOGIN NOSUPERUSER NOBYPASSRLS;
+          CREATE TABLE public.flyway_schema_history (installed_rank integer);
+          CREATE TABLE public.access_capabilities (id integer);
+          CREATE TABLE public.synthetic_tenant_secret (id integer);
+          INSERT INTO public.synthetic_tenant_secret VALUES (1);
+          REVOKE ALL ON public.synthetic_tenant_secret FROM PUBLIC;
+          SQL
+      - name: Run F-1 provisioning script twice (idempotency) and retain raw logs
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f scripts/ops/migrator-separation/provision-release-auditor.sql 2>&1 | tee f1-first.log
+          psql -X -v ON_ERROR_STOP=1 -f scripts/ops/migrator-separation/provision-release-auditor.sql 2>&1 | tee f1-second.log
+          grep -q AUDIT_GRANT_VERIFY_OK f1-first.log
+          grep -q AUDIT_GRANT_VERIFY_OK f1-second.log
+      - name: Negative privilege and membership assertions
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL' 2>&1 | tee f1-negative.log
+          DO $test$
+          DECLARE
+            v_role record;
+          BEGIN
+            SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole INTO v_role
+              FROM pg_roles WHERE rolname='sanad_release_auditor';
+            IF NOT FOUND OR v_role.rolsuper OR v_role.rolbypassrls OR v_role.rolcreatedb OR v_role.rolcreaterole THEN
+              RAISE EXCEPTION 'F1_ROLE_CONTRACT_FAILED';
+            END IF;
+            IF pg_has_role('sanad_release_auditor','sanad_migrator','MEMBER')
+               OR pg_has_role('sanad_release_auditor','sanad','MEMBER') THEN
+              RAISE EXCEPTION 'F1_MEMBERSHIP_FAILED';
+            END IF;
+            IF NOT has_table_privilege('sanad_release_auditor','public.flyway_schema_history','SELECT')
+               OR NOT has_table_privilege('sanad_release_auditor','public.access_capabilities','SELECT')
+               OR has_table_privilege('sanad_release_auditor','public.synthetic_tenant_secret','SELECT')
+               OR has_table_privilege('sanad_release_auditor','public.synthetic_tenant_secret','INSERT')
+               OR has_schema_privilege('sanad_release_auditor','public','CREATE') THEN
+              RAISE EXCEPTION 'F1_PRIVILEGE_CONTRACT_FAILED';
+            END IF;
+            RAISE NOTICE 'F1_NEGATIVE_ASSERTIONS_PASS';
+          END $test$;
+          SQL
+          grep -q F1_NEGATIVE_ASSERTIONS_PASS f1-negative.log
+      - name: Test actual denied read and write as auditor
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL' 2>&1 | tee f1-live-denials.log
+          DO $test$
+          BEGIN
+            EXECUTE 'SET LOCAL ROLE sanad_release_auditor';
+            BEGIN
+              PERFORM * FROM public.synthetic_tenant_secret;
+              RAISE EXCEPTION 'F1_UNEXPECTED_READ_ALLOWED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'F1_READ_DENIED_42501';
+            END;
+            BEGIN
+              INSERT INTO public.synthetic_tenant_secret VALUES (2);
+              RAISE EXCEPTION 'F1_UNEXPECTED_WRITE_ALLOWED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'F1_WRITE_DENIED_42501';
+            END;
+            EXECUTE 'RESET ROLE';
+          END $test$;
+          SQL
+          grep -q F1_READ_DENIED_42501 f1-live-denials.log
+          grep -q F1_WRITE_DENIED_42501 f1-live-denials.log
+      - name: Preserve reproducible evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-f1-postgresql16-regression
+          path: |
+            server-version.txt
+            f1-first.log
+            f1-second.log
+            f1-negative.log
+            f1-live-denials.log
+          if-no-files-found: warn
