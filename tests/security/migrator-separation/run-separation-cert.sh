@@ -48,7 +48,18 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
-EXPECTED_HEAD="20261115.1"
+# V20261115_1 (platform_audit_logs append-only runtime ACL, C4 audit-ledger
+# hardening) advanced the chain head, aligned 2026-11-17 with S9/S10;
+# SANAD scope-audit remediation — reviewer conditional approval for remediation only
+# (2026-11-16) advances the watermark: 20261113.1 -> 20261116.2 (V20261116_1 global
+# hostname uniqueness index + V20261116_2 platform subscription-owner resolver with
+# S1 per-tenant FORCE-RLS backfill / S3 delete-cycle trigger / S6 default-deny ACL).
+# Recorded per watermark policy; no silent value bump.
+# Session 12 (2026-11-20) recovery: V20261117_1 (WS7 website tenant-scoped
+# integrity) + V20261117_2 (platform subscription owner runtime grants) restored
+# from certified 10c evidence (head 767ed0ee manifest watermark 20261117.2);
+# watermark advances 20261116.2 -> 20261117.2. Recorded here, not silent.
+EXPECTED_HEAD="20261117.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.

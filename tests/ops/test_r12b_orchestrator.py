@@ -306,21 +306,36 @@ def test_nvd_publisher_job_timeout_is_240():
         assert jd["timeout-minutes"] == 240, f"{jn} timeout should be 240"
 
 
-def test_nvd_database_maintenance_is_deprecated():
-    """R12E: old NVD workflow must have no triggers."""
+def test_nvd_database_maintenance_has_pr_validation_trigger():
+    """Operative contract after supersession of the R12E deprecation.
+
+    Lineage evidence: 0f2702699 (2026-06-27, R12H) deprecated this workflow;
+    4028c9155 (2026-07-26, later in the governed lineage) deliberately revived
+    it with schedule + workflow_dispatch + pull_request validation triggers and
+    rewrote the file (PROHIBITED banner removed). The operative contract is the
+    later decision: the maintenance workflow is ACTIVE and its changes must be
+    validated on pull requests. The production NVD snapshot path remains
+    nvd-snapshot-publisher.yml (240-minute timeouts, separate contract below).
+    """
     import yaml
     wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
     with wf_path.open() as f:
         d = yaml.safe_load(f)
     on_key = d.get("on", d.get(True, {}))
-    # on: {} means no triggers
-    assert on_key == {} or on_key is None, f"NVD database maintenance must have no triggers, got: {on_key}"
+    assert on_key, "maintenance workflow must remain triggerable (superseding lineage 4028c9155)"
+    assert "pull_request" in on_key, "maintenance changes must be validated on pull requests"
 
 
-def test_nvd_database_maintenance_name_includes_deprecated():
+def test_nvd_database_maintenance_name_is_operative():
+    """The revived workflow carries its operative name (no DEPRECATED banner).
+
+    Supersession evidence: 4028c9155 rewrote the file and removed the
+    R12E deprecation banner; the name asserts that operative state.
+    """
     wf_path = REPO_ROOT / ".github" / "workflows" / "nvd-database-maintenance.yml"
     content = wf_path.read_text(encoding="utf-8")
-    assert "DEPRECATED" in content
+    assert content.lstrip().startswith("name: NVD Database Maintenance")
+    assert "SUPERSEDED" not in content.split("\n")[0]
 
 
 def test_validator_accepts_odc_trace_db():

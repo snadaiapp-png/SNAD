@@ -81,7 +81,8 @@ public class PerfTestBootstrapConfig {
             OrganizationMembershipRepository organizationMembershipRepository,
             PasswordEncoder passwordEncoder,
             com.sanad.platform.access.capability.AccessCapabilityRepository accessCapabilityRepository,
-            com.sanad.platform.access.role.RoleCapabilityRepository roleCapabilityRepository
+            com.sanad.platform.access.role.RoleCapabilityRepository roleCapabilityRepository,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsTransactionContext
     ) {
         return new CredentialBootstrapService(
                 tenantRepository,
@@ -92,7 +93,8 @@ public class PerfTestBootstrapConfig {
                 organizationMembershipRepository,
                 passwordEncoder,
                 accessCapabilityRepository,
-                roleCapabilityRepository
+                roleCapabilityRepository,
+                tenantRlsTransactionContext
         );
     }
 

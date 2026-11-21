@@ -15,6 +15,7 @@ import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
@@ -67,6 +68,7 @@ public class CredentialBootstrapService {
     private final PasswordEncoder passwordEncoder;
     private final AccessCapabilityRepository accessCapabilityRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
+    private final TenantRlsTransactionContext tenantRlsTransactionContext;
 
     public CredentialBootstrapService(
             TenantRepository tenantRepository,
@@ -77,7 +79,8 @@ public class CredentialBootstrapService {
             OrganizationMembershipRepository organizationMembershipRepository,
             PasswordEncoder passwordEncoder,
             AccessCapabilityRepository accessCapabilityRepository,
-            RoleCapabilityRepository roleCapabilityRepository
+            RoleCapabilityRepository roleCapabilityRepository,
+            TenantRlsTransactionContext tenantRlsTransactionContext
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
@@ -88,6 +91,7 @@ public class CredentialBootstrapService {
         this.passwordEncoder = passwordEncoder;
         this.accessCapabilityRepository = accessCapabilityRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
+        this.tenantRlsTransactionContext = tenantRlsTransactionContext;
     }
 
     /**
@@ -155,6 +159,16 @@ public class CredentialBootstrapService {
 
         Tenant tenant = resolveTenant(tenantId, tenantName, tenantSubdomain);
         UUID resolvedTenantId = tenant.getId();
+
+        // F-BOOT-01 (G1): public.users is protected by FORCE ROW LEVEL SECURITY
+        // with a fail-closed tenant policy. The bootstrap flow runs pre-auth
+        // (no SecurityContextHolder tenant), so without an explicitly applied
+        // trusted tenant GUC every users write is rejected with SQLSTATE 42501
+        // — exactly the production bootstrap failure classified as F-BOOT-01.
+        // Establish the trusted scope on this transaction BEFORE any users
+        // access; TenantRlsTransactionContext verifies the GUC was really
+        // applied to the current connection (fail loud on wiring mistakes).
+        applyTrustedTenantGuc(resolvedTenantId);
 
         String normalizedEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
         User existingCheck = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
@@ -224,6 +238,21 @@ public class CredentialBootstrapService {
         log.info("Credential bootstrap completed for userId={} tenantId={}; forced rotation enabled.",
                 adminUser.getId(), resolvedTenantId);
         return adminUser;
+    }
+
+    /**
+     * Applies the trusted tenant GUC for the active bootstrap transaction.
+     * Defensive no-op when no Spring-managed transaction is active: FORCE RLS
+     * still rejects unscoped users writes (42501) at the database layer, so
+     * skipping here can never widen access.
+     */
+    private void applyTrustedTenantGuc(UUID resolvedTenantId) {
+        if (tenantRlsTransactionContext == null
+                || !org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isActualTransactionActive()) {
+            return;
+        }
+        tenantRlsTransactionContext.applyForCurrentTransaction(resolvedTenantId);
     }
 
     /**
