@@ -1,0 +1,113 @@
+name: G1 F-2 Isolated Synthetic Restore
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/g1-f2-isolated-restore.yml'
+      - 'docs/security/g1-final-closure/G1-F2-RESTORE-OWNERSHIP-ACL-VERIFICATION.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  f2-synthetic-restore:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.2
+        env:
+          POSTGRES_PASSWORD: synthetic-only
+          POSTGRES_DB: f2_source
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d f2_source"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin PostgreSQL 16 client tools to server major version
+        run: |
+          set -euo pipefail
+          # Run clients from the same immutable PostgreSQL 16.2 image as the service.
+          docker run --rm --entrypoint sh postgres:16.2 -c 'pg_dump --version && pg_restore --version && psql --version' | tee f2-client-version.log
+          cat >> "$GITHUB_ENV" <<'EOF'
+          PGCLIENT_IMAGE=postgres:16.2
+          EOF
+          echo "PostgreSQL 16.2 clients pinned using container image"
+      - name: Create synthetic FORCE RLS and FK source
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -d f2_source <<'SQL' 2>&1 | tee f2-source.log
+          CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE sanad NOLOGIN NOSUPERUSER NOBYPASSRLS;
+          CREATE TABLE public.f2_tenants(id int PRIMARY KEY);
+          CREATE TABLE public.f2_records(id int PRIMARY KEY, tenant_id int REFERENCES public.f2_tenants(id));
+          INSERT INTO public.f2_tenants VALUES (1);
+          INSERT INTO public.f2_records VALUES (1,1);
+          ALTER TABLE public.f2_tenants ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.f2_tenants FORCE ROW LEVEL SECURITY;
+          ALTER TABLE public.f2_records ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.f2_records FORCE ROW LEVEL SECURITY;
+          CREATE POLICY f2_deny ON public.f2_tenants TO sanad USING (false);
+          CREATE POLICY f2_deny ON public.f2_records TO sanad USING (false);
+          REVOKE ALL ON public.f2_tenants,public.f2_records FROM PUBLIC;
+          SQL
+      - name: Dump and restore as isolated superuser, then transfer ownership
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -v "$PWD:/evidence" "$PGCLIENT_IMAGE" \
+            pg_dump -Fc -d f2_source -f /evidence/f2-synthetic.dump
+          createdb f2_target
+          docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -v "$PWD:/evidence:ro" "$PGCLIENT_IMAGE" \
+            pg_restore --exit-on-error --no-owner --no-acl -d f2_target /evidence/f2-synthetic.dump 2>&1 | tee f2-restore.log
+          psql -X -v ON_ERROR_STOP=1 -d f2_target <<'SQL' 2>&1 | tee f2-owner-transfer.log
+          ALTER TABLE public.f2_records OWNER TO sanad_migrator;
+          ALTER TABLE public.f2_tenants OWNER TO sanad_migrator;
+          DO $check$
+          DECLARE v_count int;
+          BEGIN
+            SELECT count(*) INTO v_count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='public' AND c.relname IN ('f2_records','f2_tenants')
+              AND pg_get_userbyid(c.relowner)<>'sanad_migrator';
+            IF v_count<>0 THEN RAISE EXCEPTION 'F2_OWNER_MISMATCH'; END IF;
+            RAISE NOTICE 'F2_OWNER_SWEEP_PASS';
+          END $check$;
+          SQL
+      - name: Check FK, FORCE RLS and runtime negative privileges
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -d f2_target <<'SQL' 2>&1 | tee f2-negative.log
+          DO $check$
+          DECLARE v_fk int; v_rls int;
+          BEGIN
+            SELECT count(*) INTO v_fk FROM pg_constraint WHERE contype='f' AND conrelid='public.f2_records'::regclass;
+            IF v_fk<>1 THEN RAISE EXCEPTION 'F2_FK_MISSING'; END IF;
+            SELECT count(*) INTO v_rls FROM pg_class WHERE oid IN ('public.f2_tenants'::regclass,'public.f2_records'::regclass) AND relrowsecurity AND relforcerowsecurity;
+            IF v_rls<>2 THEN RAISE EXCEPTION 'F2_FORCE_RLS_MISSING'; END IF;
+            IF has_table_privilege('sanad','public.f2_records','SELECT') OR has_table_privilege('sanad','public.f2_records','INSERT') THEN
+              RAISE EXCEPTION 'F2_RUNTIME_UNEXPECTED_PRIVILEGE';
+            END IF;
+            RAISE NOTICE 'F2_FK_RLS_ACL_PASS';
+          END $check$;
+          SQL
+          grep -q F2_OWNER_SWEEP_PASS f2-owner-transfer.log
+          grep -q F2_FK_RLS_ACL_PASS f2-negative.log
+          sha256sum f2-synthetic.dump | tee f2-dump.sha256
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-f2-synthetic-restore-evidence
+          path: |
+            f2-source.log
+            f2-client-version.log
+            f2-restore.log
+            f2-owner-transfer.log
+            f2-negative.log
+            f2-dump.sha256
+          if-no-files-found: warn
