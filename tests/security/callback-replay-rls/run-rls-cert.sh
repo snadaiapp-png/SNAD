@@ -71,7 +71,8 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # website tenant-scoped integrity) + V20261117_2 (platform_subscription_owners runtime
 # grants) were byte-exact restored and checksum-certified against the 10c registry
 # (P1.6, 265/265). Recorded per watermark policy; no silent value bump.
-EXPECTED_HEAD="20261117.2"
+# ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
+EXPECTED_HEAD="20261118.2"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }

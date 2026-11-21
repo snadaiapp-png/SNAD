@@ -59,7 +59,11 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # integrity) + V20261117_2 (platform subscription owner runtime grants) restored
 # from certified 10c evidence (head 767ed0ee manifest watermark 20261117.2);
 # watermark advances 20261116.2 -> 20261117.2. Recorded here, not silent.
-EXPECTED_HEAD="20261117.2"
+# G1/C4 PR-2 remediation (2026-11-21, doc 20 P0-1/P1-3): V20261118_1 (tenants
+# control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL)
+# advance the watermark 20261117.2 -> 20261118.2. Recorded per watermark
+# policy; no silent value bump.
+EXPECTED_HEAD="20261118.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -122,6 +126,24 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   # A negative security probe passes only with a real PostgreSQL SQLSTATE.
 }
 
+cp_out=""; cp_rc=0; cp_err=""
+cp_capture() { # cp_capture <db> <sql> — dedicated control-plane connection
+  cp_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_CP_PW" \
+       psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad_control_plane -d "$1" \
+       -v ON_ERROR_STOP=1 -qAtc "$2" 2>"$ART/last-cp-err.txt")
+  cp_rc=$?
+  cp_err=$(cat "$ART/last-cp-err.txt")
+}
+expect_cp_pass() { # expect_cp_pass <id> <db> <sql>
+  cp_capture "$2" "$3"
+  if [ $cp_rc -eq 0 ]; then record "$1" PASS PASS "$cp_out"
+  else record "$1" PASS "FAIL(rc=$cp_rc)" "$cp_err"; fail; fi
+}
+expect_cp_value() { # expect_cp_value <id> <db> <sql> <expected>
+  cp_capture "$2" "$3"
+  if [ $cp_rc -eq 0 ] && [ "$cp_out" = "$4" ]; then record "$1" "$4" "$cp_out" ok
+  else record "$1" "$4" "FAIL(rc=$cp_rc out='$cp_out')" "$cp_err"; fail; fi
+}
 record() { # record <id> <expected> <actual_outcome> <detail>
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(echo "$4" | tr '\n' ' ' | cut -c1-160)" >> "$TSV"
   echo "  [$1] expected=$2 got=$3 | $(echo "$4" | head -1 | cut -c1-120)"
@@ -201,6 +223,28 @@ admin postgres postgres "DO \$\$ BEGIN
   END IF;
 END \$\$;" >/dev/null || die S0 "cleanup role provisioning failed"
 admin postgres postgres "GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE" >/dev/null || die S0 "cleanup role membership failed"
+# ORDER 11 / G1-C4 PR-2 (V20261118_1/V20261118_2): dedicated control-plane
+# CONNECTION identity holding the tenants + access_capabilities lifecycle
+# DML. LOGIN with a per-run ephemeral password; NO membership with the
+# runtime in either direction (the forbidden SET ROLE escalation path is
+# structurally absent). Fail closed on any pre-existing membership.
+SEP_CP_PW="${SEP_CP_PW:-$(openssl rand -hex 24)}"
+[[ "$SEP_CP_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "SEP_CP_PW must be 48 hex characters"
+admin postgres postgres "DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_control_plane') THEN
+    CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+END \$\$;" >/dev/null || die S0 "control-plane role provisioning failed"
+admin_secret "ALTER ROLE sanad_control_plane PASSWORD '$SEP_CP_PW';" || die S0 "control-plane password"
+admin postgres postgres "ALTER ROLE sanad_control_plane NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN" >/dev/null || die S0 "control-plane role contract"
+admin postgres postgres "DO \$\$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_auth_members m
+               JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member
+              WHERE (g.rolname='sanad_control_plane' AND r.rolname='sanad')
+                 OR (g.rolname='sanad' AND r.rolname='sanad_control_plane')) THEN
+    RAISE EXCEPTION 'ORDER11_FORBIDDEN_MEMBERSHIP present';
+  END IF;
+END \$\$;" >/dev/null || die S0 "forbidden control-plane membership detected (ORDER 11 contract)"
 admin_secret "ALTER ROLE sanad_migrator PASSWORD '$SEP_MIG_PW';" || die S0 "migrator password"
 admin postgres postgres "ALTER ROLE sanad_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS" >/dev/null || die S0 "migrator contract"
 admin postgres postgres "ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS" >/dev/null || die S0 "runtime contract"
@@ -245,14 +289,56 @@ gate S1 "PASS: full chain applied as sanad_migrator, head=$head_now, validate OK
 record FLYWAY_AS_MIGRATOR PASS PASS "head=$head_now"
 
 # ============================================================================
-# S2 — runtime positive matrix (ordinary DML as sanad)
+# S2 — runtime positive matrix (ordinary DML as sanad) + control-plane ACL
+#      (V20261118_1/V20261118_2, ORDER 11): plain runtime DENIED the tenants
+#      and access_capabilities lifecycle DML AND denied SET ROLE to the
+#      control-plane identity (no membership); the DEDICATED control-plane
+#      connection performs the exact lifecycle with read-backs; effective
+#      ACL matrices and connection identities asserted per table.
 # ============================================================================
-gate S2 "runtime DML on the general set (as sanad)"
+gate S2 "runtime DML on the general set + control-plane ACL (as sanad + dedicated connection)"
 T1=11111111-1111-1111-1111-111111111111
+C1=c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0
 expect_pass S2_SELECT "$SEP_DB" "SELECT count(*) FROM public.saas_plans"
-expect_pass S2_INSERT "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now())"
-expect_value S2_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.tenants SET name='Sep Cert Tenant 2' WHERE id='$T1' RETURNING 1) SELECT count(*) FROM changed" "1"
-expect_value S2_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.tenants WHERE id='$T1' RETURNING 1) SELECT count(*) FROM deleted" "1"
+# V20261118_1: the plain runtime role must be DENIED tenant lifecycle DML.
+expect_deny S2_TENANTS_INSERT_DENIED "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now())"
+expect_deny S2_TENANTS_UPDATE_DENIED "$SEP_DB" "UPDATE public.tenants SET name='Nope' WHERE id='$T1'"
+expect_deny S2_TENANTS_DELETE_DENIED "$SEP_DB" "DELETE FROM public.tenants WHERE id='$T1'"
+# V20261118_2: the plain runtime role must be DENIED capability-registry DML.
+expect_deny S2_CAPS_INSERT_DENIED "$SEP_DB" "INSERT INTO public.access_capabilities (id,code,name,created_at,updated_at) VALUES ('$C1','SEP.CERT.PROBE','Sep Cert probe',now(),now())"
+expect_deny S2_CAPS_UPDATE_DENIED "$SEP_DB" "UPDATE public.access_capabilities SET status='INACTIVE' WHERE code='SEP.CERT.PROBE'"
+expect_deny S2_CAPS_DELETE_DENIED "$SEP_DB" "DELETE FROM public.access_capabilities WHERE code='SEP.CERT.PROBE'"
+# S9-style effective ACL matrices (SELECT|INSERT|UPDATE|DELETE|TRUNCATE):
+# runtime keeps SELECT only; TRUNCATE is revoked with the lifecycle DML.
+expect_value S2_ACL_TENANTS "$SEP_DB" "SELECT has_table_privilege('sanad','public.tenants','SELECT')::text||'|'||has_table_privilege('sanad','public.tenants','INSERT')::text||'|'||has_table_privilege('sanad','public.tenants','UPDATE')::text||'|'||has_table_privilege('sanad','public.tenants','DELETE')::text||'|'||has_table_privilege('sanad','public.tenants','TRUNCATE')::text" "true|false|false|false|false"
+expect_value S2_ACL_CAPS "$SEP_DB" "SELECT has_table_privilege('sanad','public.access_capabilities','SELECT')::text||'|'||has_table_privilege('sanad','public.access_capabilities','INSERT')::text||'|'||has_table_privilege('sanad','public.access_capabilities','UPDATE')::text||'|'||has_table_privilege('sanad','public.access_capabilities','DELETE')::text||'|'||has_table_privilege('sanad','public.access_capabilities','TRUNCATE')::text" "true|false|false|false|false"
+expect_value S2_CP_ACL_TENANTS "$SEP_DB" "SELECT has_table_privilege('sanad_control_plane','public.tenants','INSERT')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','UPDATE')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','DELETE')::text" "true|true|true"
+expect_value S2_CP_ACL_CAPS "$SEP_DB" "SELECT has_table_privilege('sanad_control_plane','public.access_capabilities','INSERT')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','UPDATE')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','DELETE')::text" "true|true|true"
+# ORDER 11: the runtime is DENIED SET ROLE to the control-plane identity —
+# no membership exists, so the escalation path is structurally absent.
+expect_deny S2_SETROLE_CP_DENIED "$SEP_DB" "SET ROLE sanad_control_plane"
+# ORDER 11: connection identity isolation. The dedicated control-plane
+# connection authenticates as sanad_control_plane (both current_user and
+# session_user); the runtime connection never carries that identity (there
+# is no SET ROLE anywhere in the approved path — pool leakage is
+# structurally impossible and this asserts it live).
+expect_cp_value S2CP_CONNECTION_IDENTITY "$SEP_DB" "SELECT current_user||'|'||session_user" "sanad_control_plane|sanad_control_plane"
+expect_value S2CP_RUNTIME_IDENTITY_UNCHANGED "$SEP_DB" "SELECT current_user||'|'||session_user" "sanad|sanad"
+# ORDER 11 compensating control: the DEDICATED control-plane connection
+# performs the EXACT tenant lifecycle (INSERT -> read-back -> UPDATE ->
+# DELETE). Read-backs run on the RUNTIME connection: the runtime keeps
+# SELECT, so the rows are provably in storage, not hidden by policy.
+expect_cp_value S2CP_TENANTS_INSERT "$SEP_DB" "WITH ins AS (INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$T1','Sep Cert Tenant','sepcert','ACTIVE',now(),now()) RETURNING id) SELECT count(*) FROM ins" "1"
+expect_value S2CP_TENANTS_READBACK "$SEP_DB" "SELECT count(*) FROM public.tenants WHERE id='$T1' AND name='Sep Cert Tenant' AND status='ACTIVE'" "1"
+expect_cp_value S2CP_TENANTS_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.tenants SET name='Sep Cert Tenant 2' WHERE id='$T1' RETURNING 1) SELECT count(*) FROM changed" "1"
+expect_cp_value S2CP_TENANTS_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.tenants WHERE id='$T1' RETURNING 1) SELECT count(*) FROM deleted" "1"
+# ORDER 11 compensating control on the capability registry: full lifecycle
+# via the dedicated connection + runtime read-backs.
+expect_cp_value S2CP_CAPS_INSERT "$SEP_DB" "WITH ins AS (INSERT INTO public.access_capabilities (id,code,name,created_at,updated_at) VALUES ('$C1','SEP.CERT.PROBE','Sep Cert probe',now(),now()) RETURNING code) SELECT count(*)||'|'||max(code) FROM ins" "1|SEP.CERT.PROBE"
+expect_value S2CP_CAPS_READBACK "$SEP_DB" "SELECT count(*) FROM public.access_capabilities WHERE id='$C1' AND code='SEP.CERT.PROBE'" "1"
+expect_cp_value S2CP_CAPS_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.access_capabilities SET status='INACTIVE' WHERE id='$C1' RETURNING status) SELECT count(*)||'|'||max(status) FROM changed" "1|INACTIVE"
+expect_cp_value S2CP_CAPS_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.access_capabilities WHERE id='$C1' RETURNING 1) SELECT count(*) FROM deleted" "1"
+expect_value S2CP_ROLE_RESTORED "$SEP_DB" "SELECT current_user" "sanad"
 # Confirm the row is absent in storage, not merely hidden by runtime policies.
 s2_remaining=$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.tenants WHERE id='$T1'") || die S2 "admin tenant deletion inventory failed"
 if [ "$s2_remaining" = "0" ]; then
@@ -261,8 +347,15 @@ else
   record S2_ADMIN_TENANT_DELETION "0" "$s2_remaining" "tenant deletion integrity mismatch"
   fail
 fi
-[ $FAILURES -eq 0 ] || die S2 "positive DML matrix failed"
-gate S2 "PASS: SELECT/INSERT/UPDATE/DELETE as restricted runtime role"
+s2_caps_remaining=$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.access_capabilities WHERE id='$C1'") || die S2 "admin capability deletion inventory failed"
+if [ "$s2_caps_remaining" = "0" ]; then
+  record S2_ADMIN_CAPS_DELETION "0" "$s2_caps_remaining" "admin-confirmed capability probe removal"
+else
+  record S2_ADMIN_CAPS_DELETION "0" "$s2_caps_remaining" "capability deletion integrity mismatch"
+  fail
+fi
+[ $FAILURES -eq 0 ] || die S2 "positive DML / control-plane ACL matrix failed"
+gate S2 "PASS: ordinary DML as restricted runtime; tenants + access_capabilities lifecycle DENIED for plain runtime (42501); runtime SET ROLE sanad_control_plane DENIED (42501, no membership); dedicated-connection lifecycle + identity isolation proven exactly; ACL matrices exact"
 
 # ============================================================================
 # S3 — runtime negative matrix (DDL / ledger / role escalation)
@@ -429,8 +522,17 @@ expect_value S9_ROLE_CONTRACT "$SEP_DB" "SELECT rolsuper::text||'|'||rolbypassrl
 #     memberships still matter: SET ROLE reaches those grants, so the set
 #     must match the documented contract exactly (fail closed on drift).
 s9_members=$(admin postgres "$SEP_DB" "SELECT coalesce(string_agg(r.rolname, ',' ORDER BY r.rolname),'') FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE u.rolname='sanad'") || die S9 "runtime membership inventory failed"
-[ "$s9_members" = "sanad_callback_replay_cleanup" ] || die S9 "unexpected runtime membership set: '$s9_members' (expected exactly sanad_callback_replay_cleanup)"
-record S9_MEMBERSHIP "sanad_callback_replay_cleanup" "$s9_members" "runtime membership inventory (NOINHERIT role + INHERIT FALSE member)"
+[ "$s9_members" = "sanad_callback_replay_cleanup" ] || die S9 "unexpected runtime membership set: '$s9_members' (expected exactly sanad_callback_replay_cleanup — ORDER 11: NO sanad_control_plane membership may exist)"
+record S9_MEMBERSHIP "sanad_callback_replay_cleanup" "$s9_members" "runtime membership inventory (NOINHERIT cleanup role only; ORDER 11 forbids control-plane membership)"
+# ORDER 11: assert the absence of every membership direction around the
+# control-plane identity, live, on the certified database.
+s9_cp_member_of=$(admin postgres "$SEP_DB" "SELECT coalesce(string_agg(r.rolname, ',' ORDER BY r.rolname),'') FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE u.rolname='sanad_control_plane'")
+[ "$s9_cp_member_of" = "" ] || die S9 "control-plane identity is member of: '$s9_cp_member_of' (must be member of NOTHING)"
+s9_cp_members=$(admin postgres "$SEP_DB" "SELECT coalesce(string_agg(u.rolname, ',' ORDER BY u.rolname),'') FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE r.rolname='sanad_control_plane'")
+[ "$s9_cp_members" = "" ] || die S9 "control-plane identity has members: '$s9_cp_members' (must have NO members)"
+s9_cp_login=$(admin postgres "$SEP_DB" "SELECT rolcanlogin::text||'|'||rolsuper::text||'|'||rolbypassrls::text FROM pg_roles WHERE rolname='sanad_control_plane'")
+[ "$s9_cp_login" = "true|false|false" ] || die S9 "control-plane identity contract: '$s9_cp_login' (expected LOGIN, NOSUPERUSER, NOBYPASSRLS)"
+record S9_CONTROL_PLANE_IDENTITY "LOGIN|NOSUPERUSER|NOBYPASSRLS|NO_MEMBERS_BOTH_DIRECTIONS" "$s9_cp_login" "ORDER 11 dedicated connection identity contract"
 # 9.3 effective ACL matrix asserted by the runtime itself (has_table_privilege
 #     with no role argument = current_user effective privileges, including
 #     any inherited paths): SELECT/INSERT allowed, UPDATE/DELETE/TRUNCATE denied

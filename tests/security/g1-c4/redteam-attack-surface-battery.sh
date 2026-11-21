@@ -32,6 +32,22 @@
 #      in this engagement, so no production probe is executed or claimed
 #      (see service-role-classification.txt; it is not counted as a pass).
 #
+# v3 (2026-11-21, G1/C4 PR-2 remediation delivery): RT-07/07B/07C, RT-08/08B
+#   and RT-09/09B flip from CONFIRMED to DENIED(42501) — V20261118_1 revoked
+#   the tenants lifecycle DML from the plain runtime role in the separated
+#   topology; RT-12/13/13B/14/14B flip likewise for V20261118_2
+#   (access_capabilities).
+# v4 (2026-11-21, ORDER 11 — Control Plane Security & PostgreSQL Root-Cause
+#   Remediation): the SET ROLE compensating control is FORBIDDEN and removed.
+#   sanad_control_plane is a dedicated LOGIN connection identity with NO
+#   membership toward the runtime in any direction. RT-36/RT-37 prove the
+#   DEDICATED-CONNECTION lifecycle with exact read-backs, RT-38 verifies the
+#   effective control-plane ACL matrix (including the SELECT privilege
+#   required by WHERE-keyed DML — the 42501 root cause), RT-39 proves the
+#   runtime SET ROLE escalation attempt is DENIED, and RT-40 proves
+#   connection-identity isolation (no pool privilege leakage, in either
+#   direction, live).
+#
 # Outcome classes:
 #   DENIED(sqlstate)  — attack correctly refused by PostgreSQL;
 #   CONFIRMED(value)  — exposure/design-trust behaviour confirmed live WITH
@@ -90,7 +106,10 @@ SRC="$ART/service-role-classification.txt"
 FAILURES=0
 # A skipped probe (script bug, early exit, silent fall-through) must fail the
 # battery: the final assertion requires exactly this many TSV records.
-EXPECTED_PROBES=63
+# v4 (ORDER 11): the 5 v3 compensating-control records become 16
+# dedicated-connection records (RT-36..RT-36E, RT-37..RT-37E, RT-38,
+# RT-39/RT-39B/RT-39C, RT-40/RT-40B).
+EXPECTED_PROBES=79
 
 TA=22222222-2222-2222-2222-222222222222
 TB=33333333-3333-3333-3333-333333333333
@@ -114,6 +133,25 @@ RT_PW="${RT_BOOTSTRAP_PW:-}"
 unset RT_BOOTSTRAP_PW
 [[ "$RT_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::RT_BOOTSTRAP_PW from disposable provisioning required" >&2; exit 1; }
 
+# ORDER 11: dedicated control-plane connection credential (disposable,
+# provisioned by the separation matrix S0 on the same isolated cluster).
+RT_CP_PW="${RT_BOOTSTRAP_CP_PW:-}"
+unset RT_BOOTSTRAP_CP_PW
+[[ "$RT_CP_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::RT_BOOTSTRAP_CP_PW from disposable provisioning required" >&2; exit 1; }
+
+cp() { # cp <sql> — dedicated control-plane probe as sanad_control_plane
+  out=$(env -u PGOPTIONS PGOPTIONS="-c statement_timeout=20000" PGPASSWORD="$RT_CP_PW" \
+    psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U sanad_control_plane -d "$RT_DB" \
+    -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$1" 2>"$ART/last-cp-err.txt")
+  rc=$?
+  err=$(cat "$ART/last-cp-err.txt")
+  state=$(printf '%s\n' "$err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
+}
+expect_cp_value() { # expect_cp_value <id> <sql> <expected>
+  cp "$2"
+  if [ "$rc" -eq 0 ] && [ "$out" = "$3" ]; then record "$1" "$3" "$out" "dedicated-connection exact-match"
+  else record "$1" "$3" "FAIL(rc=$rc,state=$state,out=$out)"; FAILURES=$((FAILURES+1)); fi
+}
 rt() { # rt <sql> [guc] — runtime probe as sanad; sets out/rc/state
   local opts="-c statement_timeout=20000"
   if [ $# -ge 2 ] && [ -n "$2" ]; then opts="$opts -c app.tenant_id=$2"; fi
@@ -194,10 +232,10 @@ admin_expect IP-09_CLUSTER_PURITY postgres "SELECT count(*) FROM pg_database WHE
 admin_expect IP-10_DB_OWNER_MIGRATOR postgres "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='$RT_DB'" "sanad_migrator"
 
 # IP-11: separation-certification roles present (battery runs AFTER S0-S9).
-admin_expect IP-11_SEP_ROLES_PRESENT postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup')" "3"
+admin_expect IP-11_SEP_ROLES_PRESENT postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup','sanad_control_plane')" "4"
 
 # IP-12: Flyway head is the certified head.
-admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261117.2"
+admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261118.2"
 require_isolation
 
 # IP-05/06: database-level sentinel — written by admin, read back by the
@@ -224,7 +262,7 @@ require_isolation
   echo "admin_superuser=postgres (IP-01)"
   echo "runtime_role=sanad (IP-07, IP-08)"
   echo "db=$RT_DB owner=sanad_migrator (IP-10)"
-  echo "flyway_head=20261117.2 (IP-12)"
+  echo "flyway_head=20261118.2 (IP-12)"
   echo "server_version=$(admin postgres postgres 'SELECT version()')"
   echo "psql_version=$(psql --version)"
 } >> "$ISO"
@@ -266,19 +304,22 @@ expect_denied RT-06_PREAUTH_TOKEN_READONLY "INSERT INTO public.workflow_external
 admin_expect RT-06B_TOKEN_INDEX_UNCHANGED "$RT_DB" "SELECT count(*) FROM public.workflow_external_action_token_index WHERE token_hash='deadbeef'" "0"
 
 # ============================================================================
-# B. Control-plane write surface (RLS-off tables) — every CONFIRMED
-#    operation reports its exact affected-row count and is read back.
+# B. Control-plane write surface (RLS-off tables) — V20261118_1/V20261118_2
+#    closed the tenants and access_capabilities lifecycle DML for the plain
+#    runtime role: every former CONFIRMED exposure is now asserted DENIED
+#    (42501) with storage-level absence proofs. The compensating control
+#    (SET ROLE sanad_control_plane) is verified positively by RT-36/RT-37.
 # ============================================================================
-echo "-- B. Control-plane write surface (RLS-off tables) --" | tee -a "$LOG"
+echo "-- B. Control-plane write surface (RLS-off tables; lifecycle DML denied for plain runtime) --" | tee -a "$LOG"
 
-expect_confirmed_value RT-07_TENANTS_INSERT "WITH ins AS (INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$TT','RT-PROBE','rt-probe','ACTIVE',now(),now()) RETURNING id) SELECT count(*) FROM ins" "1"
-expect_confirmed_value RT-07B_TENANTS_READBACK "SELECT name||'|'||status||'|'||subdomain FROM public.tenants WHERE id='$TT'" "RT-PROBE|ACTIVE|rt-probe"
-admin_expect RT-07C_TENANTS_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.tenants WHERE id='$TT' AND name='RT-PROBE' AND status='ACTIVE'" "1"
+expect_denied RT-07_TENANTS_INSERT "WITH ins AS (INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$TT','RT-PROBE','rt-probe','ACTIVE',now(),now()) RETURNING id) SELECT count(*) FROM ins" 42501
+expect_value RT-07B_TENANTS_READBACK_ABSENT "SELECT coalesce((SELECT name||'|'||status FROM public.tenants WHERE id='$TT'),'ABSENT')" "ABSENT"
+admin_expect RT-07C_TENANTS_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.tenants WHERE id='$TT' AND name='RT-PROBE' AND status='ACTIVE'" "0"
 
-expect_confirmed_value RT-08_TENANTS_UPDATE "WITH upd AS (UPDATE public.tenants SET status='SUSPENDED', suspension_reason='RT-PROBE' WHERE id='$TT' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" "1|SUSPENDED"
-admin_expect RT-08B_TENANTS_UPDATE_ADMINPROOF "$RT_DB" "SELECT status||'|'||suspension_reason FROM public.tenants WHERE id='$TT'" "SUSPENDED|RT-PROBE"
+expect_denied RT-08_TENANTS_UPDATE "WITH upd AS (UPDATE public.tenants SET status='SUSPENDED', suspension_reason='RT-PROBE' WHERE id='$TT' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" 42501
+admin_expect RT-08B_TENANTS_UPDATE_ADMINPROOF "$RT_DB" "SELECT coalesce((SELECT status||'|'||suspension_reason FROM public.tenants WHERE id='$TT'),'ROW_ABSENT')" "ROW_ABSENT"
 
-expect_confirmed_value RT-09_TENANTS_DELETE "WITH del AS (DELETE FROM public.tenants WHERE id='$TT' RETURNING 1) SELECT count(*) FROM del" "1"
+expect_denied RT-09_TENANTS_DELETE "WITH del AS (DELETE FROM public.tenants WHERE id='$TT' RETURNING 1) SELECT count(*) FROM del" 42501
 admin_expect RT-09B_TENANTS_DELETE_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.tenants WHERE id='$TT'" "0"
 
 expect_confirmed_value RT-10_QUOTA_INSERT_OWN "WITH ins AS (INSERT INTO public.tenant_quota (tenant_id,dimension,limit_value,reset_at) VALUES ('$TA','API_RPM',1,now()+interval '30 days') RETURNING tenant_id) SELECT count(*)||'|'||max(tenant_id) FROM ins" "1|$TA" "$TA"
@@ -288,10 +329,10 @@ admin_expect RT-10C_QUOTA_FOREIGN_ABSENT "$RT_DB" "SELECT count(*) FROM public.t
 expect_confirmed_value RT-11_QUOTA_DELETE_OWN "WITH del AS (DELETE FROM public.tenant_quota WHERE tenant_id='$TA' AND dimension='API_RPM' RETURNING 1) SELECT count(*) FROM del" "1" "$TA"
 admin_expect RT-11B_QUOTA_DELETE_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.tenant_quota WHERE tenant_id='$TA' AND dimension='API_RPM'" "0"
 
-expect_confirmed_value RT-12_CAPS_INSERT "WITH ins AS (INSERT INTO public.access_capabilities (id,code,name,created_at,updated_at) VALUES ('$CAP','RT.FAKE','RT probe',now(),now()) RETURNING code) SELECT count(*)||'|'||max(code) FROM ins" "1|RT.FAKE"
-expect_confirmed_value RT-13_CAPS_UPDATE "WITH upd AS (UPDATE public.access_capabilities SET status='INACTIVE' WHERE code='RT.FAKE' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" "1|INACTIVE"
-admin_expect RT-13B_CAPS_UPDATE_ADMINPROOF "$RT_DB" "SELECT status FROM public.access_capabilities WHERE code='RT.FAKE'" "INACTIVE"
-expect_confirmed_value RT-14_CAPS_DELETE "WITH del AS (DELETE FROM public.access_capabilities WHERE code='RT.FAKE' RETURNING 1) SELECT count(*) FROM del" "1"
+expect_denied RT-12_CAPS_INSERT "WITH ins AS (INSERT INTO public.access_capabilities (id,code,name,created_at,updated_at) VALUES ('$CAP','RT.FAKE','RT probe',now(),now()) RETURNING code) SELECT count(*)||'|'||max(code) FROM ins" 42501
+expect_denied RT-13_CAPS_UPDATE "WITH upd AS (UPDATE public.access_capabilities SET status='INACTIVE' WHERE code='RT.FAKE' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" 42501
+admin_expect RT-13B_CAPS_UPDATE_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.access_capabilities WHERE code='RT.FAKE'" "0"
+expect_denied RT-14_CAPS_DELETE "WITH del AS (DELETE FROM public.access_capabilities WHERE code='RT.FAKE' RETURNING 1) SELECT count(*) FROM del" 42501
 admin_expect RT-14B_CAPS_DELETE_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.access_capabilities WHERE code='RT.FAKE'" "0"
 
 expected_rt15=$(admin postgres "$RT_DB" "SELECT count(*) FROM public.modules") || { echo "::error::RT-15 expected-value query failed" >&2; exit 1; }
@@ -354,6 +395,52 @@ echo "-- G. Separation invariants + service_role classification --" | tee -a "$L
 expect_value RT-34_NO_MIGRATOR_MEMBERSHIP "SELECT pg_has_role('sanad','sanad_migrator','MEMBER')" "f"
 # RT-35: LOCAL isolated-cluster classification, asserted exactly.
 admin_expect RT-35_SERVICE_ROLE_LOCAL_ABSENT postgres "SELECT count(*) FROM pg_roles WHERE rolname='service_role'" "0"
+
+# ============================================================================
+# H. ORDER 11 dedicated control-plane connection (V20261118_1/V20261118_2):
+#    the dedicated connection identity performs the exact tenant and
+#    capability lifecycles with read-backs on the RUNTIME connection (which
+#    keeps SELECT — proving storage, not policy-invisibility); the runtime
+#    SET ROLE escalation attempt is DENIED (no membership exists); the
+#    effective ACL matrix proves the plain runtime role is SELECT-only on
+#    both control-plane tables while the dedicated identity holds exactly
+#    SELECT/INSERT/UPDATE/DELETE; and connection identities are isolated in
+#    both directions (no pool privilege leakage).
+# ============================================================================
+echo "-- H. ORDER 11: dedicated control-plane connection lifecycle + SET ROLE denial + identity isolation --" | tee -a "$LOG"
+
+# RT-36: tenant lifecycle on the DEDICATED control-plane connection.
+expect_cp_value RT-36_TENANTS_CP_INSERT "WITH ins AS (INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$TT','RT-CP','rt-cp','ACTIVE',now(),now()) RETURNING 1) SELECT count(*) FROM ins" "1"
+expect_value RT-36B_TENANTS_RUNTIME_READBACK "SELECT name||'|'||status||'|'||subdomain FROM public.tenants WHERE id='$TT'" "RT-CP|ACTIVE|rt-cp"
+expect_cp_value RT-36C_TENANTS_CP_UPDATE "WITH upd AS (UPDATE public.tenants SET status='SUSPENDED', suspension_reason='RT-CP' WHERE id='$TT' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" "1|SUSPENDED"
+expect_cp_value RT-36D_TENANTS_CP_DELETE "WITH del AS (DELETE FROM public.tenants WHERE id='$TT' RETURNING 1) SELECT count(*) FROM del" "1"
+admin_expect RT-36E_TENANTS_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.tenants WHERE id='$TT'" "0"
+
+# RT-37: capability-registry lifecycle on the DEDICATED connection.
+expect_cp_value RT-37_CAPS_CP_INSERT "WITH ins AS (INSERT INTO public.access_capabilities (id,code,name,created_at,updated_at) VALUES ('$CAP','RT.CP','RT cp probe',now(),now()) RETURNING code) SELECT count(*)||'|'||max(code) FROM ins" "1|RT.CP"
+expect_value RT-37B_CAPS_RUNTIME_READBACK "SELECT count(*) FROM public.access_capabilities WHERE id='$CAP' AND code='RT.CP' AND status='ACTIVE'" "1"
+expect_cp_value RT-37C_CAPS_CP_UPDATE "WITH upd AS (UPDATE public.access_capabilities SET status='INACTIVE' WHERE id='$CAP' RETURNING status) SELECT count(*)||'|'||max(status) FROM upd" "1|INACTIVE"
+expect_cp_value RT-37D_CAPS_CP_DELETE "WITH del AS (DELETE FROM public.access_capabilities WHERE id='$CAP' RETURNING 1) SELECT count(*) FROM del" "1"
+admin_expect RT-37E_CAPS_ADMINPROOF "$RT_DB" "SELECT count(*) FROM public.access_capabilities WHERE id='$CAP'" "0"
+
+# RT-38: effective ACL matrix — runtime SELECT-only; dedicated identity
+# holds exactly SELECT/INSERT/UPDATE/DELETE (SELECT is the WHERE-keyed DML
+# requirement whose absence caused the ORDER 11 42501/25P02 chain).
+expect_value RT-38_COMPENSATING_CONTROL_VERIFIED "SELECT has_table_privilege('sanad','public.tenants','SELECT')::text||'|'||has_table_privilege('sanad','public.tenants','INSERT')::text||'|'||has_table_privilege('sanad','public.tenants','UPDATE')::text||'|'||has_table_privilege('sanad','public.tenants','DELETE')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','SELECT')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','INSERT')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','UPDATE')::text||'|'||has_table_privilege('sanad_control_plane','public.tenants','DELETE')::text||'|'||has_table_privilege('sanad','public.access_capabilities','SELECT')::text||'|'||has_table_privilege('sanad','public.access_capabilities','INSERT')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','SELECT')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','INSERT')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','UPDATE')::text||'|'||has_table_privilege('sanad_control_plane','public.access_capabilities','DELETE')::text" "true|false|false|false|true|true|true|true|true|false|true|true|true|true"
+
+# RT-39: ORDER 11 — the runtime SET ROLE escalation attempt is DENIED
+# (42501: no membership exists in any direction), and the membership
+# matrix confirms the absence of every escalation path.
+expect_denied RT-39_SETROLE_CP_DENIED "SET ROLE sanad_control_plane" 42501
+expect_value RT-39B_MEMBERSHIP_ABSENT "SELECT pg_has_role('sanad','sanad_control_plane','MEMBER')::text||'|'||pg_has_role('sanad','sanad_control_plane','SET')::text||'|'||pg_has_role('sanad','sanad_control_plane','USAGE')::text" "false|false|false"
+admin_expect RT-39C_REVERSE_MEMBERSHIP_ABSENT "$RT_DB" "SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE (g.rolname='sanad_control_plane' AND r.rolname IN ('sanad','sanad_migrator')) OR (g.rolname IN ('sanad','sanad_migrator') AND r.rolname='sanad_control_plane')" "0"
+
+# RT-40: ORDER 11 connection-identity isolation (pool privilege-leakage
+# denial, both directions, live): the dedicated connection authenticates as
+# sanad_control_plane, the runtime connection as sanad, and neither can
+# observe or acquire the other identity.
+expect_cp_value RT-40_CP_CONNECTION_IDENTITY "SELECT current_user||'|'||session_user" "sanad_control_plane|sanad_control_plane"
+expect_value RT-40B_RUNTIME_IDENTITY_ISOLATED "SELECT current_user||'|'||session_user||'|'||current_setting('role')" "sanad|sanad|none"
 
 # service_role classification (recorded, NOT a pass):
 #  - LOCAL: asserted absent above (the separated topology has no Supabase

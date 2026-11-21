@@ -312,7 +312,14 @@ class CrmPostgresMigrationTest {
     // (WS7 website tenant-scoped integrity) + V20261117_2 (platform_subscription_owners
     // runtime grants) were byte-exact restored and checksum-certified against the 10c
     // registry (session13 P1.6, 265/265). Recorded per watermark policy; no silent bump.
-    private static final String LATEST_MIGRATION_VERSION = "20261117.2";
+    // G1/C4 PR-2 residual-risk remediation (doc 20, 2026-11-21), revised by
+    // ORDER 11 (doc 21, 2026-11-21) to the dedicated-connection model, advances
+    // the head to 20261118.2: V20261118_1 (tenants control-plane ACL) +
+    // V20261118_2 (access_capabilities control-plane ACL) close the RT-07/08/09
+    // and RT-12/13/14 red-team exposures via the sanad_control_plane dedicated
+    // LOGIN connection identity (NO membership with the runtime in any
+    // direction). Recorded per watermark policy; no silent value bump.
+    private static final String LATEST_MIGRATION_VERSION = "20261118.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -637,7 +644,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
                         MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // subscription-owner runtime grants (20261117.2)
+                        MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
+                        MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -904,7 +913,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
                         MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // subscription-owner runtime grants (20261117.2)
+                        MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
+                        MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

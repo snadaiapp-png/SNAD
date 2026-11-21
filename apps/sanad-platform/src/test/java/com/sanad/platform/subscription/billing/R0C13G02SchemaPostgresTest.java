@@ -147,7 +147,8 @@ class R0C13G02SchemaPostgresTest {
             // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
             // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
             // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
-            assertThat(rs.getString(1)).isEqualTo("20261117.2");
+            // ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
+            assertThat(rs.getString(1)).isEqualTo("20261118.2");
         }
     }
 
