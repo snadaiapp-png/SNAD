@@ -1064,6 +1064,10 @@ jobs:
           }
           tar -xjf "$RUNNER_TEMP/postgresql-16.2.tar.bz2" -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP/postgresql-16.2"
+          # PostgreSQL 16.2 predates C23: newer GCC defaults treat bool as a keyword.
+          # Pin only the PostgreSQL source build to GNU C17; keep version and hashes unchanged.
+          export CFLAGS="-O2 -std=gnu17"
+          echo "PG_SOURCE_CFLAGS=$CFLAGS" >> "$CANON_ROOT/toolchain.txt"
           ./configure --prefix="$PGHOME" > a6-configure.log 2>&1 || { tail -50 a6-configure.log; echo "::error::ENVIRONMENT_BLOCKER=PG_CONFIGURE_FAILED"; exit 1; }
           make -j"$(nproc)" > a6-make.log 2>&1 || { tail -50 a6-make.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_FAILED"; exit 1; }
           make install > a6-make-install.log 2>&1 || { tail -50 a6-make-install.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_INSTALL_FAILED"; exit 1; }
