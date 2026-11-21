@@ -15,6 +15,7 @@ import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -69,6 +70,7 @@ public class CredentialBootstrapService {
     private final AccessCapabilityRepository accessCapabilityRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
     private final TenantRlsTransactionContext tenantRlsTransactionContext;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     public CredentialBootstrapService(
             TenantRepository tenantRepository,
@@ -80,7 +82,8 @@ public class CredentialBootstrapService {
             PasswordEncoder passwordEncoder,
             AccessCapabilityRepository accessCapabilityRepository,
             RoleCapabilityRepository roleCapabilityRepository,
-            TenantRlsTransactionContext tenantRlsTransactionContext
+            TenantRlsTransactionContext tenantRlsTransactionContext,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
@@ -92,6 +95,7 @@ public class CredentialBootstrapService {
         this.accessCapabilityRepository = accessCapabilityRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
         this.tenantRlsTransactionContext = tenantRlsTransactionContext;
+        this.controlPlaneDataAccess = controlPlaneDataAccess;
     }
 
     /**
@@ -293,10 +297,17 @@ public class CredentialBootstrapService {
             return tenant;
         }
 
-        Tenant created = tenantRepository.save(new Tenant(
-                tenantName.trim(),
-                normalizedSubdomain,
-                TenantStatus.ACTIVE));
+        // ORDER 11 (V20261118_1): tenant lifecycle DML is control-plane-only in
+        // the separated topology — the INSERT runs on the dedicated control-plane
+        // connection (independent identity, no runtime membership). Bootstrap is
+        // naturally idempotent: a retry re-uses the existing row via the
+        // findBySubdomain path above, so no rollback compensation is needed.
+        java.util.UUID createdId = controlPlaneDataAccess.inControlPlane(cp -> cp.queryForObject(
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', now(), now()) RETURNING id",
+                java.util.UUID.class, java.util.UUID.randomUUID(),
+                tenantName.trim(), normalizedSubdomain));
+        Tenant created = tenantRepository.getReferenceById(createdId);
         log.info("Bootstrap created new tenant id={} name='{}' subdomain='{}'",
                 created.getId(), created.getName(), created.getSubdomain());
         return created;

@@ -15,13 +15,15 @@ import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
-import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.UUID;
 
@@ -29,8 +31,12 @@ import java.util.UUID;
 @Component
 public final class RegistrationProvisioner {
 
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(RegistrationProvisioner.class);
+
     private final TenantRepository tenants;
     private TenantRlsTransactionContext registrationTenantRlsContext;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     @org.springframework.beans.factory.annotation.Autowired
     void setRegistrationTenantRlsContext(TenantRlsTransactionContext context) {
@@ -54,7 +60,8 @@ public final class RegistrationProvisioner {
             UserRoleGrantRepository grants,
             AccessCapabilityRepository capabilities,
             RoleCapabilityRepository roleCapabilities,
-            RoleTemplateProvisioner roleTemplateProvisioner
+            RoleTemplateProvisioner roleTemplateProvisioner,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.tenants = tenants;
         this.organizations = organizations;
@@ -65,6 +72,7 @@ public final class RegistrationProvisioner {
         this.capabilities = capabilities;
         this.roleCapabilities = roleCapabilities;
         this.roleTemplateProvisioner = roleTemplateProvisioner;
+        this.controlPlaneDataAccess = controlPlaneDataAccess;
     }
 
     public ProvisionedRegistration provision(
@@ -75,7 +83,21 @@ public final class RegistrationProvisioner {
             String mobileNumber,
             String regionCode
     ) {
-        Tenant tenant = tenants.save(new Tenant(organizationName, subdomain, TenantStatus.ACTIVE));
+        // ORDER 11 (V20261118_1): tenant lifecycle DML is control-plane-only in
+        // the separated topology. The INSERT runs on the DEDICATED control-plane
+        // connection (independent identity — no runtime membership, no SET ROLE).
+        // It commits on its own connection BEFORE the surrounding runtime
+        // transaction completes, so a later runtime failure must be compensated:
+        // a rollback-synchronized deletion removes the tenant row after the
+        // runtime transaction (and its FK children) has rolled back, restoring
+        // the pre-order single-transaction atomicity for the common failure
+        // modes (constraint violations on user/org/role writes).
+        UUID tenantId = controlPlaneDataAccess.inControlPlane(cp -> cp.queryForObject(
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', now(), now()) RETURNING id",
+                UUID.class, UUID.randomUUID(), organizationName, subdomain));
+        registerTenantRollbackCompensation(tenantId);
+        Tenant tenant = tenants.getReferenceById(tenantId);
         Organization organization = organizations.save(new Organization(
                 tenant, organizationName, "Primary organization", OrganizationStatus.ACTIVE));
 
@@ -116,6 +138,47 @@ public final class RegistrationProvisioner {
         roleTemplateProvisioner.provision(tenant.getId());
 
         return new ProvisionedRegistration(tenant.getId(), administrator.getId(), subdomain);
+    }
+
+    /**
+     * ORDER 11 cross-connection atomicity compensation: the tenant row is
+     * created on the dedicated control-plane connection (own transaction),
+     * while organizations/users/roles/grants are written in the surrounding
+     * runtime transaction. When that runtime transaction rolls back, the
+     * already-committed tenant row would be orphaned and would permanently
+     * consume its unique subdomain. This synchronization deletes the row on
+     * the control-plane connection AFTER the runtime rollback (its FK
+     * children are gone by then), restoring effective atomicity.
+     *
+     * <p>Best-effort: a failure of the compensating delete is logged loudly
+     * (and the orphan is detectable by operations: an ACTIVE tenant with no
+     * organization/user rows) — it must never mask the original rollback
+     * exception.
+     */
+    private void registerTenantRollbackCompensation(UUID tenantId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return; // no runtime transaction to compensate (standalone call)
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    return;
+                }
+                try {
+                    Integer removed = controlPlaneDataAccess.inControlPlane(cp -> cp.update(
+                            "DELETE FROM tenants WHERE id = ?", tenantId));
+                    if (removed != null && removed > 0) {
+                        log.warn("Control-plane compensation: removed orphaned tenant id={} "
+                                + "after runtime rollback", tenantId);
+                    }
+                } catch (RuntimeException ex) {
+                    log.error("Control-plane compensation FAILED for tenant id={}: the row "
+                            + "may be orphaned (ACTIVE tenant without organization/user). "
+                            + "Manual cleanup required.", tenantId, ex);
+                }
+            }
+        });
     }
 
     public record ProvisionedRegistration(UUID tenantId, UUID userId, String subdomain) {}
