@@ -28,6 +28,15 @@ jobs:
       PGPASSWORD: synthetic-only
     steps:
       - uses: actions/checkout@v4
+      - name: Pin PostgreSQL 16 client tools to server major version
+        run: |
+          set -euo pipefail
+          # Run clients from the same immutable PostgreSQL 16.2 image as the service.
+          docker run --rm --entrypoint sh postgres:16.2 -c 'pg_dump --version && pg_restore --version && psql --version' | tee f2-client-version.log
+          cat >> "$GITHUB_ENV" <<'EOF'
+          PGCLIENT_IMAGE=postgres:16.2
+          EOF
+          echo "PostgreSQL 16.2 clients pinned using container image"
       - name: Create synthetic FORCE RLS and FK source
         run: |
           set -euo pipefail
@@ -49,9 +58,13 @@ jobs:
       - name: Dump and restore as isolated superuser, then transfer ownership
         run: |
           set -euo pipefail
-          pg_dump -Fc -d f2_source -f f2-synthetic.dump
+          docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -v "$PWD:/evidence" "$PGCLIENT_IMAGE" \
+            pg_dump -Fc -d f2_source -f /evidence/f2-synthetic.dump
           createdb f2_target
-          pg_restore --exit-on-error --no-owner --no-acl -d f2_target f2-synthetic.dump 2>&1 | tee f2-restore.log
+          docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -v "$PWD:/evidence:ro" "$PGCLIENT_IMAGE" \
+            pg_restore --exit-on-error --no-owner --no-acl -d f2_target /evidence/f2-synthetic.dump 2>&1 | tee f2-restore.log
           psql -X -v ON_ERROR_STOP=1 -d f2_target <<'SQL' 2>&1 | tee f2-owner-transfer.log
           ALTER TABLE public.f2_records OWNER TO sanad_migrator;
           ALTER TABLE public.f2_tenants OWNER TO sanad_migrator;
@@ -92,6 +105,7 @@ jobs:
           name: g1-f2-synthetic-restore-evidence
           path: |
             f2-source.log
+            f2-client-version.log
             f2-restore.log
             f2-owner-transfer.log
             f2-negative.log
