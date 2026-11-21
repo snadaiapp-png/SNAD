@@ -109,7 +109,7 @@ BEGIN
        AND c.relkind IN ('r', 'p')
        AND c.relname NOT IN ('flyway_schema_history', 'access_capabilities')
        AND has_table_privilege('sanad_release_auditor',
-            'public.' || quote_ident(c.relname), 'SELECT');
+            c.oid, 'SELECT');
     IF v_extra IS NOT NULL THEN
         RAISE EXCEPTION 'AUDIT_GRANT_VERIFY: unexpected SELECT privilege(s) on: %', v_extra;
     END IF;
