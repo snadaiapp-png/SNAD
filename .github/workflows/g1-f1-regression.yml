@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 -Atc 'SHOW server_version' | tee server-version.txt
-          grep -Eq '^16\.2(\.|$)' server-version.txt
+          grep -Eq '^16\.2([[:space:].]|$)' server-version.txt
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOBYPASSRLS;
           CREATE ROLE sanad NOLOGIN NOSUPERUSER NOBYPASSRLS;
