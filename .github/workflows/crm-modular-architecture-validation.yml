@@ -85,6 +85,26 @@ jobs:
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
+          -- ORDER 11 (V20261118_1/_2): provision a dedicated connection
+          -- identity before Flyway. Never grant membership in either direction
+          -- to the runtime or migrator; leave migration fail-closed if absent.
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')
+          \\gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          DO $cp_guard$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM pg_auth_members m
+              JOIN pg_roles g ON g.oid = m.roleid
+              JOIN pg_roles u ON u.oid = m.member
+              WHERE (g.rolname = 'sanad_control_plane' AND u.rolname IN ('sanad','sanad_arch','sanad_migrator'))
+                 OR (u.rolname = 'sanad_control_plane' AND g.rolname IN ('sanad','sanad_arch','sanad_migrator'))
+            ) THEN
+              RAISE EXCEPTION 'CI_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
+
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a
           -- NON-INHERITING (SET-only) membership for the runtime identity — the
