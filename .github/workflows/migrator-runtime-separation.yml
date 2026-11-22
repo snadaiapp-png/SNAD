@@ -365,7 +365,7 @@ jobs:
           echo "::add-mask::$SEP_RUN_PW"
           test -n "$SEP_CP_PW"
           echo "::add-mask::$SEP_CP_PW"
-          RT_BOOTSTRAP_PW="$SEP_RUN_PW" RT_BOOTSTRAP_CP_PW="$SEP_CP_PW" bash tests/security/g1-c4/redteam-attack-surface-battery.sh 2>&1 | tee /tmp/redteam-run.log
+          RT_EXPECTED_SYSID="$RT_EXPECTED_SYSID" RT_BOOTSTRAP_PW="$SEP_RUN_PW" RT_BOOTSTRAP_CP_PW="$SEP_CP_PW" bash tests/security/g1-c4/redteam-attack-surface-battery.sh 2>&1 | tee /tmp/redteam-run.log
           grep -q 'REDTEAM_BATTERY=COMPLETE (all 79 probes executed with exact expected outcomes)' /tmp/redteam-run.log
 
       - name: Upload separation evidence
