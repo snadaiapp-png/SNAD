@@ -20,6 +20,9 @@ SUMMARY=/tmp/g5-g6-report.md; : > "$SUMMARY"
 # at runtime, never a repository literal, never echoed. Satisfies the supplemental
 # secret policy by construction — no allowlist entry, no policy weakening.
 CERT_PW="$(openssl rand -hex 24)"
+CP_CERT_PW="$(openssl rand -hex 24)"
+test "$CERT_PW" != "$CP_CERT_PW"
+echo "::add-mask::$CP_CERT_PW"
 
 gate() { echo "GATE [$1] $2"; echo "GATE [$1] $2" >> "$SUMMARY"; }
 die()  { echo "::error::GATE [$1] FAILED: $2"; echo "GATE [$1] FAILED: $2" >> "$SUMMARY"; exit 1; }
@@ -30,7 +33,7 @@ sudo -u postgres psql -Atqc "SELECT version()" | head -1 | tee "$ART/pg-version.
 gate TOOLCHAIN "PostgreSQL server $(sudo -u postgres psql -Atqc 'SHOW server_version;') host-native isolated; Flyway $($FLYWAY -v 2>/dev/null | grep -E '^Flyway ' | head -1)"
 
 # ---------------------------------------------------------------- roles/dbs
-sudo -u postgres psql -v ON_ERROR_STOP=1 -v cert_pw="$CERT_PW" <<'SQL'
+sudo -u postgres psql -v ON_ERROR_STOP=1 -v cert_pw="$CERT_PW" -v cp_cert_pw="$CP_CERT_PW" <<'SQL'
 DO $role$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad') THEN
     CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
@@ -42,6 +45,9 @@ DO $role$ BEGIN
     -- emitted by V20261103_2); the separated topology is certified by
     -- tests/security/migrator-separation/run-separation-cert.sh.
     CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_control_plane') THEN
+    CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_callback_replay_cleanup') THEN
     -- P0 V20261111_1 (service_callback_replay RLS closure): the chain requires
@@ -56,6 +62,13 @@ ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 -- psql client-side interpolation (:'cert_pw') must stay OUTSIDE the dollar-quoted
 -- DO block: psql does not substitute variables inside $...$ strings.
 ALTER ROLE sanad PASSWORD :'cert_pw';
+ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+ALTER ROLE sanad_control_plane PASSWORD :'cp_cert_pw';
+DO $cp_guard$ BEGIN
+ IF pg_has_role('sanad','sanad_control_plane','MEMBER') OR pg_has_role('sanad_control_plane','sanad','MEMBER') OR pg_has_role('sanad_control_plane','sanad_migrator','MEMBER') THEN
+   RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+ END IF;
+END $cp_guard$;
 SELECT 'CREATE DATABASE sanad OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='sanad')\gexec
 SELECT 'CREATE DATABASE upgrade_hist OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='upgrade_hist')\gexec
 SELECT 'CREATE DATABASE restored OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='restored')\gexec
