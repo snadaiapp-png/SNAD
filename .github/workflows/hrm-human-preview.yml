@@ -169,7 +169,10 @@ jobs:
           \gexec
           ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
-          GRANT CONNECT ON DATABASE sanad_hrm_visual TO sanad_control_plane;
+          -- NOTE: CONNECT on DATABASE sanad_hrm_visual is granted AFTER the
+          -- database is created at the end of this script (cluster role and
+          -- password are provisioned here; the grant must follow CREATE
+          -- DATABASE below).
           DO $cp_guard$
           BEGIN
             IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
@@ -220,6 +223,7 @@ jobs:
           ALTER DATABASE sanad_hrm_visual OWNER TO sanad_hrm_visual;
           \c sanad_hrm_visual
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_hrm_visual;
+          GRANT CONNECT ON DATABASE sanad_hrm_visual TO sanad_control_plane;
           GRANT USAGE ON SCHEMA public TO sanad_control_plane;
           SQL
           test "$(sudo -u postgres psql -Atc "SELECT rolbypassrls FROM pg_roles WHERE rolname='sanad_hrm_visual'")" = "f"
