@@ -35,7 +35,7 @@ printf 'Apache Maven %s\\n' "${FAKE_MAVEN_VERSION:-3.9.9}"
 """)
         self.write_executable("curl", """#!/usr/bin/env python3
 import os, pathlib, sys
-args = sys.argv[1:]
+args = sys.argv[1:]\nassert "--retry" in args and args[args.index("--retry") + 1] == "3"\nassert "--retry-delay" in args and args[args.index("--retry-delay") + 1] == "2"\nassert "--retry-max-time" in args and args[args.index("--retry-max-time") + 1] == "90"\nassert "--retry-all-errors" not in args
 url = args[-1]
 with open(os.environ["FAKE_CALLS"], "a") as fh:
     fh.write(url + "\\n")
