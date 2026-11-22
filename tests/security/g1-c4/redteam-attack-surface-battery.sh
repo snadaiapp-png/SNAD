@@ -119,13 +119,16 @@ TT=44444444-4444-4444-4444-444444444444   # sacrificial tenants row (same UUID a
 CAP=55555555-5555-5555-5555-555555555555  # sacrificial access_capabilities row
 AUD=77777777-7777-7777-7777-777777777777  # forged audit row id
 
-admin() { PGOPTIONS="-c statement_timeout=20000" psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
+# The CI cluster authenticates its postgres administrator through local peer auth,
+# not TCP password auth. Use that restricted local channel; IP-01..IP-04 still
+# independently verify superuser identity, cluster system ID, postmaster and port.
+admin() { sudo -u postgres env -u PGHOST -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE -u PGPASSWORD PGOPTIONS="-c statement_timeout=20000" psql -X -w -h /var/run/postgresql -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 admin_expect() { # admin_expect <id> <db> <sql> <expected>
   local out rc; out=$(admin postgres "$2" "$3"); rc=$?
   if [ $rc -eq 0 ] && [ "$out" = "$4" ]; then record "$1" "$4" "$out" "admin-verified"
   else record "$1" "$4" "FAIL(rc=$rc,out=$out)"; FAILURES=$((FAILURES+1)); fi
 }
-admin_secret() { printf '%s\n' "$1" | PGOPTIONS="-c statement_timeout=20000" psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
+admin_secret() { printf '%s\n' "$1" | sudo -u postgres env -u PGHOST -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE -u PGPASSWORD PGOPTIONS="-c statement_timeout=20000" psql -X -w -h /var/run/postgresql -p "$RT_PGPORT" -U postgres -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 
 # Authenticate read-only isolation proofs using the existing disposable runtime
 # credential. Generate a NEW password only after every isolation proof succeeds.
