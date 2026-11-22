@@ -764,9 +764,39 @@ jobs:
         with:
           maven-version: 3.9.9
 
+      - name: Bootstrap HRM PostgreSQL Direct schema with canonical Flyway migrations
+        id: hrm-schema-bootstrap
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        env:
+          FLYWAY_URL: ${{ env.SPRING_DATASOURCE_URL }}
+          FLYWAY_USER: ${{ env.SPRING_DATASOURCE_USERNAME }}
+          FLYWAY_PASSWORD: ${{ env.SPRING_DATASOURCE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # The focused HRM suite includes plain JDBC tests with no Spring context:
+          # it must not rely on another test class happening to migrate the DB.
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.locations=filesystem:src/main/resources/db/migration,filesystem:src/main/resources/db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.baselineVersion=0 \
+            -Dflyway.validateOnMigrate=false
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$SPRING_DATASOURCE_USERNAME" -d sanad \
+            -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT CASE WHEN to_regclass('public.tenants') IS NOT NULL
+              AND to_regclass('public.hr_leave_requests') IS NOT NULL
+              AND to_regclass('public.hr_work_schedules') IS NOT NULL
+              THEN 'HRM_G2_SCHEMA_BOOTSTRAP_PASS'
+              ELSE 'HRM_G2_SCHEMA_BOOTSTRAP_FAIL' END" \
+            | tee "$RUNNER_TEMP/hrm-g2-schema-preflight.log"
+          grep -qx HRM_G2_SCHEMA_BOOTSTRAP_PASS "$RUNNER_TEMP/hrm-g2-schema-preflight.log"
+
       - name: Run HRM focused suite (RLS, tenant isolation, RBAC, audit, outbox, idempotency, IAM, contracts)
         id: hrm-focused-tests
-        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' && steps.hrm-schema-bootstrap.outcome == 'success' }}
         continue-on-error: true
         shell: bash
         working-directory: apps/sanad-platform
@@ -883,6 +913,7 @@ jobs:
           python3 - <<PY
           import json
           fragment = {
+              'hrm_schema_bootstrap': '${{ steps.hrm-schema-bootstrap.outcome }}',
               'hrm_focused_tests': '${{ steps.hrm-focused-tests.outcome }}',
               'hrm_test_summary': '${{ steps.hrm-test-summary.outcome }}',
           }
