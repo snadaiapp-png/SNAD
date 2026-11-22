@@ -307,6 +307,28 @@ jobs:
           bash tests/security/g1-c4/run-s10-protected-deployment-gate.sh 2>&1 | tee /tmp/s10-run.log
           grep -q 'S10 GATE SELF-TEST: PASSED (7/7 cases)' /tmp/s10-run.log
 
+      # S10 creates seven disposable databases and intentionally retains its evidence.
+      # Red Team requires the same isolated cluster to contain ONLY separation_cert.
+      # Remove exactly the S10 fixtures after their gate passed; fail closed for
+      # unexpected databases or owners rather than weakening the RT precondition.
+      - name: Remove certified S10 fixture databases before RED TEAM isolation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(s10_case_separated s10_case_fixture s10_case_missing s10_case_empty s10_case_unknown s10_case_session_override s10_case_inherited_bypass)
+          for db in "${expected[@]}"; do
+            owner="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -v db="$db" -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'db';")"
+            test "$owner" = 'sanad_migrator' || { echo "::error::S10_FIXTURE_OWNER_MISMATCH db=$db owner=$owner"; exit 1; }
+          done
+          actual="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT string_agg(datname, ',' ORDER BY datname) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")"
+          expected_sorted="$(printf '%s\n' "${expected[@]}" | sort | paste -sd, -)"
+          test "$actual" = "$expected_sorted" || { echo "::error::S10_FIXTURE_SET_MISMATCH"; exit 1; }
+          for db in "${expected[@]}"; do
+            sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE \"$db\";"
+          done
+          remaining="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")"
+          test "$remaining" = '0' || { echo "::error::S10_FIXTURE_CLEANUP_INCOMPLETE"; exit 1; }
+
       - name: G1 C4 — RED TEAM attack-surface battery (v3, control-plane compensating controls)
         if: success()
         shell: bash
