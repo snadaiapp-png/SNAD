@@ -17,10 +17,10 @@ probe="$(mktemp "$RUNNER_TEMP/snad-central-probe.XXXXXX")"
 trap 'rm -f "$probe"' EXIT
 selected=""
 for endpoint in https://repo.maven.apache.org/maven2 https://repo1.maven.org/maven2 https://maven-central.storage-download.googleapis.com/maven2; do
-  # Retry only HTTP 429; curl honors Retry-After when --retry is enabled.
+  # curl retries HTTP 429/5xx with exponential backoff (no fixed --retry-delay).
   # Other HTTP failures and malformed POMs continue to the next approved mirror.
   if curl --fail --silent --show-error --connect-timeout 8 --max-time 20 \
-     --retry 3 --retry-delay 2 --retry-max-time 90 \
+     --retry 3 --retry-max-time 90 \
      -o "$probe" "$endpoint/$artifact" &&
      python3 - "$probe" <<'PY'
 import sys

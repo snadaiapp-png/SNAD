@@ -1,5 +1,9 @@
 """Regression tests for CI repository selection; no network or database required."""
 import os
+import http.server
+import threading
+import time
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -35,7 +39,11 @@ printf 'Apache Maven %s\\n' "${FAKE_MAVEN_VERSION:-3.9.9}"
 """)
         self.write_executable("curl", """#!/usr/bin/env python3
 import os, pathlib, sys
-args = sys.argv[1:]\nassert "--retry" in args and args[args.index("--retry") + 1] == "3"\nassert "--retry-delay" in args and args[args.index("--retry-delay") + 1] == "2"\nassert "--retry-max-time" in args and args[args.index("--retry-max-time") + 1] == "90"\nassert "--retry-all-errors" not in args
+args = sys.argv[1:]
+assert "--retry" in args and args[args.index("--retry") + 1] == "3"
+assert "--retry-delay" not in args
+assert "--retry-max-time" in args and args[args.index("--retry-max-time") + 1] == "90"
+assert "--retry-all-errors" not in args
 url = args[-1]
 with open(os.environ["FAKE_CALLS"], "a") as fh:
     fh.write(url + "\\n")
@@ -108,6 +116,60 @@ else:
         self.assertNotEqual(res.returncode, 0)
         self.assertEqual(self.endpoints_called(), [])
         self.assertEqual(self.envfile.read_text(), "")
+
+
+class CurlRetryIntegrationTest(unittest.TestCase):
+    """Exercise real curl retries against a loopback HTTP server."""
+
+    def setUp(self):
+        if not shutil.which("curl"):
+            self.skipTest("curl unavailable")
+        self.failures = 0
+        self.requests = []
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                outer.requests.append(time.monotonic())
+                status = 429 if len(outer.requests) <= outer.failures else 200
+                self.send_response(status)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.thread.join, 3)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def curl(self):
+        return subprocess.run(
+            ["curl", "--fail", "--silent", "--show-error", "--retry", "2",
+             "--retry-max-time", "15", "--connect-timeout", "2", "--max-time", "3",
+             f"http://127.0.0.1:{self.server.server_port}/probe"],
+            capture_output=True, text=True, timeout=18)
+
+    def test_real_429_recovers_with_exponential_backoff(self):
+        self.failures = 2
+        result = self.curl()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "ok")
+        self.assertEqual(len(self.requests), 3)
+        first = self.requests[1] - self.requests[0]
+        second = self.requests[2] - self.requests[1]
+        self.assertGreaterEqual(first, 0.8)
+        self.assertGreaterEqual(second, first + 0.5)
+
+    def test_real_persistent_429_fails_closed(self):
+        self.failures = 100
+        result = self.curl()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.requests), 3)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
