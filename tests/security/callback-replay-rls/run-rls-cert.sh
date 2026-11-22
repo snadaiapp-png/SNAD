@@ -155,20 +155,27 @@ other_dbs=$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE dati
 [ "$other_dbs" = "0" ] || die S0 "cluster contains $other_dbs non-system database(s); refusing role mutations"
 [ "$(admin postgres postgres "SELECT count(*) FROM pg_database WHERE datname='$CRL_DB'")" = "0" ] \
   || die S0 "database $CRL_DB already exists; refusing destructive replacement"
-existing_roles=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup')")
+existing_roles=$(admin postgres postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup','sanad_control_plane')")
 [ "$existing_roles" = "0" ] || die S0 "existing sanad/sanad_migrator/sanad_callback_replay_cleanup role detected; refusing shared cluster identity changes"
 : "${CRL_MIG_PW:?CRL_MIG_PW must be supplied for disposable migrator provisioning}"
 [[ "$CRL_MIG_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "CRL_MIG_PW must be 48 hex characters"
+CRL_CP_PW="$(openssl rand -hex 24)"
+[[ "$CRL_CP_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "invalid control-plane credential"
 CRL_RUN_PW="${CRL_RUN_PW:-$(openssl rand -hex 24)}"
+[ "$CRL_CP_PW" != "$CRL_RUN_PW" ] && [ "$CRL_CP_PW" != "$CRL_MIG_PW" ] || die S0 "identities share credentials"
 [[ "$CRL_RUN_PW" =~ ^[0-9a-fA-F]{48}$ ]] || die S0 "CRL_RUN_PW must be 48 hex characters"
 admin postgres postgres "DO \$\$ BEGIN
   CREATE ROLE sanad_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   CREATE ROLE sanad_callback_replay_cleanup NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
 END \$\$;" >/dev/null || die S0 "role provisioning failed"
 admin_secret "ALTER ROLE sanad_migrator PASSWORD '$CRL_MIG_PW';" || die S0 "migrator password"
 admin_secret "ALTER ROLE sanad PASSWORD '$CRL_RUN_PW';" || die S0 "runtime password"
+admin_secret "ALTER ROLE sanad_control_plane PASSWORD '$CRL_CP_PW';" || die S0 "control-plane password"
+cp_membership=$(admin postgres postgres "SELECT pg_has_role('sanad','sanad_control_plane','MEMBER')::text || '|' || pg_has_role('sanad_control_plane','sanad','MEMBER')::text || '|' || pg_has_role('sanad_control_plane','sanad_migrator','MEMBER')::text")
+[ "$cp_membership" = "false|false|false" ] || die S0 "control-plane membership isolation failed: $cp_membership"
 admin_instance=$(admin postgres postgres "SELECT pg_postmaster_start_time()::text")
 runtime_instance=$(env -u PGOPTIONS PGPASSWORD="$CRL_RUN_PW" psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d postgres -At -c "SELECT pg_postmaster_start_time()::text") \
   || die S0 "runtime TCP identity check failed"
