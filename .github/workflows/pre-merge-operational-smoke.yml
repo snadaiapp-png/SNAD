@@ -156,7 +156,8 @@ jobs:
           test "$role_contract" = "false|false|false|false"
           cp_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text || '|' || rolcanlogin::text FROM pg_roles WHERE rolname='sanad_control_plane'")"
           test "$cp_contract" = "false|false|true"
-          test "$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad','sanad_control_plane','SET')")" = "false"
+          # PostgreSQL's default boolean display is t/f, not false/true; cast explicitly.
+          test "$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad','sanad_control_plane','SET')::text")" = "false"
           PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
             -h 127.0.0.1 -U "$SPRING_DATASOURCE_USERNAME" -d sanad \
             -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
