@@ -7,6 +7,7 @@ import com.sanad.platform.admin.api.AdminDtos.SystemServiceResponse;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.UpdateSystemStatusRequest;
 import com.sanad.platform.executive.service.ExecutiveTenantProvisioningService;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -48,15 +49,18 @@ public class AdminPlatformService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final ExecutiveTenantProvisioningService provisioningService;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     public AdminPlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            ExecutiveTenantProvisioningService provisioningService
+            ExecutiveTenantProvisioningService provisioningService,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.provisioningService = provisioningService;
+        this.controlPlaneDataAccess = controlPlaneDataAccess;
     }
 
     @Transactional(readOnly = true)
@@ -149,9 +153,11 @@ public class AdminPlatformService {
 
         String operationalReason = Set.of("PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED")
                 .contains(requestedStatus) ? request.reason().trim() : null;
-        jdbcTemplate.update(
+        // ORDER 11 (V20261118_1): tenant lifecycle DML is control-plane-only in
+        // the separated topology — dedicated control-plane connection.
+        controlPlaneDataAccess.inControlPlane(cp -> cp.update(
                 "UPDATE tenants SET status = ?, suspension_reason = ?, updated_at = ? WHERE id = ?",
-                requestedStatus, operationalReason, Timestamp.from(Instant.now()), tenantId);
+                requestedStatus, operationalReason, Timestamp.from(Instant.now()), tenantId));
         TenantResponse after = getTenant(tenantId);
         auditService.success(
                 authentication, tenantId, "TENANT.STATUS.CHANGE", "TENANT", tenantId.toString(),

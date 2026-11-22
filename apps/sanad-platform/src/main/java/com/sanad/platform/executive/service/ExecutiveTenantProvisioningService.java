@@ -10,6 +10,7 @@ import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,6 +45,7 @@ public class ExecutiveTenantProvisioningService {
     private final PlatformAuditService auditService;
     private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
     private final TenantDomainService tenantDomainService;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     public ExecutiveTenantProvisioningService(
             JdbcTemplate jdbc,
@@ -52,7 +54,8 @@ public class ExecutiveTenantProvisioningService {
             TenantCommercialStateService commercialStateService,
             PlatformAuditService auditService,
             com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
-            TenantDomainService tenantDomainService
+            TenantDomainService tenantDomainService,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.jdbc = jdbc;
         this.registrationProvisioner = registrationProvisioner;
@@ -63,6 +66,8 @@ public class ExecutiveTenantProvisioningService {
                 "tenantRlsContext");
         this.tenantDomainService = java.util.Objects.requireNonNull(tenantDomainService,
                 "tenantDomainService");
+        this.controlPlaneDataAccess = java.util.Objects.requireNonNull(controlPlaneDataAccess,
+                "controlPlaneDataAccess");
     }
 
     public record ProvisionedExecutiveTenant(
@@ -114,7 +119,10 @@ public class ExecutiveTenantProvisioningService {
         tenantRlsContext.applyForCurrentTransaction(tenantId);
 
         Instant now = Instant.now();
-        jdbc.update(
+        // ORDER 11 (V20261118_1): tenant profile DML is control-plane-only in
+        // the separated topology — run it on the dedicated control-plane
+        // connection (independent identity, no runtime membership).
+        controlPlaneDataAccess.inControlPlane(cp -> cp.update(
                 "UPDATE tenants SET name = ?, legal_name = ?, subdomain = ?, status = 'ACTIVE', "
                         + "billing_email = ?, country_code = ?, locale = ?, timezone = ?, currency_code = ?, "
                         + "trial_ends_at = NULL, suspension_reason = NULL, updated_at = ? WHERE id = ?",
@@ -127,8 +135,7 @@ public class ExecutiveTenantProvisioningService {
                 defaultValue(request.timezone(), "Asia/Riyadh"),
                 defaultValue(upperOrNull(request.currencyCode()), "SAR"),
                 Timestamp.from(now),
-                tenantId);
-
+                tenantId));
         SubscriptionResponse subscription = saasService.createSubscription(
                 new CreateSubscriptionRequest(
                         tenantId,
@@ -149,11 +156,13 @@ public class ExecutiveTenantProvisioningService {
         // tenant.trial_ends_at is profile metadata only; subscription lifecycle remains
         // authoritative. Mirror the actual resolved trial timestamp for display without
         // changing the operational tenant status away from ACTIVE.
-        jdbc.update(
+        // ORDER 11 (V20261118_1): trial metadata mirror is control-plane DML —
+        // dedicated connection.
+        controlPlaneDataAccess.inControlPlane(cp -> cp.update(
                 "UPDATE tenants SET trial_ends_at = ?, updated_at = ? WHERE id = ?",
                 subscription.trialEndsAt() == null ? null : Timestamp.from(subscription.trialEndsAt()),
                 Timestamp.from(Instant.now()),
-                tenantId);
+                tenantId));
 
         TenantResponse tenant = getTenant(tenantId);
         TenantCommercialStateService.TenantCommercialState commercialState =

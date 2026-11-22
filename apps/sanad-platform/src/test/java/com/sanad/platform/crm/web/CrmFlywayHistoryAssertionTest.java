@@ -376,6 +376,10 @@ class CrmFlywayHistoryAssertionTest {
             // checksum-certified against the 10c registry (session13 P1.6, 265/265):
             , "20261117.1"   // WS7 website tenant-scoped integrity (composite FKs + partial unique indexes + drift guard)
             , "20261117.2"   // platform_subscription_owners restricted runtime ACL (D6/D5 follow-up)
+            // G1/C4 PR-2 residual-risk remediation (doc 20, P0-1 + P1-3),
+            // revised by ORDER 11 (doc 21) to the dedicated-connection model:
+            , "20261118.1"   // tenants control-plane ACL (dedicated sanad_control_plane LOGIN connection identity)
+            , "20261118.2"   // access_capabilities control-plane ACL (capability registry DML denial)
     );
 
 

@@ -51,6 +51,8 @@ jobs:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_hrm_visual
       DATABASE_USERNAME: sanad_hrm_visual
       DATABASE_NAME: sanad_hrm_visual
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad_hrm_visual
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: local
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'false'
@@ -99,12 +101,17 @@ jobs:
           set -euo pipefail
           DB_CRED="$(openssl rand -hex 24)"
           E2E_CRED="$(openssl rand -hex 24)"
+          CP_CRED="$(openssl rand -hex 32)"
           echo "::add-mask::$DB_CRED"
           echo "::add-mask::$E2E_CRED"
+          echo "::add-mask::$CP_CRED"
           {
             echo "DATABASE_PASSWORD=$DB_CRED"
             echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED"
             echo "PGPASSWORD=$DB_CRED"
+            # ORDER 11: dedicated control-plane connection identity — ephemeral,
+            # environment-provisioned only, masked, never in the tree.
+            echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$CP_CRED"
             echo "G2_E2E_PASSWORD=$E2E_CRED"
             echo "E2E_EMPLOYEE_PASSWORD=$E2E_CRED"
             echo "E2E_MANAGER_PASSWORD=$E2E_CRED"
@@ -128,9 +135,10 @@ jobs:
         shell: bash
         env:
           DB_CRED: ${{ env.DATABASE_PASSWORD }}
+          CP_CRED: ${{ env.SANAD_CONTROL_PLANE_DB_PASSWORD }}
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_credential="$DB_CRED" <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_credential="$DB_CRED" -v cp_password="$CP_CRED" <<'SQL'
           SELECT format('CREATE ROLE sanad_hrm_visual WITH LOGIN PASSWORD %L', :'db_credential')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_hrm_visual')
           \gexec
@@ -152,6 +160,27 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- ORDER 11: dedicated control-plane LOGIN identity, provisioned
+          -- BEFORE the strict Flyway run (V20261118_1/_2 fail closed without
+          -- it). Never a member of the runtime in any direction (guard below).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_control_plane')
+          \gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          -- NOTE: CONNECT on DATABASE sanad_hrm_visual is granted AFTER the
+          -- database is created at the end of this script (cluster role and
+          -- password are provisioned here; the grant must follow CREATE
+          -- DATABASE below).
+          DO $cp_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
 
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a
@@ -194,6 +223,8 @@ jobs:
           ALTER DATABASE sanad_hrm_visual OWNER TO sanad_hrm_visual;
           \c sanad_hrm_visual
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_hrm_visual;
+          GRANT CONNECT ON DATABASE sanad_hrm_visual TO sanad_control_plane;
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
           SQL
           test "$(sudo -u postgres psql -Atc "SELECT rolbypassrls FROM pg_roles WHERE rolname='sanad_hrm_visual'")" = "f"
           PGPASSWORD="$DB_CRED" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -v ON_ERROR_STOP=1 -Atc "SELECT current_database() || '|' || current_user"

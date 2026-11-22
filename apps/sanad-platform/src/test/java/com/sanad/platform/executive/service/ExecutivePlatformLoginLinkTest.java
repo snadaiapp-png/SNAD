@@ -49,7 +49,8 @@ class ExecutivePlatformLoginLinkTest {
         commercialState = mock(TenantCommercialStateService.class);
         service = new ExecutivePlatformService(
                 jdbc, audit, mock(RegistrationProvisioner.class), domains, null,
-                commercialState, mock(ExecutiveTenantProvisioningService.class));
+                commercialState, mock(ExecutiveTenantProvisioningService.class),
+                mock(com.sanad.platform.security.rls.ControlPlaneDataAccess.class));
     }
 
     @Test

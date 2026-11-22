@@ -1,4 +1,4 @@
--- Session 13C CI alignment: expected Flyway head 20261117.2, including V20261117_1 and V20261117_2.
+-- ORDER 11 CI alignment: expected Flyway head 20261118.2, including V20261118_1/_2 (dedicated control-plane connection ACL).\n-- Supersedes the Session 13C head 20261117.2; forward-only lineage retained.
 -- SANAD G1 Amendment A01: READ-ONLY release catalog guard.
 -- Original 2026-11-16 head was 20261116.2 (V20261116_2 — platform subscription-owner
 -- resolver, S1/S3/S6 fixes; watermark advanced 20261113.1 -> 20261116.2 on
@@ -88,8 +88,8 @@ WITH desired (table_name, want_rls, want_sel, want_ins, want_upd, want_del) AS (
   UNION ALL
   SELECT 'FLYWAY:installed_head',
     (SELECT version FROM public.flyway_schema_history
-      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261117.2',
-    'expected=20261117.2; actual=' ||
+      WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1)='20261118.2',
+    'expected=20261118.2; actual=' ||
       COALESCE((SELECT version FROM public.flyway_schema_history
         WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'NONE') ||
       '; latest successful VERSIONED migration (ignore later repeatable rows)'

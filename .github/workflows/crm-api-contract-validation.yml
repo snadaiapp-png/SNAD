@@ -193,6 +193,33 @@ jobs:
           role_flags="$(PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql -h 127.0.0.1 -p 5432 -U sanad_contract -d sanad_contract -Atc "SELECT rolsuper || '|' || rolbypassrls || '|' || rolcanlogin FROM pg_roles WHERE rolname='sanad'")"
           echo "G1_SANAD_ROLE_CONTRACT=$role_flags"
           test "$role_flags" = "false|false|false"
+      - name: Provision independent G1 control-plane identity before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$cp_password"
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
+          echo "SANAD_CONTROL_PLANE_DB_USERNAME=sanad_control_plane" >> "$GITHUB_ENV"
+          echo "SANAD_CONTROL_PLANE_DB_URL=$SPRING_DATASOURCE_URL" >> "$GITHUB_ENV"
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
+            -h 127.0.0.1 -p 5432 -U sanad_contract -d sanad_contract \
+            -v cp_password="$cp_password" <<'SQL'
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          GRANT CONNECT ON DATABASE sanad_contract TO sanad_control_plane;
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
+          DO $guard$ BEGIN
+            IF pg_has_role('sanad','sanad_control_plane','MEMBER')
+               OR pg_has_role('sanad_control_plane','sanad','MEMBER')
+               OR pg_has_role('sanad_control_plane','sanad_migrator','MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $guard$;
+          SQL
+
       - name: Run CRM contract tests
         working-directory: apps/sanad-platform
         run: |
