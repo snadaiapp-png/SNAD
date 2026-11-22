@@ -99,6 +99,32 @@ jobs:
           test "$role_guard" = 'false|false'
           echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
 
+      # ORDER 11: V20261118_1/_2 refuse a cluster without the dedicated
+      # control-plane LOGIN principal. This is an isolated backup/restore
+      # fixture only; never grant runtime membership or store a password in git.
+      - name: Provision isolated control-plane identity before migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$cp_password"
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v cp_password="$cp_password" -d postgres <<'SQL'
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad_control_plane')\\gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER ROLE sanad_control_plane PASSWORD :'cp_password';
+          DO $guard$
+          BEGIN
+            IF pg_has_role('sanad','sanad_control_plane','MEMBER')
+               OR pg_has_role('sanad_control_plane','sanad','MEMBER')
+               OR pg_has_role('sanad_control_plane','sanad_migrator','MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $guard$;
+          SQL
+          contract="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_control_plane'")"
+          test "$contract" = 'true|false|false|false|false' || { echo "::error::G1_CONTROL_PLANE_ROLE_CONTRACT"; exit 1; }
+
       - name: Resolve expected schema version
         run: |
           expected_version=$(
