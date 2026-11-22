@@ -168,6 +168,8 @@ jobs:
       DATABASE_NAME: sanad_test
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       SPRING_DATASOURCE_USERNAME: sanad_test
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: crm-acceptance
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -211,10 +213,17 @@ jobs:
         run: |
           set -euo pipefail
           password="$(openssl rand -hex 32)"
+          cp_password="$(openssl rand -hex 32)"
           test -n "$password"
+          test -n "$cp_password"
+          test "$password" != "$cp_password"
           echo "::add-mask::$password"
+          echo "::add-mask::$cp_password"
           echo "DATABASE_PASSWORD=$password" >> "$GITHUB_ENV"
           echo "SPRING_DATASOURCE_PASSWORD=$password" >> "$GITHUB_ENV"
+          # ORDER 11: dedicated control-plane connection identity — ephemeral,
+          # environment-provisioned only, masked, never in the tree.
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
 
       - name: Start host-native PostgreSQL (no containers)
         shell: bash
@@ -263,7 +272,7 @@ jobs:
           set -euo pipefail
           # This role is required by V20261011_3. It is a restricted policy
           # principal in the isolated runner cluster, not a migration owner.
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v cp_password="$SANAD_CONTROL_PLANE_DB_PASSWORD" <<'SQL'
           DO $role$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
@@ -276,6 +285,23 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- ORDER 11: dedicated control-plane LOGIN identity, provisioned
+          -- BEFORE Flyway (V20261118_1/_2 fail closed without it). Never a
+          -- member of the runtime in any direction (guard below).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')
+          \gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          DO $cp_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
           DO $guard$
           BEGIN
             IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
@@ -313,6 +339,10 @@ jobs:
           # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           GRANT sanad TO sanad_test WITH INHERIT TRUE, SET FALSE;
+          GRANT CONNECT ON DATABASE sanad_test TO sanad_control_plane;
+          \c sanad_test
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
+          \c postgres
           SQL
           inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_test', 'sanad', 'USAGE')::text")"
           test "$inherited" = true || {
@@ -565,6 +595,8 @@ jobs:
       DATABASE_NAME: sanad_subscription_test
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
       SPRING_DATASOURCE_USERNAME: sanad_subscription_test
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: crm-acceptance
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -608,10 +640,17 @@ jobs:
         run: |
           set -euo pipefail
           password="$(openssl rand -hex 32)"
+          cp_password="$(openssl rand -hex 32)"
           test -n "$password"
+          test -n "$cp_password"
+          test "$password" != "$cp_password"
           echo "::add-mask::$password"
+          echo "::add-mask::$cp_password"
           echo "DATABASE_PASSWORD=$password" >> "$GITHUB_ENV"
           echo "SPRING_DATASOURCE_PASSWORD=$password" >> "$GITHUB_ENV"
+          # ORDER 11: dedicated control-plane connection identity — ephemeral,
+          # environment-provisioned only, masked, never in the tree.
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
 
       - name: Start host-native PostgreSQL (no containers)
         shell: bash
@@ -653,7 +692,7 @@ jobs:
           set -euo pipefail
           # This role is required by V20261011_3. It is a restricted policy
           # principal in the isolated runner cluster, not a migration owner.
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v cp_password="$SANAD_CONTROL_PLANE_DB_PASSWORD" <<'SQL'
           DO $role$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
@@ -666,6 +705,23 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- ORDER 11: dedicated control-plane LOGIN identity, provisioned
+          -- BEFORE Flyway (V20261118_1/_2 fail closed without it). Never a
+          -- member of the runtime in any direction (guard below).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')
+          \gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          DO $cp_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
           DO $guard$
           BEGIN
             IF pg_has_role('sanad', 'sanad_migrator', 'MEMBER') THEN
@@ -703,6 +759,10 @@ jobs:
           # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           GRANT sanad TO sanad_subscription_test WITH INHERIT TRUE, SET FALSE;
+          GRANT CONNECT ON DATABASE sanad_subscription_test TO sanad_control_plane;
+          \c sanad_subscription_test
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
+          \c postgres
           SQL
           inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_subscription_test', 'sanad', 'USAGE')::text")"
           test "$inherited" = true || {
