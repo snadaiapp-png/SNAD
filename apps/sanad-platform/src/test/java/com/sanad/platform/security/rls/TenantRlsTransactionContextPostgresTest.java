@@ -74,7 +74,7 @@ class TenantRlsTransactionContextPostgresTest {
         jdbc = new JdbcTemplate(ds);
         tx = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
-        context = new TenantRlsTransactionContext(jdbc);
+        context = new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
     }
 
     @Test

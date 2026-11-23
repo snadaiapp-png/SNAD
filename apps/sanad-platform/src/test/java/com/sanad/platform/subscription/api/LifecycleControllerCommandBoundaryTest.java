@@ -50,7 +50,7 @@ class LifecycleControllerCommandBoundaryTest {
     void setUp() {
         controller = new LifecycleController(
                 accessGuard, commandService, changeService, provisioningRunner,
-                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc), jdbc);
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner()), jdbc);
         when(authentication.getDetails()).thenReturn(Map.of(
                 "tenant_id", ACTOR_TENANT.toString(),
                 "user_id", ACTOR_USER.toString()));

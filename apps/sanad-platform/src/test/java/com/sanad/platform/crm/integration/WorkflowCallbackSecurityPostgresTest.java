@@ -63,7 +63,7 @@ class WorkflowCallbackSecurityPostgresTest {
         txTemplate = new TransactionTemplate(txManager);
         // The store binds the trusted tenant GUC inside its own transaction.
         CallbackReplayStore replayStore = new CallbackReplayStore(
-                jdbc, txTemplate, new TenantRlsTransactionContext(jdbc));
+                jdbc, txTemplate, new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner()));
         jwt = new ServiceJwtProvider(SECRET, "workflow-engine", "workflow-engine", 60);
         security = new WorkflowCallbackSecurity(
                 jwt,

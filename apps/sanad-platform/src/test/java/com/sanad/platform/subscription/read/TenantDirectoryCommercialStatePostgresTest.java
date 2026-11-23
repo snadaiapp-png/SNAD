@@ -66,7 +66,7 @@ class TenantDirectoryCommercialStatePostgresTest {
         jdbc = new JdbcTemplate(ds);
         transaction = new org.springframework.transaction.support.TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
-        rls = new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+        rls = new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         // Canonical wiring (no commercial-state service → direct harness),
         // so the FORCE RLS per-tenant enrichment is exercised exactly as in
         // production (V20261029_1).

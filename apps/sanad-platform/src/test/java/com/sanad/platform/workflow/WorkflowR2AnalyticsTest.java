@@ -113,7 +113,7 @@ class WorkflowR2AnalyticsTest {
         // FORCE RLS (V20261029_1): the projection worker needs the trusted
         // transaction-local tenant scope for its per-tenant pass.
         com.sanad.platform.security.rls.TenantRlsTransactionContext workerRls =
-                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         projectionWorker = new WorkflowAnalyticsProjectionWorker(jdbc, projectionService,
                 transactionManager, workerRls, true);
         queryService = new WorkflowAnalyticsQueryService(jdbc);

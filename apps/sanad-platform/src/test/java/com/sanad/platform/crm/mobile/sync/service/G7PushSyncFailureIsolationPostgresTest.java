@@ -102,7 +102,7 @@ class G7PushSyncFailureIsolationPostgresTest {
                 "user_id", userId.toString()));
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        TenantRlsDataSource tenantDataSource = new TenantRlsDataSource(rawDataSource);
+        TenantRlsDataSource tenantDataSource = new TenantRlsDataSource(rawDataSource, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         JdbcTemplate tenantJdbc = new JdbcTemplate(tenantDataSource);
         DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(tenantDataSource);
         ObjectMapper mapper = new ObjectMapper();

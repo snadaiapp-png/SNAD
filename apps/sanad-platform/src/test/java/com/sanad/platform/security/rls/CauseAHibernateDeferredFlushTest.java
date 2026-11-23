@@ -169,9 +169,7 @@ class CauseAHibernateDeferredFlushTest {
             // Pattern A2: set_config + INSERT in same tx → INSERT executes immediately
             // with the correct GUC. No Hibernate deferral.
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -187,8 +185,7 @@ class CauseAHibernateDeferredFlushTest {
             assertThat(count).as("INSERT must succeed with Pattern A2 mechanics").isEqualTo(1);
         } finally {
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 jdbc.update("DELETE FROM users WHERE id = ?", userA);
             });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantA);
@@ -219,9 +216,7 @@ class CauseAHibernateDeferredFlushTest {
             // Capture the GUC at INSERT execution time by using a single SQL statement
             // that does INSERT ... RETURNING current_setting('app.tenant_id', true)
             String gucAtInsert = tx.execute(s -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 return jdbc.queryForObject(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -238,8 +233,7 @@ class CauseAHibernateDeferredFlushTest {
                     .isEqualTo(tenantA.toString());
         } finally {
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 jdbc.update("DELETE FROM users WHERE id = ?", userA);
             });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantA);
@@ -262,5 +256,18 @@ class CauseAHibernateDeferredFlushTest {
                 "tenant_id", tenantId.toString(),
                 "user_id", UUID.randomUUID().toString()));
         SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    // G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1).
+    private final com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(tenant, String.valueOf(slot.get("txid")),
+                ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 }

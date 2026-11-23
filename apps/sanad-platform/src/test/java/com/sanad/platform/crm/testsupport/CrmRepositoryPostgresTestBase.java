@@ -65,7 +65,7 @@ public abstract class CrmRepositoryPostgresTestBase {
         // SecurityContextHolder or adding GUC logic to production
         // JdbcContactRepository.
         tenantRlsContext = new TenantRlsTransactionContext(
-                new JdbcTemplate(dataSource));
+                new JdbcTemplate(dataSource), com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
     }
 
     /** The shared JDBC template, available after {@link #migrateSchema()} has run. */

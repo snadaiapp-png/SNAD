@@ -94,7 +94,7 @@ class WorkflowR2TenantIsolationTest {
         dispatcher = new WorkflowNotificationDispatcher(jdbc,
                 new WorkflowChannelRegistry(List.of(new InAppNotificationProvider(jdbc))),
                 transactionManager,
-                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc),
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner()),
                 true);
         webhookEndpoints = new WorkflowWebhookEndpointService(jdbc);
         queryService = new WorkflowAnalyticsQueryService(jdbc);

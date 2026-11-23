@@ -47,6 +47,14 @@
 #   runtime SET ROLE escalation attempt is DENIED, and RT-40 proves
 #   connection-identity isolation (no pool privilege leakage, in either
 #   direction, live).
+# v5 (2026-11-23, G1 P0-B — F-DB-07/RT-01 signed tenant-context remediation,
+#   V20261124_1/V20261124_2): RT-01 FLIPS from CONFIRMED to the blocked
+#   verdict "0" — the raw GUC is no longer DB-authenticated; policies read
+#   the HMAC-validated app_tenant_ctx_text(). All legitimate-context probes
+#   (GUC argument present) now reproduce the BACKEND BIND PROTOCOL via
+#   tests/security/lib/tenant-ctx-bind.sh instead of the retired raw-GUC
+#   PGOPTIONS mechanism. Probe count unchanged (79): RT-01 keeps its slot,
+#   flipped in place like RT-07/08/09 in v3.
 #
 # Outcome classes:
 #   DENIED(sqlstate)  — attack correctly refused by PostgreSQL;
@@ -136,6 +144,13 @@ RT_PW="${RT_BOOTSTRAP_PW:-}"
 unset RT_BOOTSTRAP_PW
 [[ "$RT_PW" =~ ^[0-9a-fA-F]{48}$ ]] || { echo "::error::RT_BOOTSTRAP_PW from disposable provisioning required" >&2; exit 1; }
 
+# G1 P0-B v5: signed tenant-context bind protocol. The ACTIVE signing key is
+# provisioned by the certification S1b operator step; the battery consumes it
+# through RT_CTX_KEY (never logged) via the shared helper.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/tenant-ctx-bind.sh"
+TENANT_CTX_KEY_HEX="${RT_CTX_KEY:-}"
+export TENANT_CTX_KEY_HEX
+
 # ORDER 11: dedicated control-plane connection credential (disposable,
 # provisioned by the separation matrix S0 on the same isolated cluster).
 RT_CP_PW="${RT_BOOTSTRAP_CP_PW:-}"
@@ -157,9 +172,14 @@ expect_cp_value() { # expect_cp_value <id> <sql> <expected>
 }
 rt() { # rt <sql> [guc] — runtime probe as sanad; sets out/rc/state
   local opts="-c statement_timeout=20000"
-  if [ $# -ge 2 ] && [ -n "$2" ]; then opts="$opts -c app.tenant_id=$2"; fi
+  local probe_sql="$1"
+  if [ $# -ge 2 ] && [ -n "$2" ]; then
+    # v5: LEGITIMATE tenant context = the backend bind protocol (same
+    # transaction); the raw-GUC PGOPTIONS mechanism is retired.
+    probe_sql="$(tenant_ctx_prefix_sql "$probe_sql" "$2")"
+  fi
   out=$(env -u PGOPTIONS PGOPTIONS="$opts" PGPASSWORD="$RT_PW" psql -X -w -h "$RT_PGHOST" -p "$RT_PGPORT" -U sanad -d "$RT_DB" \
-    -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$1" 2>"$ART/last-err.txt")
+    -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$probe_sql" 2>"$ART/last-err.txt")
   rc=$?
   err=$(cat "$ART/last-err.txt")
   state=$(printf '%s\n' "$err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
@@ -283,12 +303,14 @@ rt "SELECT 1" ""
 # ============================================================================
 echo "-- A. RLS trust boundary and bypass attempts --" | tee -a "$LOG"
 
-# RT-01: hostile session SETs the tenant GUC. Expected value is computed by
-# the admin on the same cluster — the exposure is confirmed WITH the exact
-# visible row count, not merely by rc=0.
+# RT-01 (v5 FLIP): the hostile session still SETs the tenant GUC, but the
+# V20261124_2 enforcement means the raw GUC is untrusted: the foreign-tenant
+# read must return EXACTLY 0 rows (was CONFIRMED($expected_rt01) in v1-v4).
+# The admin-count query is retained as a FIXTURE SANITY check (the foreign
+# rows must exist in storage for the 0 to mean isolation, not emptiness).
 expected_rt01=$(admin postgres "$RT_DB" "SELECT count(*) FROM public.users WHERE tenant_id='$TB'") || { echo "::error::RT-01 expected-value query failed" >&2; exit 1; }
 [[ "$expected_rt01" =~ ^[1-9][0-9]*$ ]] || { echo "::error::RT-01 foreign tenant fixture missing" >&2; exit 1; }
-expect_confirmed_value RT-01_GUC_NOT_AUTHENTICATED "SET app.tenant_id='$TB'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "$expected_rt01"
+expect_value RT-01_GUC_FORGE_BLOCKED "SET app.tenant_id='$TB'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "0"
 
 expect_denied RT-02_RLS_TENANT_SWAP "UPDATE public.users SET tenant_id='$TB' WHERE tenant_id='$TA'" 42501 "$TA"
 # Storage-level proof the swap attempt changed nothing (RLS could mask it).

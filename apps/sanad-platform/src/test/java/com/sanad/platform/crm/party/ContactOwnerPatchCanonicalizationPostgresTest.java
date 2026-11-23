@@ -130,7 +130,7 @@ class ContactOwnerPatchCanonicalizationPostgresTest {
         rawTransactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(rawDataSource));
 
-        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource);
+        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         tenantJdbc = new NamedParameterJdbcTemplate(tenantRlsDataSource);
         realContactRepo = new JdbcContactRepository(tenantJdbc);
         realParticipantRepo = new JdbcEntityParticipantRepository(tenantJdbc);

@@ -61,6 +61,9 @@ class D6AuthTokenTenantRlsPostgresTest {
             java.util.List.of("refresh_tokens", "password_reset_tokens");
 
     private JdbcTemplate jdbc;
+    private org.springframework.transaction.support.TransactionTemplate tx;
+    private com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
 
     private String tenantA;
     private String tenantB;
@@ -91,8 +94,42 @@ class D6AuthTokenTenantRlsPostgresTest {
         flyway.clean();
         flyway.migrate();
         flyway.validate();
-        jdbc = new JdbcTemplate(new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, true));
+        org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
+                new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, true);
+        jdbc = new JdbcTemplate(ds);
+        tx = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
         seedRealTenantRows();
+    }
+
+    /**
+     * G1 P0-B: the trusted context is the SIGNED BIND protocol — every
+     * context-dependent block runs inside a transaction after
+     * {@code app_bind_tenant_ctx} verified the HMAC over the caller's own
+     * (txid, pid). Session-scoped raw-GUC writes are retired: after
+     * V20261124_2 the raw GUC alone is not DB-authenticated.
+     */
+    private <T> T boundAs(String tenant, java.util.function.Supplier<T> body) {
+        return tx.execute(status -> {
+            bindSigned(tenant);
+            return body.get();
+        });
+    }
+
+    private void boundAs(String tenant, Runnable body) {
+        tx.executeWithoutResult(status -> {
+            bindSigned(tenant);
+            body.run();
+        });
+    }
+
+    private void bindSigned(String tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(java.util.UUID.fromString(tenant),
+                String.valueOf(slot.get("txid")), ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant, mac);
     }
 
     private void seedRealTenantRows() {
@@ -116,37 +153,40 @@ class D6AuthTokenTenantRlsPostgresTest {
     }
 
     private UUID seedUser(String tenant, String label) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
-        UUID userId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.users (id, tenant_id, email, display_name, status,
-                                          password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', 'd6-test-hash', now(), now())
-                """, userId, UUID.fromString(tenant),
-                "d6-" + label + "-" + userId + "@sanad.test", "D6 " + label);
-        return userId;
+        return boundAs(tenant, () -> {
+            UUID userId = UUID.randomUUID();
+            jdbc.update("""
+                    INSERT INTO public.users (id, tenant_id, email, display_name, status,
+                                              password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', 'd6-test-hash', now(), now())
+                    """, userId, UUID.fromString(tenant),
+                    "d6-" + label + "-" + userId + "@sanad.test", "D6 " + label);
+            return userId;
+        });
     }
 
     private UUID seedRefreshToken(String tenant, UUID userId, String tokenHash) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
-        UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
-                """, id, UUID.fromString(tenant), userId, tokenHash);
-        return id;
+        return boundAs(tenant, () -> {
+            UUID id = UUID.randomUUID();
+            jdbc.update("""
+                    INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
+                    """, id, UUID.fromString(tenant), userId, tokenHash);
+            return id;
+        });
     }
 
     private UUID seedPasswordResetToken(String tenant, UUID userId, String tokenHash) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
-        UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
-                                                          status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '30 minutes', now())
-                """, id, UUID.fromString(tenant), userId, tokenHash);
-        return id;
+        return boundAs(tenant, () -> {
+            UUID id = UUID.randomUUID();
+            jdbc.update("""
+                    INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
+                                                              status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '30 minutes', now())
+                    """, id, UUID.fromString(tenant), userId, tokenHash);
+            return id;
+        });
     }
 
     // ------------------------------------------------------------------
@@ -162,11 +202,11 @@ class D6AuthTokenTenantRlsPostgresTest {
                       AND tablename = ?
                       AND policyname = 'tenant_isolation'
                       AND cmd = 'ALL'
-                      AND qual ILIKE '%NULLIF%'
-                      AND qual ILIKE '%app.tenant_id%'
+                      AND qual ILIKE '%app_tenant_ctx_text()%'
+                      AND qual NOT ILIKE '%current_setting(''app.tenant_id''%'
                       AND qual NOT ILIKE '%IS NULL OR%'
-                      AND with_check ILIKE '%NULLIF%'
-                      AND with_check ILIKE '%app.tenant_id%'
+                      AND with_check ILIKE '%app_tenant_ctx_text()%'
+                      AND with_check NOT ILIKE '%current_setting(''app.tenant_id''%'
                       AND with_check NOT ILIKE '%IS NULL OR%'
                     """, Integer.class, table);
             assertThat(policyCount).as("fail-closed USING/WITH CHECK policy for %s", table)
@@ -217,15 +257,21 @@ class D6AuthTokenTenantRlsPostgresTest {
     @Test
     void missingAndEmptyTenantContextsSeeNoTokenRowsEvenAsOwner() {
         for (String table : TOKEN_TABLES) {
-            jdbc.execute("RESET app.tenant_id");
-            assertThat(count(table))
+            // UNBOUND session (no bind at all): the raw GUC is untrusted, so
+            // the validated context is NULL — FORCE RLS binds the owner too.
+            Integer unbound = tx.execute(status -> count(table));
+            assertThat(unbound)
                     .as("%s must deny reads with missing context although rows exist (FORCE RLS binds the owner)", table)
                     .isZero();
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', '', false)", String.class);
-            assertThat(count(table))
-                    .as("%s must deny reads with EMPTY context", table)
+            // Forged raw GUC + forged empty mac: the HMAC re-verification fails.
+            Integer forged = tx.execute(status -> {
+                jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
+                jdbc.execute("SELECT set_config('app.ctx_mac', 'deadbeef', true)");
+                return count(table);
+            });
+            assertThat(forged)
+                    .as("%s must deny reads with a forged EMPTY context", table)
                     .isZero();
-            jdbc.execute("RESET app.tenant_id");
         }
     }
 
@@ -234,21 +280,19 @@ class D6AuthTokenTenantRlsPostgresTest {
     // ------------------------------------------------------------------
     @Test
     void tenantContextsExposeExactlyTheirOwnTokenRows() {
-        jdbc.execute("RESET app.tenant_id");
+        boundAs(tenantA, () -> {
+            assertThat(countById("refresh_tokens", refreshA)).isEqualTo(1);
+            assertThat(countById("refresh_tokens", refreshB)).isZero();
+            assertThat(countById("password_reset_tokens", resetA)).isEqualTo(1);
+            assertThat(countById("password_reset_tokens", resetB)).isZero();
+        });
 
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
-        assertThat(countById("refresh_tokens", refreshA)).isEqualTo(1);
-        assertThat(countById("refresh_tokens", refreshB)).isZero();
-        assertThat(countById("password_reset_tokens", resetA)).isEqualTo(1);
-        assertThat(countById("password_reset_tokens", resetB)).isZero();
-
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantB);
-        assertThat(countById("refresh_tokens", refreshB)).isEqualTo(1);
-        assertThat(countById("refresh_tokens", refreshA)).isZero();
-        assertThat(countById("password_reset_tokens", resetB)).isEqualTo(1);
-        assertThat(countById("password_reset_tokens", resetA)).isZero();
-
-        jdbc.execute("RESET app.tenant_id");
+        boundAs(tenantB, () -> {
+            assertThat(countById("refresh_tokens", refreshB)).isEqualTo(1);
+            assertThat(countById("refresh_tokens", refreshA)).isZero();
+            assertThat(countById("password_reset_tokens", resetB)).isEqualTo(1);
+            assertThat(countById("password_reset_tokens", resetA)).isZero();
+        });
     }
 
     // ------------------------------------------------------------------
@@ -256,9 +300,7 @@ class D6AuthTokenTenantRlsPostgresTest {
     // ------------------------------------------------------------------
     @Test
     void crossTenantTokenWritesAreDenied() {
-        jdbc.execute("RESET app.tenant_id");
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
-
+        boundAs(tenantA, () -> {
         // A cannot consume/revoke B's refresh token (row-filtered UPDATE).
         int hijack = jdbc.update(
                 "UPDATE public.refresh_tokens SET status = 'USED' WHERE id = ?", refreshB);
@@ -268,29 +310,34 @@ class D6AuthTokenTenantRlsPostgresTest {
         int deleted = jdbc.update(
                 "DELETE FROM public.password_reset_tokens WHERE id = ?", resetB);
         assertThat(deleted).as("cross-tenant DELETE affects zero rows").isZero();
+        });
 
         // A cannot mint a refresh token inside B (WITH CHECK, SQLSTATE 42501).
-        UUID smuggled = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, 'd6-smuggled', 'ACTIVE', now() + interval '7 days', now())
-                """, smuggled, UUID.fromString(tenantB), userB))
-                .as("cross-tenant INSERT must be rejected by WITH CHECK")
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseInstanceOf(PSQLException.class)
-                .hasStackTraceContaining("row-level security policy");
+        boundAs(tenantA, () -> {
+            UUID smuggled = UUID.randomUUID();
+            assertThatThrownBy(() -> jdbc.update("""
+                    INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, 'd6-smuggled', 'ACTIVE', now() + interval '7 days', now())
+                    """, smuggled, UUID.fromString(tenantB), userB))
+                    .as("cross-tenant INSERT must be rejected by WITH CHECK")
+                    .isInstanceOf(RuntimeException.class)
+                    .hasRootCauseInstanceOf(PSQLException.class)
+                    .hasStackTraceContaining("row-level security policy");
+        });
 
         // A cannot mint a password-reset token inside B either.
-        UUID smuggledReset = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
-                                                          status, expires_at, created_at)
-                VALUES (?, ?, ?, 'd6-smuggled-reset', 'ACTIVE', now() + interval '30 minutes', now())
-                """, smuggledReset, UUID.fromString(tenantB), userB))
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseInstanceOf(PSQLException.class)
-                .hasStackTraceContaining("row-level security policy");
+        boundAs(tenantA, () -> {
+            UUID smuggledReset = UUID.randomUUID();
+            assertThatThrownBy(() -> jdbc.update("""
+                    INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
+                                                              status, expires_at, created_at)
+                    VALUES (?, ?, ?, 'd6-smuggled-reset', 'ACTIVE', now() + interval '30 minutes', now())
+                    """, smuggledReset, UUID.fromString(tenantB), userB))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasRootCauseInstanceOf(PSQLException.class)
+                    .hasStackTraceContaining("row-level security policy");
+        });
 
         // The smuggled hash never reached the discovery index.
         Integer smuggledInIndex = jdbc.queryForObject(
@@ -299,10 +346,10 @@ class D6AuthTokenTenantRlsPostgresTest {
         assertThat(smuggledInIndex).isZero();
 
         // B's rows are intact.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantB);
-        assertThat(statusOf("refresh_tokens", refreshB)).isEqualTo("ACTIVE");
-        assertThat(statusOf("password_reset_tokens", resetB)).isEqualTo("ACTIVE");
-        jdbc.execute("RESET app.tenant_id");
+        boundAs(tenantB, () -> {
+            assertThat(statusOf("refresh_tokens", refreshB)).isEqualTo("ACTIVE");
+            assertThat(statusOf("password_reset_tokens", resetB)).isEqualTo("ACTIVE");
+        });
     }
 
     // ------------------------------------------------------------------
@@ -310,32 +357,30 @@ class D6AuthTokenTenantRlsPostgresTest {
     // ------------------------------------------------------------------
     @Test
     void discoveryIndexStaysInSyncWithTokenRows() {
-        jdbc.execute("RESET app.tenant_id");
+        boundAs(tenantA, () -> {
+            // New refresh token under A's bound context appears in the index.
+            String newHash = "d6-sync-hash-" + UUID.randomUUID();
+            UUID newId = UUID.randomUUID();
+            jdbc.update("""
+                    INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
+                    """, newId, UUID.fromString(tenantA), userA, newHash);
+            assertThat(indexTenantFor("refresh", newHash))
+                    .as("index mirrors INSERT with the owning tenant")
+                    .contains(tenantA);
 
-        // New refresh token under A's context appears in the index.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
-        String newHash = "d6-sync-hash-" + UUID.randomUUID();
-        UUID newId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
-                """, newId, UUID.fromString(tenantA), userA, newHash);
-        assertThat(indexTenantFor("refresh", newHash))
-                .as("index mirrors INSERT with the owning tenant")
-                .contains(tenantA);
-
-        // Deleting the token removes the index entry.
-        jdbc.update("DELETE FROM public.refresh_tokens WHERE id = ?", newId);
-        assertThat(indexTenantFor("refresh", newHash))
-                .as("index mirrors DELETE")
-                .isEmpty();
+            // Deleting the token removes the index entry.
+            jdbc.update("DELETE FROM public.refresh_tokens WHERE id = ?", newId);
+            assertThat(indexTenantFor("refresh", newHash))
+                    .as("index mirrors DELETE")
+                    .isEmpty();
+        });
 
         // Kinds are separated: the refresh hash never resolves as a reset token.
         assertThat(indexTenantFor("password_reset", "d6-refresh-hash-A"))
                 .as("refresh hash must not resolve under the password_reset kind")
                 .isEmpty();
-        jdbc.execute("RESET app.tenant_id");
     }
 
     // ------------------------------------------------------------------
@@ -358,7 +403,7 @@ class D6AuthTokenTenantRlsPostgresTest {
                     .isEqualTo(tenantB);
 
             // 3. applyTrustedUserScope(discovered) then the FOR UPDATE lookup.
-            setTenantTx(connection, discovered);
+            bindSignedTx(connection, discovered);
             assertThat(visibleForUpdateInTx(connection, "refresh_tokens", refreshB)).isEqualTo(1);
             assertThat(visibleForUpdateInTx(connection, "refresh_tokens", refreshA)).isZero();
 
@@ -366,7 +411,7 @@ class D6AuthTokenTenantRlsPostgresTest {
             connection.rollback();
             String discoveredReset = indexLookupInTx(connection, "password_reset", "d6-reset-hash-A");
             assertThat(discoveredReset).isEqualTo(tenantA);
-            setTenantTx(connection, discoveredReset);
+            bindSignedTx(connection, discoveredReset);
             assertThat(visibleForUpdateInTx(connection, "password_reset_tokens", resetA)).isEqualTo(1);
             assertThat(visibleForUpdateInTx(connection, "password_reset_tokens", resetB)).isZero();
 
@@ -384,7 +429,7 @@ class D6AuthTokenTenantRlsPostgresTest {
             connection.setAutoCommit(false);
 
             // Transaction 1: scope to A and observe A's row.
-            setTenantTx(connection, tenantA);
+            bindSignedTx(connection, tenantA);
             assertThat(visibleInTx(connection, "refresh_tokens", refreshA)).isEqualTo(1);
             connection.commit();
 
@@ -397,7 +442,7 @@ class D6AuthTokenTenantRlsPostgresTest {
             assertThat(visibleInTx(connection, "refresh_tokens", refreshB)).isZero();
 
             // Transaction 3: scope to B — only B visible; A gone.
-            setTenantTx(connection, tenantB);
+            bindSignedTx(connection, tenantB);
             assertThat(visibleInTx(connection, "refresh_tokens", refreshB)).isEqualTo(1);
             assertThat(visibleInTx(connection, "refresh_tokens", refreshA)).isZero();
             connection.rollback();
@@ -427,6 +472,26 @@ class D6AuthTokenTenantRlsPostgresTest {
                         + "WHERE kind = ? AND token_hash = ?",
                 (rs, n) -> rs.getString(1), kind, tokenHash);
         return found.stream().findFirst();
+    }
+
+    /** G1 P0-B: the pre-auth contract applies the context via the SIGNED BIND. */
+    private void bindSignedTx(Connection connection, String tenant) throws Exception {
+        String txid;
+        int pid;
+        try (PreparedStatement slot = connection.prepareStatement(
+                "SELECT s.ctx_txid, s.ctx_pid FROM public.app_tenant_ctx_slot() s");
+             java.sql.ResultSet rs = slot.executeQuery()) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = signer.macFor(java.util.UUID.fromString(tenant), txid, pid);
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenant);
+            ps.setString(2, mac);
+            ps.executeQuery().close();
+        }
     }
 
     private static void setTenantTx(Connection connection, String tenant) throws Exception {

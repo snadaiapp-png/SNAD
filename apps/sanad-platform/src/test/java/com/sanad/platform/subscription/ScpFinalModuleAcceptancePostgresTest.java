@@ -126,7 +126,7 @@ class ScpFinalModuleAcceptancePostgresTest {
         rawDs.setDriverClassName("org.postgresql.Driver");
         TenantGucDataSource ds = new TenantGucDataSource(rawDs, null);
         jdbc = new JdbcTemplate(ds);
-        rls = new TenantRlsTransactionContext(jdbc);
+        rls = new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
 
         usageService = new UsageMeteringService(jdbc, rls);

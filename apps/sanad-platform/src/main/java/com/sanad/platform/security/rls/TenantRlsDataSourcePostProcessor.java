@@ -39,14 +39,21 @@ public class TenantRlsDataSourcePostProcessor implements BeanPostProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(TenantRlsDataSourcePostProcessor.class);
 
+    private final TenantContextSigner signer;
+
+    public TenantRlsDataSourcePostProcessor(TenantContextSigner signer) {
+        this.signer = signer;
+    }
+
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         // Only wrap the primary DataSource — avoid wrapping test/embedded
         // datasources or other unrelated beans that happen to implement the
         // interface.
         if (bean instanceof DataSource ds && !(bean instanceof TenantRlsDataSource)) {
-            log.info("CRM-018: Wrapping DataSource '{}' with TenantRlsDataSource (RLS defense-in-depth)", beanName);
-            return new TenantRlsDataSource(asAbstractDataSource(ds));
+            log.info("CRM-018: Wrapping DataSource '{}' with TenantRlsDataSource (RLS defense-in-depth, signed tenant-context binding: {})",
+                    beanName, signer.isActive() ? "ACTIVE" : "LEGACY-RAW-GUC");
+            return new TenantRlsDataSource(asAbstractDataSource(ds), signer);
         }
         return bean;
     }

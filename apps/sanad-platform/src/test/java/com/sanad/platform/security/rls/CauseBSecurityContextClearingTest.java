@@ -116,8 +116,7 @@ class CauseBSecurityContextClearingTest {
 
             // Seed user with right GUC (Pattern A2)
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -205,8 +204,7 @@ class CauseBSecurityContextClearingTest {
                     "cause-b2-" + tenantId.toString().substring(0, 8),
                     Timestamp.from(now), Timestamp.from(now));
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -267,5 +265,18 @@ class CauseBSecurityContextClearingTest {
                 "tenant_id", tenantId.toString(),
                 "user_id", userId.toString()));
         return token;
+    }
+
+    // G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1).
+    private final com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(tenant, String.valueOf(slot.get("txid")),
+                ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 }

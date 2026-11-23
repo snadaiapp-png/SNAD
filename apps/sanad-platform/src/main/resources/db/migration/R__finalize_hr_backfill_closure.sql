@@ -23,7 +23,12 @@ AS $$
 DECLARE
     v_caller_tenant TEXT;
 BEGIN
-    v_caller_tenant := NULLIF(BTRIM(current_setting('app.tenant_id', true)), '');
+    -- G1 P0-B (V20261124_1/V20261124_2): the caller tenant is no longer read
+    -- from the forgeable raw GUC — it comes from the HMAC-validated signed
+    -- tenant context (app_tenant_ctx_text), which returns NULL unless this
+    -- transaction successfully bound it via app_bind_tenant_ctx. Unbound or
+    -- forged sessions are denied below (fail closed, same contract).
+    v_caller_tenant := public.app_tenant_ctx_text();
 
     IF v_caller_tenant IS NULL OR v_caller_tenant <> p_tenant_id::text THEN
         RAISE EXCEPTION 'HR migration tenant scope denied: caller tenant %, requested tenant %',

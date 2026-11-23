@@ -81,7 +81,7 @@ class CrmImportWorkerRlsPostgresTest {
         tx = new TransactionTemplate(tm);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(ds);
         com.sanad.platform.security.rls.TenantRlsTransactionContext rlsContext =
-                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         // Empty Environment + a valid base64 AES-256 key for the import worker —
         // the worker only needs the RLS context fix to be exercised here.
         // The key below is a non-trivial test key (not the well-known default

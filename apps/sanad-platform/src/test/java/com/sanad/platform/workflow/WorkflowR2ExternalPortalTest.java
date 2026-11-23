@@ -80,7 +80,7 @@ class WorkflowR2ExternalPortalTest {
         tx = new TransactionTemplate(transactionManager);
         WorkflowJourneyService journeyService = new WorkflowJourneyService(jdbc, new com.fasterxml.jackson.databind.ObjectMapper());
         com.sanad.platform.security.rls.TenantRlsTransactionContext tenantContext =
-                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
+                new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         // V20261029_3: the action service resolves the pre-auth token through
         // the token index and re-reads the authoritative row under the
         // resolved tenant's RLS scope.

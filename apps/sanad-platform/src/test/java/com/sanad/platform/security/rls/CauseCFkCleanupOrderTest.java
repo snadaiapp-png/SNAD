@@ -86,8 +86,7 @@ class CauseCFkCleanupOrderTest {
                     "cause-c-" + tenantId.toString().substring(0, 8),
                     Timestamp.from(now), Timestamp.from(now));
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -99,8 +98,7 @@ class CauseCFkCleanupOrderTest {
             // Insert refresh_token referencing the user (RLS may or may not apply to
             // refresh_tokens — set GUC regardless to be safe)
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO refresh_tokens (id, tenant_id, user_id, token_hash, "
                                 + "status, expires_at, created_at) "
@@ -114,8 +112,7 @@ class CauseCFkCleanupOrderTest {
             // Attempt DELETE FROM users FIRST (wrong order) — must fail with FK violation
             assertThatThrownBy(() -> {
                 tx.executeWithoutResult(s -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    bindSigned(tenantId);
                     jdbc.update("DELETE FROM users WHERE id = ?", userId);
                 });
             })
@@ -125,8 +122,7 @@ class CauseCFkCleanupOrderTest {
         } finally {
             // Cleanup: correct order — refresh_tokens FIRST, then users
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM refresh_tokens WHERE id = ?", refreshTokenId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
@@ -157,8 +153,7 @@ class CauseCFkCleanupOrderTest {
                     "cause-c3-" + tenantId.toString().substring(0, 8),
                     Timestamp.from(now), Timestamp.from(now));
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -178,8 +173,7 @@ class CauseCFkCleanupOrderTest {
 
             // Correct order: refresh_tokens FIRST, then users (both in same tx with GUC set)
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM refresh_tokens WHERE id = ?", refreshTokenId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
@@ -194,8 +188,7 @@ class CauseCFkCleanupOrderTest {
         } finally {
             // Final cleanup (in case the test left rows behind)
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM refresh_tokens WHERE id = ?", refreshTokenId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
@@ -210,5 +203,18 @@ class CauseCFkCleanupOrderTest {
             tx = new TransactionTemplate(transactionManager);
         }
         return tx;
+    }
+
+    // G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1).
+    private final com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(tenant, String.valueOf(slot.get("txid")),
+                ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 }

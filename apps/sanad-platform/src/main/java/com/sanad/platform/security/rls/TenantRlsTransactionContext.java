@@ -58,20 +58,35 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class TenantRlsTransactionContext {
 
     private final JdbcTemplate jdbcTemplate;
+    private final TenantContextSigner signer;
 
-    public TenantRlsTransactionContext(JdbcTemplate jdbcTemplate) {
+    public TenantRlsTransactionContext(JdbcTemplate jdbcTemplate, TenantContextSigner signer) {
         this.jdbcTemplate = jdbcTemplate;
+        this.signer = signer;
     }
 
     /**
-     * Apply the trusted tenant id to the current transaction's GUC.
+     * Apply the trusted tenant id to the current transaction.
+     *
+     * <p><b>Signed bind mode</b> (signer active): reproduces the V20261124_1
+     * protocol — {@code mac = HMAC-SHA256(key, tenant || ':' || txid || ':' ||
+     * pid)} computed over the caller's OWN slot, then
+     * {@code app_bind_tenant_ctx(tenant, mac)} in the SAME transaction. The
+     * database verifies the mac and only then sets the GUCs; policies read
+     * the HMAC-validated {@code app_tenant_ctx_text()}.</p>
+     *
+     * <p><b>Legacy mode</b> (signer inactive — compatibility window before
+     * operator key provisioning): the raw {@code set_config} write below is
+     * kept unchanged. After migration V20261124_2 enforcement this mode
+     * yields zero tenant rows (fail closed).</p>
      *
      * @param trustedTenantId the tenant id to scope the transaction to.
-     *        Must be non-null and a valid UUID.
+     *        Must be non-null and a valid UUID; MUST be derived from the
+     *        authenticated principal, never from client input.
      * @throws IllegalStateException if called outside a Spring-managed
      *         transaction. RLS relies on {@code SET LOCAL} scoping which is
-     *         only meaningful inside a transaction; calling this method
-     *         outside a transaction is a programming error.
+     *         only meaningful inside a transaction boundary; calling this
+     *         method outside a transaction is a programming error.
      * @throws IllegalArgumentException if {@code trustedTenantId} is null.
      */
     public void applyForCurrentTransaction(UUID trustedTenantId) {
@@ -84,16 +99,34 @@ public class TenantRlsTransactionContext {
                             + "inside a Spring-managed transaction (SET LOCAL app.tenant_id "
                             + "is only meaningful within a transaction boundary).");
         }
-        // set_config(name, value, is_local) — is_local=true scopes the GUC
-        // to the current transaction, mirroring SET LOCAL semantics. The
-        // value is a well-formed UUID string supplied by a trusted caller.
-        jdbcTemplate.queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, trustedTenantId.toString());
+        if (signer.isActive()) {
+            // One round trip: the caller's own (txid, pid). The slot call and
+            // the bind share this transaction, so txid_current() inside the
+            // bind matches the minted mac exactly.
+            var slot = jdbcTemplate.queryForMap(
+                    "SELECT s.ctx_txid AS ctx_txid, s.ctx_pid AS ctx_pid"
+                            + " FROM public.app_tenant_ctx_slot() s");
+            String txid = String.valueOf(slot.get("ctx_txid"));
+            int pid = ((Number) slot.get("ctx_pid")).intValue();
+            String mac = signer.macFor(trustedTenantId, txid, pid);
+            // Fail closed: the bind raises SQLSTATE 22000 when no ACTIVE key
+            // validates the mac for THIS caller's txid/pid (forgery/replay).
+            jdbcTemplate.queryForObject(
+                    "SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                    Boolean.class, trustedTenantId.toString(), mac);
+        } else {
+            // set_config(name, value, is_local) — is_local=true scopes the
+            // GUC to the current transaction, mirroring SET LOCAL semantics.
+            // The value is a well-formed UUID string supplied by a trusted
+            // caller.
+            jdbcTemplate.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, trustedTenantId.toString());
+        }
         // Verify the GUC was actually applied to the current connection —
         // a defensive check that catches DataSource misconfiguration (e.g.,
         // a different physical Connection being used for the verification
-        // query than for the previous set_config call).
+        // query than for the previous bind/set_config call).
         String applied = jdbcTemplate.queryForObject(
                 "SELECT current_setting('app.tenant_id', true)", String.class);
         if (applied == null || !applied.equals(trustedTenantId.toString())) {

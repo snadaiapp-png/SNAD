@@ -50,10 +50,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
+    private final TenantContextSigner signer;
     private UUID tenantAppliedFor = null;
 
-    TenantRlsConnectionHandler(Connection delegate) {
+    TenantRlsConnectionHandler(Connection delegate, TenantContextSigner signer) {
         this.delegate = delegate;
+        this.signer = signer;
     }
 
     @Override
@@ -111,14 +113,53 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
             classifyPreAuthTransaction(sql);
             return;
         }
-        try (var stmt = delegate.createStatement()) {
-            // Parameterised SET LOCAL is not supported by PostgreSQL for GUC
-            // assignment, but the value is a well-formed UUID read directly
-            // from the validated JWT via the security context — never user-
-            // supplied raw input at this layer.
-            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
+        if (signer.isActive()) {
+            // SIGNED TENANT-CONTEXT BIND (V20261124_1 protocol): the mac
+            // binds the context to THIS transaction (txid) and THIS backend
+            // (pid); the database validates it before trusting the GUC. The
+            // value is a well-formed UUID read directly from the validated
+            // JWT via the security context — never user-supplied raw input
+            // at this layer.
+            bindTenantContext(tenantId);
+        } else {
+            try (var stmt = delegate.createStatement()) {
+                // Legacy compatibility window (signer inactive): raw
+                // parameterised-less SET LOCAL. After migration V20261124_2
+                // enforcement this mode yields zero tenant rows.
+                stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
+            }
         }
         tenantAppliedFor = tenantId;
+    }
+
+    /**
+     * V20261124_1 bind protocol over the raw JDBC connection: one slot round
+     * trip, one bind call, same transaction. SQLSTATE 22000 from the bind
+     * (forgery/replay/missing key) propagates as {@link SQLException} and
+     * fails the transaction closed.
+     */
+    private void bindTenantContext(UUID tenantId) throws SQLException {
+        String txid;
+        int pid;
+        try (var stmt = delegate.createStatement();
+             var rs = stmt.executeQuery(
+                     "SELECT s.ctx_txid, s.ctx_pid FROM public.app_tenant_ctx_slot() s")) {
+            if (!rs.next()) {
+                throw new SQLException("TENANT_CTX_SLOT_EMPTY: app_tenant_ctx_slot returned no row");
+            }
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = signer.macFor(tenantId, txid, pid);
+        try (var ps = delegate.prepareStatement("SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenantId.toString());
+            ps.setString(2, mac);
+            try (var rs = ps.executeQuery()) {
+                if (!rs.next() || !rs.getBoolean(1)) {
+                    throw new SQLException("TENANT_CTX_BIND_UNVERIFIED: bind did not confirm the tenant context");
+                }
+            }
+        }
     }
 
     /**

@@ -328,10 +328,75 @@ class TenantRlsConnectionHandlerTest {
         SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
+    @Test
+    void bindProtocolIssuesSlotAndBindWithinTransaction() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        setSecurityContext(tenantId);
+        when(delegate.getAutoCommit()).thenReturn(false);
+        com.sanad.platform.test.TenantCtxTestSupport.FIXTURE_KEY_HEX.length(); // fixture key documented
+
+        java.sql.ResultSet slotRs = mock(java.sql.ResultSet.class);
+        when(slotRs.next()).thenReturn(true);
+        when(slotRs.getString(1)).thenReturn("42:tx-1");
+        when(slotRs.getInt(2)).thenReturn(1234);
+        when(statement.executeQuery(org.mockito.ArgumentMatchers.contains("app_tenant_ctx_slot")))
+                .thenReturn(slotRs);
+
+        java.sql.PreparedStatement bindPs = mock(java.sql.PreparedStatement.class);
+        java.sql.ResultSet bindRs = mock(java.sql.ResultSet.class);
+        when(bindRs.next()).thenReturn(true);
+        when(bindRs.getBoolean(1)).thenReturn(true);
+        when(delegate.prepareStatement(org.mockito.ArgumentMatchers.contains("app_bind_tenant_ctx")))
+                .thenReturn(bindPs);
+        when(bindPs.executeQuery()).thenReturn(bindRs);
+
+        proxy = wrapWith(TenantContextSigner.fromHexKey(com.sanad.platform.test.TenantCtxTestSupport.FIXTURE_KEY_HEX));
+        proxy.createStatement();
+
+        // The bind must receive the tenant + a mac computed over the minted slot.
+        org.mockito.ArgumentCaptor<String> tenant = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<String> mac = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(bindPs, times(1)).setString(org.mockito.ArgumentMatchers.eq(1), tenant.capture());
+        verify(bindPs, times(1)).setString(org.mockito.ArgumentMatchers.eq(2), mac.capture());
+        org.assertj.core.api.Assertions.assertThat(tenant.getValue()).isEqualTo(tenantId.toString());
+        org.assertj.core.api.Assertions.assertThat(mac.getValue()).hasSize(64);
+        // Legacy SET LOCAL must NOT be issued in signed mode.
+        verify(statement, never()).execute(org.mockito.ArgumentMatchers.startsWith("SET LOCAL"));
+    }
+
+    @Test
+    void bindProtocolRefusalFailsTheTransactionClosed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        setSecurityContext(tenantId);
+        when(delegate.getAutoCommit()).thenReturn(false);
+
+        java.sql.ResultSet slotRs = mock(java.sql.ResultSet.class);
+        when(slotRs.next()).thenReturn(true);
+        when(slotRs.getString(1)).thenReturn("43:tx-2");
+        when(slotRs.getInt(2)).thenReturn(1235);
+        when(statement.executeQuery(org.mockito.ArgumentMatchers.contains("app_tenant_ctx_slot")))
+                .thenReturn(slotRs);
+
+        java.sql.PreparedStatement bindPs = mock(java.sql.PreparedStatement.class);
+        when(delegate.prepareStatement(org.mockito.ArgumentMatchers.contains("app_bind_tenant_ctx")))
+                .thenReturn(bindPs);
+        when(bindPs.executeQuery()).thenThrow(
+                new java.sql.SQLException("TENANT_CTX_BIND_REJECTED", "22000"));
+
+        proxy = wrapWith(TenantContextSigner.fromHexKey(com.sanad.platform.test.TenantCtxTestSupport.FIXTURE_KEY_HEX));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> proxy.createStatement())
+                .isInstanceOf(java.sql.SQLException.class)
+                .hasMessageContaining("TENANT_CTX_BIND_REJECTED");
+    }
+
     private Connection wrap() {
+        return wrapWith(TenantContextSigner.disabled());
+    }
+
+    private Connection wrapWith(TenantContextSigner signer) {
         return (Connection) java.lang.reflect.Proxy.newProxyInstance(
                 Connection.class.getClassLoader(),
                 new Class<?>[] { Connection.class },
-                new TenantRlsConnectionHandler(delegate));
+                new TenantRlsConnectionHandler(delegate, signer));
     }
 }

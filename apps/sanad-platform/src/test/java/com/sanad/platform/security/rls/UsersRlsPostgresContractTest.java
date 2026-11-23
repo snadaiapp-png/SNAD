@@ -161,8 +161,8 @@ class UsersRlsPostgresContractTest {
                   AND tablename = 'users'
                   AND cmd = 'ALL'
                   AND 'sanad' = ANY(roles)
-                  AND qual LIKE '%app.tenant_id%'
-                  AND with_check LIKE '%app.tenant_id%'
+                  AND qual LIKE '%app_tenant_ctx_text()%'
+                  AND with_check LIKE '%app_tenant_ctx_text()%'
                 """, Long.class);
         assertThat(matching)
                 .as("Runtime users policy must constrain reads and writes to a tenant")

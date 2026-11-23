@@ -169,7 +169,7 @@ class CrmRlsTenantIsolationPostgresTest {
 
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
 
             Long visibleToA = countAccounts(conn);
             assertThat(visibleToA)
@@ -190,7 +190,7 @@ class CrmRlsTenantIsolationPostgresTest {
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
             // Tenant A's context
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
 
             // Try to read tenant B's data — should get 0 rows
             Long crossTenantVisible = countAccountsByName(conn, "Account B");
@@ -208,7 +208,7 @@ class CrmRlsTenantIsolationPostgresTest {
 
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
 
             // Insert with matching tenant — should succeed
             insertAccount(conn, tenantA, "New Account A");
@@ -229,7 +229,7 @@ class CrmRlsTenantIsolationPostgresTest {
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
             // Context is tenant A
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
 
             // Attempt to INSERT a row with tenant B's id — WITH CHECK should block it
             assertThatThrownBy(() -> insertAccount(conn, tenantB, "Stolen Account B"))
@@ -268,7 +268,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // Transaction 1: set tenant A
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
             assertThat(countAccounts(conn)).isEqualTo(1L);
             conn.commit();
         }
@@ -305,7 +305,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantB, "Protected B Account");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setString(1, "Compromised B Account");
@@ -341,7 +341,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantB, "Protected B Delete");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "DELETE FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setObject(1, tenantB);
@@ -359,7 +359,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantA, "Own A Account");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setString(1, "Own A Account Updated");
@@ -436,7 +436,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // After rollback: cross-tenant access should be possible (RLS disabled)
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTxn(conn, tenantA);
             Long visible = countAccounts(conn);
             // With RLS disabled, SET LOCAL has no effect — all rows visible
             assertThat(visible)
@@ -490,16 +490,38 @@ class CrmRlsTenantIsolationPostgresTest {
      * plane.</p>
      */
     private Connection sanadScopedConnection(UUID tenantId) throws SQLException {
-        Connection conn = java.sql.DriverManager.getConnection(
+        // G1 P0-B: plain connection; tenant visibility comes from the signed
+        // bind issued per bound transaction (see bindSignedTxn).
+        return java.sql.DriverManager.getConnection(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        conn.createStatement().execute("SET app.tenant_id = '" + tenantId + "'");
-        return conn;
+    }
+
+    /** G1 P0-B: signed-bind the CURRENT transaction of the given connection. */
+    private static void bindSignedTxn(Connection conn, UUID tenantId) throws SQLException {
+        com.sanad.platform.security.rls.TenantContextSigner signer =
+                com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+        String txid;
+        int pid;
+        try (var st = conn.createStatement();
+             var rs = st.executeQuery("SELECT s.ctx_txid, s.ctx_pid FROM public.app_tenant_ctx_slot() s")) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = signer.macFor(tenantId, txid, pid);
+        try (var ps = conn.prepareStatement("SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenantId.toString());
+            ps.setString(2, mac);
+            ps.executeQuery().close();
+        }
     }
 
     private void seedAccount(UUID tenantId, String name) {
         try (Connection conn = sanadScopedConnection(tenantId)) {
+            conn.setAutoCommit(false);
+            bindSignedTxn(conn, tenantId);
             try (var ps = conn.prepareStatement("""
                     INSERT INTO crm_accounts (
                         id, tenant_id, version, display_name, normalized_name, account_type,
@@ -514,6 +536,7 @@ class CrmRlsTenantIsolationPostgresTest {
                 ps.setObject(6, UUID.randomUUID());
                 ps.executeUpdate();
             }
+            conn.commit();
         } catch (SQLException e) {
             throw new IllegalStateException("Seeding crm_accounts under tenant scope failed: " + e.getMessage(), e);
         }
@@ -525,15 +548,21 @@ class CrmRlsTenantIsolationPostgresTest {
      * read sees zero rows, so verification must carry the tenant context.
      */
     private long countAccountsScoped(UUID tenantId, String displayName) throws SQLException {
-        try (Connection conn = sanadScopedConnection(tenantId);
-                var ps = conn.prepareStatement(
-                        "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
-            ps.setObject(1, tenantId);
-            ps.setString(2, displayName);
-            try (var rs = ps.executeQuery()) {
-                rs.next();
-                return rs.getLong(1);
+        try (Connection conn = sanadScopedConnection(tenantId)) {
+            conn.setAutoCommit(false);
+            bindSignedTxn(conn, tenantId);
+            long result;
+            try (var ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
+                ps.setObject(1, tenantId);
+                ps.setString(2, displayName);
+                try (var rs = ps.executeQuery()) {
+                    rs.next();
+                    result = rs.getLong(1);
+                }
             }
+            conn.commit();
+            return result;
         }
     }
 

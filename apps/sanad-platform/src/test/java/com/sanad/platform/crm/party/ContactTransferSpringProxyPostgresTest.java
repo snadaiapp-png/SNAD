@@ -185,7 +185,7 @@ class ContactTransferSpringProxyPostgresTest {
         // SERVICE datasource — wraps raw in TenantRlsDataSource (production RLS path).
         // TenantRlsDataSource's constructor accepts AbstractDataSource; DriverManagerDataSource
         // extends AbstractDataSource so this works.
-        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource);
+        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         tenantJdbc = new NamedParameterJdbcTemplate(tenantRlsDataSource);
         contactRepo = new JdbcContactRepository(tenantJdbc);
         participantRepo = new JdbcEntityParticipantRepository(tenantJdbc);

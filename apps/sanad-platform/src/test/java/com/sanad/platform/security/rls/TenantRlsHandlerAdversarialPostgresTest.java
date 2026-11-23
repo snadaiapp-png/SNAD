@@ -61,14 +61,14 @@ class TenantRlsHandlerAdversarialPostgresTest {
     static void provisionFixtures() throws Exception {
         raw = new SimpleDriverDataSource();
         raw.setDriverClass(Driver.class);
-        raw.setUrl("jdbc:postgresql://127.0.0.1:5432/sanad");
+        raw.setUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://127.0.0.1:5432/sanad").split("\\?")[0]);
         raw.setUsername("sanad");
         String runtimePassword = System.getenv("SPRING_DATASOURCE_PASSWORD");
         if (runtimePassword == null || runtimePassword.isBlank()) {
             throw new IllegalStateException("SPRING_DATASOURCE_PASSWORD must be set for live PostgreSQL adversarial tests");
         }
         raw.setPassword(runtimePassword);
-        rls = new TenantRlsDataSource(raw);
+        rls = new TenantRlsDataSource(raw, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
 
         // Catalog contract: the runtime identity must be non-bypass, and the
         // tenant tables must be FORCE-RLS protected before any probe runs.
@@ -478,9 +478,7 @@ class TenantRlsHandlerAdversarialPostgresTest {
             // transaction by applying the trusted GUC first
             // (TenantRlsTransactionContext contract). The handler stays
             // hands-off and the write proceeds within the trusted scope.
-            try (Statement st = c.createStatement()) {
-                st.execute("SET LOCAL app.tenant_id = '" + TENANT_B + "'");
-            }
+            bindSignedTxn(c, TENANT_B);
             try (PreparedStatement ps = c.prepareStatement(
                     "INSERT INTO public.users (id, tenant_id, email, display_name, status, created_at, updated_at)"
                     + " VALUES (?, ?, 'ev11@example.test', 'EV11', 'ACTIVE', NOW(), NOW())")) {
@@ -503,10 +501,8 @@ class TenantRlsHandlerAdversarialPostgresTest {
             ca.setAutoCommit(false);
             cb.setAutoCommit(false);
             setSecurityContext(TENANT_A);
-            ca.prepareStatement("SELECT 1").close(); // handler applies A
-            try (Statement st = cb.createStatement()) {
-                st.execute("SET LOCAL app.tenant_id = '" + TENANT_B + "'"); // classified worker scope
-            }
+            ca.prepareStatement("SELECT 1").close(); // handler applies A (signed bind)
+            bindSignedTxn(cb, TENANT_B); // classified worker scope (signed bind)
             int aSees = countUsersInTxn(ca);
             int bSees = countUsersInTxn(cb);
             assertThat(aSees).as("session A must see only its own row").isEqualTo(1);
@@ -598,5 +594,25 @@ class TenantRlsHandlerAdversarialPostgresTest {
                 UsernamePasswordAuthenticationToken.authenticated("s13c-adversarial", "n/a", java.util.List.of());
         auth.setDetails(details);
         SecurityContextHolder.getContext().setAuthentication(auth);
+    }
+
+    /** G1 P0-B: classified pre-auth scopes apply the context via the signed bind. */
+    private static void bindSignedTxn(Connection connection, UUID tenant) throws Exception {
+        com.sanad.platform.security.rls.TenantContextSigner signer =
+                com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+        String txid;
+        int pid;
+        try (var st = connection.createStatement();
+             var rs = st.executeQuery("SELECT s.ctx_txid, s.ctx_pid FROM public.app_tenant_ctx_slot() s")) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = signer.macFor(tenant, txid, pid);
+        try (var ps = connection.prepareStatement("SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenant.toString());
+            ps.setString(2, mac);
+            ps.executeQuery().close();
+        }
     }
 }

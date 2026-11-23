@@ -71,7 +71,7 @@ class CommercialConsistencyDiagnosticsPostgresTest {
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(ds));
-        rls = new TenantRlsTransactionContext(jdbc);
+        rls = new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         service = new CommercialConsistencyDiagnosticsService(jdbc, rls);
     }
 

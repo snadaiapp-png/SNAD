@@ -78,7 +78,7 @@ class CallbackReplayRlsPostgresTest {
         jdbc = new JdbcTemplate(ds);
         txManager = new DataSourceTransactionManager(ds);
         txTemplate = new TransactionTemplate(txManager);
-        store = new CallbackReplayStore(jdbc, txTemplate, new TenantRlsTransactionContext(jdbc));
+        store = new CallbackReplayStore(jdbc, txTemplate, new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner()));
     }
 
     @BeforeEach
@@ -102,10 +102,23 @@ class CallbackReplayRlsPostgresTest {
     private <T> T asTenant(UUID tenant, TenantBlock<T> block) {
         AtomicReference<T> result = new AtomicReference<>();
         txTemplate.executeWithoutResult(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+            // G1 P0-B: the trusted context is the SIGNED BIND protocol
+            // (app_bind_tenant_ctx); the raw-GUC write is retired. The store
+            // path (CallbackReplayStore) binds through the same production
+            // TenantRlsTransactionContext wired with the fixture signer.
+            bindSigned(tenant);
             result.set(block.run());
         });
         return result.get();
+    }
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner().macFor(tenant,
+                String.valueOf(slot.get("txid")), ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 
     /** Run a block inside a transaction WITHOUT binding any tenant GUC. */
@@ -240,7 +253,7 @@ class CallbackReplayRlsPostgresTest {
         Integer tenantBounded = jdbc.queryForObject(
                 "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' " +
                         "AND policyname IN ('tenant_isolation_select','tenant_isolation_insert','tenant_isolation_delete') " +
-                        "AND (COALESCE(qual,'') || COALESCE(with_check,'')) LIKE '%NULLIF(current_setting%app.tenant_id%'",
+                        "AND (COALESCE(qual,'') || COALESCE(with_check,'')) LIKE '%app_tenant_ctx_text()%'",
                 Integer.class);
         assertThat(tenantBounded).isEqualTo(3);
     }

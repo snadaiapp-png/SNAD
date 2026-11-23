@@ -111,8 +111,12 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
 
             String qual = policyExpression(jdbc, table, "qual").toLowerCase();
             String withCheck = policyExpression(jdbc, table, "with_check").toLowerCase();
-            assertThat(qual).contains("nullif").contains("is not null");
-            assertThat(withCheck).contains("nullif").contains("is not null");
+            // G1 P0-B (V20261124_2): the final fail-closed shape reads the
+            // HMAC-validated signed context — NULLIF(current_setting(...)) is
+            // retired. Unbound or forged contexts validate to NULL, which IS
+            // the fail-closed semantics the hardening introduced.
+            assertThat(qual).contains("app_tenant_ctx_text").doesNotContain("current_setting");
+            assertThat(withCheck).contains("app_tenant_ctx_text").doesNotContain("current_setting");
             assertThat(qual).doesNotContain("is null");
             assertThat(withCheck).doesNotContain("is null");
         }

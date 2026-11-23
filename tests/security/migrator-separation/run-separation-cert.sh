@@ -48,6 +48,10 @@ SEP_REPO="${SEP_REPO:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 MIG_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/migration"
 VEN_LOC="$SEP_REPO/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
 LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
+# G1 P0-B: shared signed-tenant-context bind-protocol helper (probe runners
+# translate the legacy PGOPTIONS tenant argument into the bind protocol).
+# shellcheck source=../lib/tenant-ctx-bind.sh
+. "$SCRIPT_DIR/../lib/tenant-ctx-bind.sh"
 # V20261115_1 (platform_audit_logs append-only runtime ACL, C4 audit-ledger
 # hardening) advanced the chain head, aligned 2026-11-17 with S9/S10;
 # SANAD scope-audit remediation — reviewer conditional approval for remediation only
@@ -63,7 +67,13 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL)
 # advance the watermark 20261117.2 -> 20261118.2. Recorded per watermark
 # policy; no silent value bump.
-EXPECTED_HEAD="20261118.2"
+# G1 P0-B (2026-11-23, F-DB-07/RT-01 signed tenant-context remediation):
+# V20261124_1 (signed binding objects) + V20261124_2 (policy enforcement)
+# advance the watermark 20261118.2 -> 20261124.2. Recorded per watermark
+# policy; no silent value bump. S1 reproduces the PRODUCTION SEQUENCE
+# exactly: migrate to V20261124_1 -> operator key provisioning (ephemeral
+# SEP_CTX_KEY, never logged) -> enforcement flag -> migrate V20261124_2.
+EXPECTED_HEAD="20261124.2"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -104,18 +114,30 @@ admin()   { $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 # Never expose SQL containing ephemeral passwords in the psql -c process argv.
 admin_secret() { printf '%s\n' "$1" | $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
+# G1 P0-B: an ephemeral ACTIVE signing key is provisioned during S1 (operator
+# step of the production sequence) and consumed ONLY through this variable;
+# it is never logged and never appears in probe expectations.
+TENANT_CTX_KEY_HEX="${SEP_CTX_KEY:-}"
+export TENANT_CTX_KEY_HEX
 runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
+  local probe_sql="$2"
   local guc_args=()
   if [ $# -ge 3 ] && [ "$3" = "__EMPTY_GUC__" ]; then
     # Explicit empty GUC is distinct from an unset GUC; exercise both paths.
+    # Post-enforcement both are UNBOUND sessions: the validator returns NULL
+    # regardless; the PGOPTIONS form is kept to exercise the raw-empty path.
     guc_args=(PGOPTIONS="-c app.tenant_id=")
   elif [ $# -ge 3 ] && [ -n "$3" ]; then
-    guc_args=(PGOPTIONS="-c app.tenant_id=$3")
+    # LEGITIMATE tenant context: reproduce the BACKEND BIND PROTOCOL in the
+    # SAME transaction (one psql -c argument = one implicit transaction).
+    # The legacy PGOPTIONS raw-GUC mechanism is retired: after V20261124_2 a
+    # raw GUC alone is not DB-authenticated and must yield zero rows.
+    probe_sql="$(tenant_ctx_prefix_sql "$probe_sql" "$3")"
   fi
   # Never inherit an ambient PGOPTIONS tenant context into an unset-GUC probe.
   # Explicit tenant probes supply their own controlled PGOPTIONS value.
   runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
-       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
+       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$probe_sql" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
   # VERBOSITY=verbose emits "ERROR:  42501: ..."; whitespace varies.
@@ -272,11 +294,39 @@ gate S0 "roles OK: sanad_migrator=$m_contract sanad=$r_contract; topology=separa
 # ============================================================================
 # S1 — Flyway as sanad_migrator (fresh chain, separated topology)
 # ============================================================================
-gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD)"
+# G1 P0-B: S1 reproduces the PRODUCTION DEPLOYMENT SEQUENCE exactly
+# (docs/security/migrator-runtime-separation/RUNBOOK.md + V20261124_1 header):
+#   S1a  migrate to V20261124_1 (binding objects exist; enforcement off),
+#   S1b  OPERATOR step: provision the ephemeral signing key + enforcement
+#        flag (in production these come from the operator secret store via
+#        scripts/ops/tenant-ctx/provision-ctx-key.sql and the change window),
+#   S1c  full migrate (V20261124_2 rewrites the policies fail-closed-guarded)
+#        + flyway validate.
+gate S1 "Flyway migrate + operator ctx-key provisioning + validate as sanad_migrator (expect head $EXPECTED_HEAD)"
 # Use Flyway's environment credential channel: never place the password in
 # CLI arguments (which may be visible in process listings and scanner matches).
 : "${SEP_MIG_PW:?SEP_MIG_PW must be supplied from the isolated test secret store}"
+# Ephemeral per-run signing key (operator channel; never logged, never
+# persisted outside this certification run). SEP_CTX_KEY may pin it for the
+# battery handoff; default to an ephemeral random value.
+SEP_CTX_KEY="${SEP_CTX_KEY:-$(openssl rand -hex 32)}"
+[[ "$SEP_CTX_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || die S1 "SEP_CTX_KEY must be 64 hex characters"
+# The probe runner consumes the SAME key through the shared helper's channel.
+TENANT_CTX_KEY_HEX="$SEP_CTX_KEY"
+export TENANT_CTX_KEY_HEX
 # Scope the secret to each Flyway child; never export it in the parent shell.
+env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
+  -user=sanad_migrator \
+  -locations="$LOCS" -target=20261124.1 migrate > "$ART/S1a-migrate-ctx-bindings.log" 2>&1 || die S1 "S1a migrate (to V20261124_1) failed (see $ART/S1a-migrate-ctx-bindings.log)"
+head_a=$(admin postgres "$SEP_DB" "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")
+[ "$head_a" = "20261124.1" ] || die S1 "S1a head=$head_a expected=20261124.1"
+# --- S1b: operator provisioning (key material ONLY through stdin) ----------
+admin postgres "$SEP_DB" "SELECT 1 FROM public.platform_tenant_ctx_keys LIMIT 1" >/dev/null 2>&1 || die S1 "S1b preflight: platform_tenant_ctx_keys missing after S1a"
+# Key material flows through stdin (never argv) and targets the CERT DATABASE
+# (admin_secret is reserved for cluster-level role statements in postgres).
+printf '%s\n' "INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status) VALUES ('cert-ephemeral', decode('$SEP_CTX_KEY','hex'), 'ACTIVE') ON CONFLICT (key_id) DO UPDATE SET status='ACTIVE', retired_at=NULL;" | $SEP_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$SEP_DB" -At >/dev/null || die S1 "S1b key provisioning failed"
+admin "$SEP_DB" "$SEP_DB" "INSERT INTO public.platform_ctx_enforce (flag, enabled_at, enabled_by) VALUES ('ON', now(), 'cert-script-operator-step') ON CONFLICT (flag) DO NOTHING" || die S1 "S1b enforcement flag failed"
+# --- S1c: full migrate + validate -------------------------------------------
 env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
   -user=sanad_migrator \
   -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
@@ -285,8 +335,16 @@ env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGH
   -locations="$LOCS" validate > "$ART/S1-validate.log" 2>&1 || die S1 "validate failed"
 head_now=$(admin postgres "$SEP_DB" "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")
 [ "$head_now" = "$EXPECTED_HEAD" ] || die S1 "head=$head_now expected=$EXPECTED_HEAD"
-gate S1 "PASS: full chain applied as sanad_migrator, head=$head_now, validate OK"
+# Enforcement invariant: after V20261124_2 NO policy and NO public function
+# body may read the raw tenant GUC (fail-closed proof at the certification
+# level, independent of the migration's own postconditions).
+ctx_left=$(admin postgres "$SEP_DB" "SELECT
+  (SELECT count(*) FROM pg_policies WHERE qual LIKE '%current_setting(''app.tenant_id''%' OR with_check LIKE '%current_setting(''app.tenant_id''%')
+  + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosrc LIKE '%current_setting(''app.tenant_id''%' AND p.proname NOT IN ('app_tenant_ctx_text','app_bind_tenant_ctx','app_tenant_ctx_slot'))") || die S1 "ctx-invariant query failed"
+[ "$ctx_left" = "0" ] || die S1 "raw tenant GUC still referenced by $ctx_left catalog surfaces after enforcement"
+gate S1 "PASS: full chain applied as sanad_migrator, head=$head_now, validate OK, ctx-enforcement invariant=0"
 record FLYWAY_AS_MIGRATOR PASS PASS "head=$head_now"
+record CTX_KEY_PROVISIONED PASS PASS "ephemeral ACTIVE key + enforcement flag provisioned (operator sequence S1b)"
 
 # ============================================================================
 # S2 — runtime positive matrix (ordinary DML as sanad) + control-plane ACL
@@ -420,6 +478,40 @@ expect_value S4_EMPTY_GUC_UPDATE "$SEP_DB" "WITH changed AS (UPDATE public.users
 expect_value S4_EMPTY_GUC_DELETE "$SEP_DB" "WITH deleted AS (DELETE FROM public.users WHERE id='$UB' RETURNING 1) SELECT count(*) FROM deleted" "0" "__EMPTY_GUC__"
 expect_value S4_A_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
 expect_value S4_B_PRESERVED_AFTER_NO_GUC "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
+# ============================================================================
+# S4-CTX — SIGNED TENANT-CONTEXT probes (G1 P0-B, V20261124_1/V20261124_2).
+# The RT-01 attack class is now asserted BLOCKED at certification level.
+# ============================================================================
+# The RT-01 attack, verbatim: a raw forged GUC (session-level SET, no bind)
+# must yield ZERO rows — the GUC alone is no longer DB-authenticated.
+expect_value S4_CTX_RT01_FORGE_BLOCKED "$SEP_DB" "SET app.tenant_id='$TB'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "0"
+# Forged GUC + a hand-crafted mac must fail the HMAC re-verification.
+expect_value S4_CTX_FORGED_MAC_BLOCKED "$SEP_DB" "SET app.tenant_id='$TB'; SET app.ctx_mac='deadbeef'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "0"
+# A forged GUC + a mac captured from ANOTHER transaction's bind (the replay
+# attack: the mac is minted in its own autocommit transaction, then replayed
+# by hand on the probe connection) yields 0 rows — txid/pid binding kills it.
+ctx_stolen_mac=$(env -u PGOPTIONS PGPASSWORD="$SEP_RUN_PW" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$SEP_DB" -Atc "SELECT encode(hmac(('$TA:'||s.ctx_txid||':'||s.ctx_pid::text)::bytea, decode('$SEP_CTX_KEY','hex'),'sha256'),'hex') FROM public.app_tenant_ctx_slot() s") || die S4 "stolen-mac mint failed"
+expect_value S4_CTX_STOLEN_MAC_REPLAY_BLOCKED "$SEP_DB" "SET app.tenant_id='$TB'; SET app.ctx_mac='$ctx_stolen_mac'; SELECT count(*) FROM public.users WHERE tenant_id='$TB'" "0"
+# Replaying the stolen mac with the CORRECT tenant still fails: the mac is
+# bound to the ORIGINAL transaction's txid/pid, never the replay session's.
+expect_value S4_CTX_STOLEN_MAC_SAME_TENANT_REPLAY "$SEP_DB" "SET app.tenant_id='$TA'; SET app.ctx_mac='$ctx_stolen_mac'; SELECT count(*) FROM public.users WHERE id='$UA'" "0"
+# app_bind_tenant_ctx with an invalid mac must raise 22000 (fail closed).
+expect_deny S4_CTX_BIND_GARBAGE_MAC "$SEP_DB" "SELECT public.app_bind_tenant_ctx('$TA'::uuid, '00000000000000000000000000000000')" "" "22000"
+# The bind function requires an ACTIVE key; bind for tenant A then read.
+expect_value S4_CTX_BIND_LEGIT "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
+# Nested re-scope (the documented 'last call wins' contract) for the trusted
+# caller: bind A then bind B as sequential statements of ONE transaction —
+# the B binding wins and B rows become visible (A rows no longer are).
+expect_value S4_CTX_RESCOPE_LAST_WINS "$SEP_DB" "$(tenant_ctx_bind_sql "$TA") $(tenant_ctx_bind_sql "$TB") SELECT (SELECT count(*) FROM public.users WHERE id='$UB') AS sees_b, (SELECT count(*) FROM public.users WHERE id='$UA') AS sees_a" "1|0"
+# The validator itself: NULL on an unbound session; the bound tenant when bound.
+expect_value S4_CTX_VALIDATOR_NULL_UNBOUND "$SEP_DB" "SELECT public.app_tenant_ctx_text() IS NULL" "t"
+expect_value S4_CTX_VALIDATOR_BOUND "$SEP_DB" "SELECT public.app_tenant_ctx_text()" "$TA" "$TA"
+# Keys table is invisible to the runtime (F-DB-05 containment on new objects).
+expect_deny S4_CTX_KEYS_TABLE_INACCESSIBLE "$SEP_DB" "SELECT count(*) FROM public.platform_tenant_ctx_keys"
+# The enforcement flag table is likewise invisible.
+expect_deny S4_CTX_FLAG_TABLE_INACCESSIBLE "$SEP_DB" "SELECT count(*) FROM public.platform_ctx_enforce"
+# A hostile session CANNOT flip the enforcement switch (zero grants).
+expect_deny S4_CTX_FLAG_WRITE_DENIED "$SEP_DB" "INSERT INTO public.platform_ctx_enforce (flag, enabled_at, enabled_by) VALUES ('ON', now(), 'hostile')"
 # Independently inspect the physical rows as admin: runtime RLS visibility
 # alone cannot prove that no hidden cross-tenant row was inserted or reassigned.
 s4_integrity=$(admin postgres "$SEP_DB" "SELECT

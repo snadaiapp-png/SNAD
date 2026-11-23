@@ -197,7 +197,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         rawParticipantRepo = new JdbcEntityParticipantRepository(rawJdbc);
 
         // SERVICE datasource — production TenantRlsDataSource path.
-        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource);
+        tenantRlsDataSource = new TenantRlsDataSource(rawDataSource, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         tenantJdbc = new NamedParameterJdbcTemplate(tenantRlsDataSource);
         contactRepo = new JdbcContactRepository(tenantJdbc);
         participantRepo = new JdbcEntityParticipantRepository(tenantJdbc);

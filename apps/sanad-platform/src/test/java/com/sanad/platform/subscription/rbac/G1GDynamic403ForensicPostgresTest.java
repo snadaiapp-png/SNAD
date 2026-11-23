@@ -86,8 +86,7 @@ class G1GDynamic403ForensicPostgresTest {
         // V20261029_1: roles is FORCE RLS — the lookup must run under the
         // control-plane tenant GUC (fail-closed otherwise).
         controlRoleId = tx.execute(s -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, controlTenantId.toString());
+            bindSigned(controlTenantId);
             return jdbc.queryForObject(
                     "SELECT id FROM roles WHERE tenant_id = ? AND code = 'ADMIN' AND status = 'ACTIVE' ORDER BY created_at LIMIT 1",
                     UUID.class, controlTenantId);
@@ -103,9 +102,7 @@ class G1GDynamic403ForensicPostgresTest {
         // this transaction only — no session-level leak when the connection is returned
         // to HikariCP. Control-plane user is in the control tenant (CONTROL_PLANE_TENANT_ID).
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, controlTenantId.toString());
+            bindSigned(controlTenantId);
             jdbc.update("""
                     INSERT INTO users (id, tenant_id, email, display_name, status,
                                        password_hash, must_change_password, platform_admin,
@@ -117,8 +114,7 @@ class G1GDynamic403ForensicPostgresTest {
         // V20261029_1: user_role_assignments is FORCE RLS — seed under the
         // control-plane tenant GUC.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, controlTenantId.toString());
+            bindSigned(controlTenantId);
             jdbc.update("""
                     INSERT INTO user_role_assignments
                         (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -142,9 +138,7 @@ class G1GDynamic403ForensicPostgresTest {
         // so both share the tx-bound physical connection.
         UUID forensicTenantIdFinal = forensicTenantId;
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, forensicTenantIdFinal.toString());
+            bindSigned(forensicTenantIdFinal);
             jdbc.update("""
                     INSERT INTO users (id, tenant_id, email, display_name, status,
                                        password_hash, must_change_password, platform_admin,
@@ -156,8 +150,7 @@ class G1GDynamic403ForensicPostgresTest {
         // V20261029_1: roles / role_capabilities / user_role_assignments are
         // FORCE RLS — seed the forensic tenant's RBAC chain under its own GUC.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, forensicTenantIdFinal.toString());
+            bindSigned(forensicTenantIdFinal);
             jdbc.update("""
                     INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
                     VALUES (?, ?, 'ADMIN', 'Administrator', 'G1-G forensic tenant admin', 'ACTIVE', ?, ?)
@@ -181,8 +174,7 @@ class G1GDynamic403ForensicPostgresTest {
         // tenant's subscription under its own GUC (same tx-scoped pattern as
         // the identity chain above); fail-closed predicate unchanged.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, forensicTenantIdFinal.toString());
+            bindSigned(forensicTenantIdFinal);
             jdbc.update("""
                     INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                             seat_quantity, credit_balance_minor, started_at, current_period_start,
@@ -224,9 +216,7 @@ class G1GDynamic403ForensicPostgresTest {
             // tenant-scoped transaction (an unbound DELETE matches zero rows
             // and would leave rows blocking the tenants delete via FK).
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
@@ -244,9 +234,7 @@ class G1GDynamic403ForensicPostgresTest {
             // covers the control-plane user; for already-deleted forensic users the
             // DELETE is a no-op (RLS USING returns 0 rows).
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, controlTenantId.toString());
+                bindSigned(controlTenantId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
         }
@@ -345,5 +333,18 @@ class G1GDynamic403ForensicPostgresTest {
 
         System.out.println("G1G_FORENSIC_MARKER: " + EXPECTED_EXECUTIVE_DENIAL);
         System.out.println("G1G_FORENSIC_MARKER: " + TENANT_WORKSPACE_SUBSCRIPTION_READ_SURFACE_MISSING);
+    }
+
+    // G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1).
+    private final com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(tenant, String.valueOf(slot.get("txid")),
+                ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 }

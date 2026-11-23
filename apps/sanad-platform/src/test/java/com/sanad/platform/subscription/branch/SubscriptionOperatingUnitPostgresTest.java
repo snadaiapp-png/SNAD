@@ -254,10 +254,23 @@ class SubscriptionOperatingUnitPostgresTest {
         connection.rollback(savepoint);
     }
 
+    /** G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1). */
     private void setTenant(UUID tenant) throws SQLException {
+        com.sanad.platform.security.rls.TenantContextSigner signer =
+                com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+        String txid;
+        int pid;
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery("SELECT s.ctx_txid, s.ctx_pid FROM public.app_tenant_ctx_slot() s")) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = signer.macFor(tenant, txid, pid);
         try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
+                "SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
             ps.setString(1, tenant.toString());
+            ps.setString(2, mac);
             try (ResultSet ignored = ps.executeQuery()) { }
         }
     }

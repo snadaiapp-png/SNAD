@@ -136,9 +136,7 @@ class TenantLifecycleRlsContractTest {
 
             // Pattern A2: wrap set_config + INSERT INTO users in same tx
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -155,9 +153,7 @@ class TenantLifecycleRlsContractTest {
         } finally {
             // Cleanup (delete with GUC + same tx pattern)
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
@@ -188,8 +184,7 @@ class TenantLifecycleRlsContractTest {
             }
             // Seed userA in tenantA
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -216,8 +211,7 @@ class TenantLifecycleRlsContractTest {
             assertThat(crossTenantCount).as("RLS denies when GUC != row.tenant_id").isEqualTo(0);
         } finally {
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                bindSigned(tenantA);
                 jdbc.update("DELETE FROM users WHERE id = ?", userA);
             });
             jdbc.update("DELETE FROM tenants WHERE id IN (?, ?)", tenantA, tenantB);
@@ -283,8 +277,7 @@ class TenantLifecycleRlsContractTest {
                     "audit-" + tenantId.toString().substring(0, 8),
                     Timestamp.from(now), Timestamp.from(now));
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update(
                         "INSERT INTO users (id, tenant_id, email, display_name, status, "
                                 + "password_hash, created_at, updated_at) "
@@ -317,8 +310,7 @@ class TenantLifecycleRlsContractTest {
         } finally {
             jdbc.update("DELETE FROM platform_audit_logs WHERE id = ?", auditId);
             tx.executeWithoutResult(s -> {
-                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                bindSigned(tenantId);
                 jdbc.update("DELETE FROM users WHERE id = ?", userId);
             });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
@@ -384,5 +376,20 @@ class TenantLifecycleRlsContractTest {
                 "tenant_id", tenantId.toString(),
                 "user_id", UUID.randomUUID().toString()));
         SecurityContextHolder.getContext().setAuthentication(token);
+    }
+
+    // G1 P0-B: the trusted context is the SIGNED BIND protocol (V20261124_1);
+    // raw-GUC writes are retired — the DB validates the HMAC before trusting
+    // the tenant context.
+    private final com.sanad.platform.security.rls.TenantContextSigner signer =
+            com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner();
+
+    private void bindSigned(UUID tenant) {
+        java.util.Map<String, Object> slot = jdbc.queryForMap(
+                "SELECT s.ctx_txid AS txid, s.ctx_pid AS pid FROM public.app_tenant_ctx_slot() s");
+        String mac = signer.macFor(tenant, String.valueOf(slot.get("txid")),
+                ((Number) slot.get("pid")).intValue());
+        jdbc.queryForObject("SELECT public.app_bind_tenant_ctx(?::uuid, ?)",
+                Boolean.class, tenant.toString(), mac);
     }
 }

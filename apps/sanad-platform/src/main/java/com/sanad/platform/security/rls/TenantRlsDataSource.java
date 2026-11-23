@@ -20,9 +20,11 @@ import org.springframework.jdbc.datasource.AbstractDataSource;
 public class TenantRlsDataSource extends AbstractDataSource {
 
     private final AbstractDataSource delegate;
+    private final TenantContextSigner signer;
 
-    public TenantRlsDataSource(AbstractDataSource delegate) {
+    public TenantRlsDataSource(AbstractDataSource delegate, TenantContextSigner signer) {
         this.delegate = delegate;
+        this.signer = signer;
     }
 
     @Override
@@ -35,10 +37,10 @@ public class TenantRlsDataSource extends AbstractDataSource {
         return wrap(delegate.getConnection(username, password));
     }
 
-    private static Connection wrap(Connection real) {
+    private Connection wrap(Connection real) {
         return (Connection) Proxy.newProxyInstance(
                 Connection.class.getClassLoader(),
                 new Class<?>[] { Connection.class },
-                new TenantRlsConnectionHandler(real));
+                new TenantRlsConnectionHandler(real, signer));
     }
 }

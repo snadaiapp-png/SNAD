@@ -64,6 +64,16 @@ sanad:
   rls:
     enabled: true
 
+# G1 P0-B (V20261124_1/V20261124_2): signing key for the SIGNED TENANT-CONTEXT
+# BIND protocol, LOCAL/TEST ONLY. This is the DOCUMENTED DISPOSABLE-FIXTURE key
+# (repository-published by design; identical to TENANT_CTX_FIXTURE_KEY_HEX in
+# tests/security/lib/tenant-ctx-bind.sh and to the fixture key auto-provisioned
+# by V20261124_2 on fixture-topology databases). It is only valid on disposable
+# fixture databases holding no real data. Production ('separated' topology)
+# MUST provision a different key via the environment and the operator script —
+# the enforcement migration refuses to run without it.
+SANAD_TENANT_CTX_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
 logging:
   level:
     root: INFO

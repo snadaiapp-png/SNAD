@@ -71,7 +71,7 @@ class ExecutiveBillingQueryServicePostgresTest {
         DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
-        rls = new TenantRlsTransactionContext(jdbc);
+        rls = new TenantRlsTransactionContext(jdbc, com.sanad.platform.test.TenantCtxTestSupport.fixtureSigner());
         service = new ExecutiveBillingQueryService(jdbc, rls);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(ds));
     }

@@ -2,7 +2,21 @@
 -- 10 directly invokable HR SECURITY DEFINER signatures.
 -- The CI wrapper runs this in disposable separation_cert PG17, not production.
 -- Every test is inside an explicit transaction and always rolls back.
+-- G1 P0-B v5 (V20261124_1/V20261124_2): the 20 negative scenarios rely on
+-- raw set_config overrides which the validator now REJECTS (no valid mac for
+-- '' or tenant_b in this transaction) — expected 42501 denials are preserved
+-- exactly. The final positive self-test reproduces the backend bind protocol
+-- first (operator step as postgres, BEFORE the runtime role switch), so the
+-- in-transaction re-scope back to tenant_a is the trusted caller's own
+-- 'last call wins' contract, not a GUC forgery.
 BEGIN;
+-- Operator step (postgres can read the zero-grant keys table; the runtime
+-- role cannot by design): signed bind for tenant_a within THIS transaction.
+WITH slot AS (SELECT * FROM public.app_tenant_ctx_slot()),
+     k AS (SELECT secret FROM public.platform_tenant_ctx_keys WHERE status = 'ACTIVE' ORDER BY created_at DESC LIMIT 1)
+SELECT public.app_bind_tenant_ctx('aaaaaaaa-0000-0000-0000-0000000000a4'::uuid,
+           encode(hmac(('aaaaaaaa-0000-0000-0000-0000000000a4'::text || ':' || slot.ctx_txid || ':' || slot.ctx_pid::text)::bytea, k.secret, 'sha256'), 'hex')) AS bound
+FROM slot, k \gset
 SET LOCAL ROLE sanad;
 DO $c4_negative$
 DECLARE
@@ -67,9 +81,11 @@ BEGIN
   END IF;
   -- The minimal positive control validates the scope checker itself; it
   -- performs no HR mutations and uses a synthetic tenant with no data.
+  -- The signed bind above legitimately covers tenant_a for THIS transaction:
+  -- re-scoping back to tenant_a is the trusted caller's own contract.
   PERFORM set_config('app.tenant_id',tenant_a::text,true);
   PERFORM public.hr_assert_migration_tenant_scope(tenant_a);
-  RAISE NOTICE 'C4_HR_NEGATIVE_MATRIX=PASS 20/20 expected_denials; positive_scope=PASS';
+  RAISE NOTICE 'C4_HR_NEGATIVE_MATRIX=PASS 20/20 expected_denials; positive_scope=PASS (signed-bind protocol)';
 END
 $c4_negative$;
 ROLLBACK;
