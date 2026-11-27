@@ -196,11 +196,9 @@ describe("SNAD system-wide visual governance", () => {
     expect(existsSync(COMPLIANCE_SCRIPT), "check-module-visual-compliance.py must exist").toBe(true);
     // Self-test embeds a compliant fixture (must pass) and a non-compliant
     // fixture (must fail with exit code 1).
-    const selfTest = () =>
-      execFileSync("python3", [COMPLIANCE_SCRIPT, "--self-test"], { encoding: "utf8", timeout: 60_000 });
-    expect(selfTest).not.toThrow();
-    const output = selfTest();
+    const output = execFileSync("python3", [COMPLIANCE_SCRIPT, "--self-test"], { encoding: "utf8", timeout: 30_000 });
     expect(output).toContain("SELF_TEST_COMPLIANT_FIXTURE=PASS");
     expect(output).toContain("SELF_TEST_NONCOMPLIANT_FIXTURE=FAIL");
-  });
+    expect(output).toContain("SELF_TEST=PASS");
+  }, 45_000);
 });
