@@ -380,6 +380,10 @@ class CrmFlywayHistoryAssertionTest {
             // revised by ORDER 11 (doc 21) to the dedicated-connection model:
             , "20261118.1"   // tenants control-plane ACL (dedicated sanad_control_plane LOGIN connection identity)
             , "20261118.2"   // access_capabilities control-plane ACL (capability registry DML denial)
+            // G1 F-INT: all three ordered signed-context migrations must be present.
+            , "20261124.1"   // HMAC signed tenant-context binding protocol
+            , "20261124.2"   // signed policy enforcement
+            , "20261124.3"   // WS7 referential integrity completion
     );
 
 
