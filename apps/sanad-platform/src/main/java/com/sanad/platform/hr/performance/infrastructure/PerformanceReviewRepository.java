@@ -24,7 +24,7 @@ import java.util.UUID;
  * Explicit-column PostgreSQL access for G3 performance reviews.
  *
  * <p>Every operation runs on a SINGLE transaction-scoped connection with
- * {@code set_config('app.tenant_id', ..., true)} so FORCE RLS remains fully
+ * a HMAC-verified tenant binding so FORCE RLS remains fully
  * enforced (the canonical HR v2 pattern). Queries additionally carry explicit
  * tenant predicates; RLS stays the final fail-closed boundary. Updates are
  * optimistic: they must match the expected {@code version} exactly.</p>
@@ -344,8 +344,6 @@ public class PerformanceReviewRepository {
     }
 
     private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (Statement st = connection.createStatement()) {
-            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
     }
 }

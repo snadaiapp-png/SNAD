@@ -319,7 +319,7 @@ class CrmPostgresMigrationTest {
     // and RT-12/13/14 red-team exposures via the sanad_control_plane dedicated
     // LOGIN connection identity (NO membership with the runtime in any
     // direction). Recorded per watermark policy; no silent value bump.
-    private static final String LATEST_MIGRATION_VERSION = "20261118.2";
+    private static final String LATEST_MIGRATION_VERSION = "20261124.3";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

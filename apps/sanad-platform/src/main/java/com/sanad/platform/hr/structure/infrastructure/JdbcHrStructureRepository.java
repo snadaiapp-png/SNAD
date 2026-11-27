@@ -427,11 +427,7 @@ public final class JdbcHrStructureRepository {
     }
 
     private void setTenantContext(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId.toString());
-            ps.executeQuery();
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
     }
 
     @FunctionalInterface

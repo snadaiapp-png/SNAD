@@ -51,10 +51,8 @@
 --
 -- Security notes:
 --   - Uses crypt() + gen_salt('bf', 10) for bcrypt hashing (pgcrypto).
---   - Tenant context is set via set_config('app.tenant_id', ...) for
---     RLS-protected INSERTs and verification queries (FORCE RLS is live
---     on canonical HR identity, assignment, leave, and attendance tables).
---   - Tenant context is cleared only AFTER all RLS-protected verification.
+--   - A transaction-bound signed fixture context covers all FORCE-RLS INSERTs.
+--   - COMMIT occurs only after all protected verification queries.
 --   - No BYPASSRLS, no superuser.
 --   - No committed password literals — the bcrypt hash is computed at
 --     runtime from the per-run ephemeral password.
@@ -79,10 +77,26 @@ ON CONFLICT (id) DO NOTHING;
 -- Bind the deterministic fixture tenant BEFORE the first FORCE-RLS write.
 -- tenant_subscriptions / organizations / organization_memberships / roles /
 -- user_role_assignments are fail-closed FORCE RLS (V20261029_1): psql runs
--- this file on ONE session, so this session-level set_config scopes every
--- later statement to the fixture tenant (re-asserted again before the users
--- and HR blocks below — same value, last call wins).
-SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+-- this file inside ONE explicit transaction; raw session GUC is untrusted.
+-- The signed binder must prove HMAC ownership before any protected write.
+BEGIN;
+-- Disposable CI fixture only: signed per-transaction tenant context using
+-- the explicitly PUBLIC fixture key from V20261124_2. Never use this key for production.
+DO $signed_seed$
+DECLARE
+    v_tenant uuid := '33333333-3333-4333-8333-333333333331'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac) THEN
+        RAISE EXCEPTION 'G2_SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+    IF public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'G2_SIGNED_FIXTURE_VALIDATOR_MISMATCH';
+    END IF;
+END $signed_seed$;
 
 -- ----------------------------------------------------------------------------
 -- 2. Plan + plan_version + tenant_subscription (with WORKFLOW module enabled)
@@ -219,7 +233,7 @@ WHERE m.code = 'HRM'
 -- ----------------------------------------------------------------------------
 -- 3. Organization (required for organization membership fixtures)
 -- ----------------------------------------------------------------------------
-SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+-- Signed fixture tenant context stays bound for this transaction.
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
     '33333333-3333-4333-8333-333333333335',
@@ -244,7 +258,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Bind deterministic fixture tenant before the first FORCE-RLS users write.
 -- The integration-test database role must also have an explicitly scoped
 -- policy; merely setting this GUC does not create or bypass a policy.
-SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+-- Signed fixture tenant context stays bound for this transaction.
 
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (
@@ -303,7 +317,7 @@ ON CONFLICT (id) DO NOTHING;
 -- production provisioning: User -> Person -> ACTIVE Employment -> PRIMARY
 -- Assignment, with Employee reporting to Manager through assignment identity.
 -- Set tenant context before all FORCE-RLS canonical HR writes.
-SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+-- Signed fixture tenant context stays bound for this transaction.
 
 -- Deterministic employer context for the three G2 employments.
 INSERT INTO legal_entities (
@@ -743,4 +757,4 @@ FROM hr_leave_balances WHERE tenant_id = '33333333-3333-4333-8333-333333333331' 
 -- Clear tenant context only after all RLS-protected verification queries.
 -- This preserves fail-closed semantics without casting an empty GUC to uuid
 -- while the seed is still validating HR rows.
-SELECT set_config('app.tenant_id', '', false);
+COMMIT;

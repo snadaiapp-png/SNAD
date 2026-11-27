@@ -35,13 +35,24 @@ class UsersRlsTenantABPostgresTest {
     @Test
     @Transactional
     void populatedTenantsCannotObserveOrMutateEachOther() {
-        Boolean bypass = jdbc.queryForObject(
-                "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user",
-                Boolean.class);
-        assertThat(bypass).as("Test must use a non-bypass database role").isFalse();
-
-        Tenant a = tenants.save(new Tenant("G1 A", "g1-a-" + UUID.randomUUID(), TenantStatus.ACTIVE));
-        Tenant b = tenants.save(new Tenant("G1 B", "g1-b-" + UUID.randomUUID(), TenantStatus.ACTIVE));
+        // Infrastructure phase (catalog probe + tenant fixture seeding) runs
+        // WITHOUT any tenant context — explicitly classified per the strict
+        // signed-binding contract. All tenant-isolation assertions below are
+        // unchanged and now execute under HMAC-verified signed bindings.
+        Tenant a;
+        Tenant b;
+        var both = new java.util.ArrayList<Tenant>();
+        TenantRlsPreAuthScope.run(() -> {
+            Boolean bypass = jdbc.queryForObject(
+                    "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user",
+                    Boolean.class);
+            assertThat(bypass).as("Test must use a non-bypass database role").isFalse();
+            both.add(tenants.save(new Tenant("G1 A", "g1-a-" + UUID.randomUUID(), TenantStatus.ACTIVE)));
+            both.add(tenants.save(new Tenant("G1 B", "g1-b-" + UUID.randomUUID(), TenantStatus.ACTIVE)));
+            tenants.flush();
+        });
+        a = both.get(0);
+        b = both.get(1);
 
         scope.applyForCurrentTransaction(a.getId());
         User userA = users.saveAndFlush(
@@ -65,10 +76,15 @@ class UsersRlsTenantABPostgresTest {
         assertThat(jdbc.update("DELETE FROM public.users WHERE id = ?",
                 userB.getId())).isZero();
 
-        // Missing tenant context must reveal no users even with A and B seeded.
-        jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
+        // Unbound-session contract: the transaction re-scopes back to the
+        // prestate (raw GUC cleared WITHOUT a mac) and must reveal zero users.
+        // The re-scoping statement itself is binding infrastructure (explicitly
+        // classified); the zero-row assertion runs on the tenant-data path.
+        TenantRlsPreAuthScope.run(() -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
+        });
         assertThat(jdbc.queryForObject("SELECT count(*) FROM public.users", Long.class))
-                .as("Missing tenant GUC must deny all populated users")
+                .as("Missing tenant context must deny all populated users")
                 .isZero();
 
         scope.applyForCurrentTransaction(b.getId());

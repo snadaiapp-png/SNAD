@@ -1,5 +1,7 @@
 package com.sanad.platform.partner.executive;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.security.SecurityContextUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,9 +34,11 @@ public class ExecutivePartnerService {
             Set.of("ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED");
 
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
 
-    public ExecutivePartnerService(JdbcTemplate jdbc) {
+    public ExecutivePartnerService(JdbcTemplate jdbc, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
     }
 
     @Transactional(readOnly = true)
@@ -212,8 +216,8 @@ public class ExecutivePartnerService {
     }
 
     private void platformScope() {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, CONTROL_TENANT_ID.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(CONTROL_TENANT_ID);
     }
 
     private void partnerScope(UUID partnerId) {

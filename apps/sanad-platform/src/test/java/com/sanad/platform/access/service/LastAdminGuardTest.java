@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LastAdminGuardTest {
-    private final LastAdminGuard guard = new LastAdminGuard(null);
+    private final LastAdminGuard guard = new LastAdminGuard(null, new com.sanad.platform.security.rls.TenantRlsTransactionContext(null));
 
     @Test
     void zeroRemainingActiveAdminsIsRejectedBeforeMutation() {

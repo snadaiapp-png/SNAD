@@ -4,50 +4,83 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.UUID;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * Dynamic-proxy invocation handler that lazily applies
- * {@code SET LOCAL app.tenant_id = '<uuid>'} to the underlying physical
- * connection the first time a statement is created within a transaction.
+ * Dynamic-proxy invocation handler that binds the HMAC-SIGNED tenant context
+ * to the underlying physical connection the first time a statement is created
+ * within a transaction (V20261124_1 contract — G1 F-INT-01/03/04).
  *
- * <p>The {@code SET LOCAL} scoping ensures the GUC is scoped to the current
- * transaction and automatically resets on commit/rollback — safe for
- * connection-pool reuse.</p>
+ * <p>The binding is NOT the raw untrusted GUC write
+ * {@code SET LOCAL app.tenant_id = ...} — after V20261124_2 the enforced
+ * policies read {@code public.app_tenant_ctx_text()}, which re-verifies the
+ * HMAC against the caller's OWN {@code txid_current()} and
+ * {@code pg_backend_pid()}; a raw GUC write without a valid mac returns NULL
+ * from the validator and every tenant row stays hidden. The handler therefore
+ * executes the full application-side binding protocol on the physical
+ * connection:</p>
+ *
+ * <ol>
+ *   <li>{@code SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()} —
+ *       one round trip for mac minting.</li>
+ *   <li>{@link TenantContextSigner#macHex(UUID, String, int)} — HMAC-SHA256
+ *       over {@code tenant:txid:pid} with the environment-provisioned key.</li>
+ *   <li>{@code SELECT public.app_bind_tenant_ctx(?::uuid, ?)} — the SECURITY
+ *       DEFINER verifier validates the mac against the caller's own txid/pid
+ *       and sets {@code app.tenant_id} + {@code app.ctx_mac}
+ *       transaction-local; any rejection raises 22000 and fails the
+ *       transaction.</li>
+ * </ol>
+ *
+ * <p>The tenant id always comes from the AUTHENTICATED principal (JWT claims
+ * placed into {@code Authentication.getDetails()} by the JWT filter) — never
+ * from user-supplied request data at this layer.</p>
  *
  * <h3>Activation conditions</h3>
  * <ul>
  *   <li>{@code autoCommit == false} — we are inside a Spring
- *       {@code @Transactional} boundary (the primary CRM data-access path).</li>
+ *       {@code @Transactional} boundary (the primary data-access path).</li>
  *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
  * </ul>
  *
- * <h3>Pre-auth classification (no tenant in security context)</h3>
+ * <p>If either condition is false the proxy is a transparent pass-through for
+ * non-transactional reads; inside a transaction without tenant context the
+ * strict contract below applies.</p>
+ *
+ * <h3>G1-i red-contract closure (2026-11-25)</h3>
+ * <p>The historical silent pass-through for a statement issued inside an
+ * active transaction with NO tenant context is rejected loudly: after
+ * V20261124_2 the RLS policies fail closed on unbound sessions, so such a
+ * statement could only ever return empty results — silently masking a
+ * misrouted or misconfigured call. Tenant-data paths must carry an
+ * authenticated tenant; genuinely pre-authentication statements (login,
+ * token issuance, session bootstrap) must be explicitly classified via
+ * {@link TenantRlsPreAuthScope}, which keeps this path transparent. The
+ * strict behavior is governed by {@link TenantRlsSecurityConfig}
+ * (F-INT-06): disabling it on the production path requires the full
+ * governance triple; there is no unconditional system-property override.</p>
+ *
+ * <h3>Fail-closed behavior</h3>
  * <ul>
- *   <li><b>Trusted scope present</b> — the transaction already carries a
- *       non-empty {@code app.tenant_id} GUC applied by an explicitly
- *       classified privileged path ({@code TenantRlsTransactionContext}
- *       callers: control-plane bootstrap, tenant-resolver login, per-tenant
- *       system workers). The handler stays hands-off: the GUC is the single
- *       source of truth for the classification.</li>
- *   <li><b>Data modification without any classification</b> — statements
- *       that mutate tenant data (INSERT/UPDATE/DELETE/MERGE, including
- *       writing CTEs) fail closed at the driver with
- *       {@code RLS_PRE_AUTH_UNCLASSIFIED} instead of silently issuing
- *       unscoped writes. PostgreSQL FORCE RLS would reject them anyway
- *       (42501); surfacing the rejection at the driver keeps the failure
- *       explicit and auditable rather than silent.</li>
- *   <li><b>Reads and untyped statements</b> — pass through unchanged;
- *       FORCE RLS fail-closed policies already reduce cross-tenant reads to
- *       zero rows when the GUC is absent. DDL executed by migrations via
- *       plain {@code Statement} is untouched.</li>
+ *   <li>No signer configured → bind refused with an explicit SQLException
+ *       (no raw-GUC fallback — the raw GUC is untrusted by design).</li>
+ *   <li>Bind rejection from the database (no ACTIVE key validates the mac)
+ *       → SQLException; the surrounding transaction fails and rolls back.</li>
  * </ul>
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
+
+    private static final String SLOT_SQL =
+            "SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()";
+    private static final String BIND_SQL =
+            "SELECT public.app_bind_tenant_ctx(?::uuid, ?)";
 
     private final Connection delegate;
     private UUID tenantAppliedFor = null;
@@ -59,11 +92,10 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         String name = method.getName();
-        // Intercept statement-creation entry points to guarantee the GUC is
-        // set before any SQL reaches the engine, and that unclassified
-        // pre-auth writes fail closed before reaching the engine.
+        // Intercept statement-creation entry points to guarantee the SIGNED
+        // context is bound before any SQL reaches the engine.
         if (isStatementCreation(name)) {
-            ensureTenantContext(sqlArgument(args));
+            ensureTenantContext();
         }
         try {
             return method.invoke(delegate, args);
@@ -72,11 +104,16 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
             // rather than exposing UndeclaredThrowableException to callers.
             throw exception.getCause();
         } finally {
-            // SET LOCAL ends at commit/rollback. A pooled logical connection
-            // may participate in another transaction after either boundary.
+            // SET LOCAL (issued inside app_bind_tenant_ctx) ends at
+            // commit/rollback. A pooled logical connection may participate in
+            // another transaction after either boundary.
             if ("commit".equals(name) || "rollback".equals(name)
                     || "close".equals(name) || "setAutoCommit".equals(name)) {
                 tenantAppliedFor = null;
+                // A manually-bound tenant must NEVER escape its transaction on
+                // a reused pool thread. The Spring transaction synchronization
+                // provides a second safety net for managed transactions.
+                TenantRlsSignedBinding.clear();
             }
         }
     }
@@ -88,182 +125,120 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
                 || "nativeSQL".equals(methodName);
     }
 
-    private void ensureTenantContext(String sql) throws SQLException {
-        // Only apply within an explicit transaction — SET LOCAL has no effect
-        // (and would error) in autocommit mode.
+    private void ensureTenantContext() throws SQLException {
+        // Only apply within an explicit transaction — SET LOCAL (inside
+        // app_bind_tenant_ctx) has no effect (and would error) in autocommit.
         if (delegate.getAutoCommit()) {
+            return;
+        }
+        // F-INT-01/03/04 — background/control-plane paths: a HMAC-VERIFIED
+        // signed binding established by TenantRlsTransactionContext governs
+        // this transaction. The database validated the mac against the
+        // caller's own txid/pid, so the recorded tenant is a DB-verified
+        // fact. While the binding protocol is in flight, its own statements
+        // pass through (they are the infrastructure establishing the scope).
+        if (TenantRlsSignedBinding.protocolInFlight()) {
+            return;
+        }
+        UUID signedTenant = TenantRlsSignedBinding.currentTenant();
+        if (signedTenant != null) {
+            // A thread-local marker is never sufficient evidence for another
+            // connection/transaction. Re-check the DB-verified tenant on THIS
+            // physical connection before trusting the marker. A leaked marker
+            // after an unwrapped manual connection must fail closed.
+            if (!signedTenant.equals(tenantAppliedFor)) {
+                try (Statement validation = delegate.createStatement();
+                     ResultSet result = validation.executeQuery(
+                             "SELECT public.app_tenant_ctx_text()")) {
+                    if (!result.next() || !signedTenant.toString().equals(result.getString(1))) {
+                        TenantRlsSignedBinding.clear();
+                        throw new SQLException("Signed tenant marker does not match this JDBC transaction");
+                    }
+                }
+            }
+            UUID authenticatedTenant = currentTenantId();
+            if (authenticatedTenant != null && !authenticatedTenant.equals(signedTenant)) {
+                throw new SQLException("Signed tenant binding conflicts with authenticated principal");
+            }
+            tenantAppliedFor = signedTenant;
             return;
         }
         UUID tenantId = currentTenantId();
         if (tenantAppliedFor != null) {
             // A DIFFERENT non-null tenant is a hard violation: the actor swapped
             // identity inside one transaction. A CLEARED context (null) is not an
-            // identity change: the previously applied SET LOCAL GUC still scopes
-            // every statement of this transaction to the original tenant, so RLS
-            // remains fail-closed. Deferred flushes and post-authentication
-            // verification queries therefore continue under the applied scope.
+            // identity change: the previously applied transaction-local binding
+            // still scopes every statement of this transaction to the original
+            // tenant, so RLS remains fail-closed. Deferred flushes and
+            // post-authentication verification queries therefore continue under
+            // the applied scope.
             if (tenantId != null && !tenantAppliedFor.equals(tenantId)) {
                 throw new SQLException("Tenant identity changed inside an active RLS transaction");
             }
             return;
         }
         if (tenantId == null) {
-            classifyPreAuthTransaction(sql);
-            return;
+            // G1-i red-contract closure: inside an active transaction a
+            // statement without tenant context can only ever return empty
+            // results (the V20261124_2 policies fail closed on unbound
+            // sessions). Silent pass-through masks misrouting — reject loudly
+            // unless the caller explicitly classified this path as pre-auth.
+            TenantRlsRuntimePolicy.Policy policy = TenantRlsRuntimePolicy.current();
+            if (TenantRlsPreAuthScope.isActive() || !policy.strictMissingContext()) {
+                return;
+            }
+            throw new SQLException(
+                    "Tenant RLS context missing for an in-transaction statement: "
+                            + "tenant-data paths must carry an authenticated tenant, or the "
+                            + "pre-authentication path must be explicitly declared with "
+                            + "TenantRlsPreAuthScope");
         }
-        try (var stmt = delegate.createStatement()) {
-            // Parameterised SET LOCAL is not supported by PostgreSQL for GUC
-            // assignment, but the value is a well-formed UUID read directly
-            // from the validated JWT via the security context — never user-
-            // supplied raw input at this layer.
-            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
-        }
+        bindSignedContext(tenantId);
         tenantAppliedFor = tenantId;
     }
 
     /**
-     * Explicitly classifies a pre-auth transaction (no tenant in the security
-     * context). The PostgreSQL catalog is the source of truth: a statement
-     * that mutates a FORCE-RLS-protected table must either run under a
-     * trusted tenant GUC (applied by a classified privileged path) or fail
-     * closed at the driver. Writes to tables without row security (system
-     * tables, non-tenant audit/tenant-directory rows) are untouched, and
-     * PostgreSQL FORCE RLS remains the enforcement backstop in every case.
+     * Execute the signed binding protocol on the physical connection.
+     * F-INT-01/03/04: the application itself mints the mac and calls the
+     * database verifier — no raw GUC write, no fallback.
      */
-    private void classifyPreAuthTransaction(String sql) throws SQLException {
-        if (!isDataModification(sql)) {
-            // Reads, DDL and untyped Statement entries pass through; the
-            // fail-closed FORCE RLS policies govern actual row visibility.
-            return;
+    private void bindSignedContext(UUID tenantId) throws SQLException {
+        TenantContextSigner signer = TenantRlsRuntimePolicy.current().signer();
+        if (signer == null) {
+            throw new SQLException(
+                    "Tenant RLS signed-context binding refused: no HMAC signing key is configured "
+                            + "(snad.rls.context-hmac-key / SANAD_TENANT_CTX_HMAC_KEY). The raw tenant "
+                            + "GUC is untrusted after V20261124_2 and cannot be used as a fallback.");
         }
-        String targetTable = targetTable(sql);
-        if (targetTable != null && !isForceRlsProtected(targetTable)) {
-            // Not tenant-protected data — no RLS classification required.
-            return;
-        }
-        if (trustedPreAuthScopeApplied()) {
-            // Classified privileged pre-auth path (bootstrap, tenant-resolver
-            // login, per-tenant system worker): the transaction already carries
-            // the trusted GUC — nothing to apply, nothing to hide.
-            return;
-        }
-        throw new SQLException("RLS_PRE_AUTH_UNCLASSIFIED: refusing data-modification statement"
-                + (targetTable != null ? " on '" + targetTable + "'" : "")
-                + " inside a transaction that has no authenticated tenant context and no"
-                + " trusted pre-auth tenant GUC (app.tenant_id is unset). Explicitly classify"
-                + " privileged pre-auth paths by applying the trusted tenant GUC via"
-                + " TenantRlsTransactionContext before writing tenant data.");
-    }
-
-    /**
-     * @return true when this transaction already carries a non-empty trusted
-     *         {@code app.tenant_id} GUC applied by a classified pre-auth path.
-     */
-    private boolean trustedPreAuthScopeApplied() throws SQLException {
-        try (var stmt = delegate.createStatement();
-             var rs = stmt.executeQuery("SELECT current_setting('app.tenant_id', true)")) {
-            if (rs.next()) {
-                String value = rs.getString(1);
-                return value != null && !value.isBlank();
-            }
-            return false;
-        }
-    }
-
-    /**
-     * @return true when the given table (optionally schema-qualified) is
-     *         protected by both ENABLE and FORCE row-level security, per the
-     *         live PostgreSQL catalog. Unknown tables resolve to false — the
-     *         database itself then governs any statement that reaches it.
-     */
-    private boolean isForceRlsProtected(String table) throws SQLException {
-        String sql = "SELECT c.relrowsecurity AND c.relforcerowsecurity"
-                + " FROM pg_class c WHERE c.oid = to_regclass(?)";
-        try (var ps = delegate.prepareStatement(sql)) {
-            ps.setString(1, table);
-            try (var rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    Boolean protectedTable = rs.getObject(1, Boolean.class);
-                    return Boolean.TRUE.equals(protectedTable);
+        try {
+            String txid;
+            int pid;
+            try (Statement slot = delegate.createStatement();
+                 ResultSet rs = slot.executeQuery(SLOT_SQL)) {
+                if (!rs.next()) {
+                    throw new SQLException("app_tenant_ctx_slot() returned no row — binding refused");
                 }
-                return false;
+                txid = rs.getString("ctx_txid");
+                pid = rs.getInt("ctx_pid");
             }
-        }
-    }
-
-    /**
-     * Conservative mutation classifier for driver-side fail-closed gating of
-     * unclassified pre-auth transactions. False negatives (a write that slips
-     * through) remain protected by PostgreSQL FORCE RLS; false positives
-     * (a read classified as a write) only fail toward the safer direction.
-     */
-    private static boolean isDataModification(String sql) {
-        if (sql == null) {
-            // createStatement()/prepareCall() without SQL text: the statement
-            // type is unknowable at this layer — pass through unchanged.
-            return false;
-        }
-        String stripped = stripCommentsAndWhitespace(sql);
-        if (stripped.isEmpty()) {
-            return false;
-        }
-        // Mutation detection is case-insensitive: Hibernate and Flyway emit
-        // lowercase verbs ("insert into ..."), psql/DDL uppercase.
-        String upper = stripped.toUpperCase(java.util.Locale.ROOT);
-        if (startsWithAny(upper, "INSERT", "UPDATE", "DELETE", "MERGE", "CALL", "DO", "TRUNCATE")) {
-            return true;
-        }
-        if (upper.startsWith("WITH")) {
-            // Writing CTEs (e.g. WITH x AS (...) INSERT INTO ...) mutate data.
-            return upper.contains("INSERT") || upper.contains("UPDATE")
-                    || upper.contains("DELETE") || upper.contains("MERGE");
-        }
-        return false;
-    }
-
-    private static final java.util.regex.Pattern TARGET_TABLE_PATTERN =
-            java.util.regex.Pattern.compile(
-                    "\\b(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|MERGE\\s+INTO)\\s+"
-                            + "((?:\"[^\"]+\"|[A-Za-z0-9_$]+)(?:\\.(?:\"[^\"]+\"|[A-Za-z0-9_$]+))?)",
-                    java.util.regex.Pattern.CASE_INSENSITIVE);
-
-    /**
-     * Extracts the mutated table from the statement text (first write verb
-     * occurrence, covering writing CTEs and quoted identifiers as emitted by
-     * JDBC tooling such as Flyway). Returns null when no write target can be
-     * identified — callers then fall back to the GUC/classification check
-     * instead of the catalog check.
-     */
-    private static String targetTable(String sql) {
-        String stripped = stripCommentsAndWhitespace(sql);
-        var matcher = TARGET_TABLE_PATTERN.matcher(stripped);
-        if (matcher.find()) {
-            return matcher.group(1).replace("\"", "")
-                    .toLowerCase(java.util.Locale.ROOT);
-        }
-        return null;
-    }
-
-    private static String stripCommentsAndWhitespace(String sql) {
-        String noBlockComments = sql.replaceAll("/\\*.*?\\*/", " ");
-        String noLineComments = noBlockComments.replaceAll("--[^\\n]*", " ");
-        return noLineComments.stripLeading();
-    }
-
-    private static boolean startsWithAny(String upper, String... keywords) {
-        for (String keyword : keywords) {
-            if (upper.startsWith(keyword)) {
-                return true;
+            String mac = signer.macHex(tenantId, txid, pid);
+            try (PreparedStatement bind = delegate.prepareStatement(BIND_SQL)) {
+                bind.setString(1, tenantId.toString());
+                bind.setString(2, mac);
+                try (ResultSet rs = bind.executeQuery()) {
+                    if (!rs.next() || !rs.getBoolean(1)) {
+                        throw new SQLException(
+                                "Tenant RLS signed-context bind REJECTED by the database: no ACTIVE key "
+                                        + "in platform_tenant_ctx_keys validates the supplied mac for this "
+                                        + "transaction. The transaction fails closed.");
+                    }
+                }
             }
+        } catch (SQLException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SQLException("Tenant RLS signed-context binding failed (fail-closed)", e);
         }
-        return false;
-    }
-
-    private static String sqlArgument(Object[] args) {
-        if (args == null || args.length == 0 || !(args[0] instanceof String sql)) {
-            return null;
-        }
-        return sql;
     }
 
     /**

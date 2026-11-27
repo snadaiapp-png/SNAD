@@ -64,7 +64,7 @@ public class LegacyHrProjectionMapper {
     }
 
     private void bindTenant(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc).applyForCurrentTransaction(tenantId);
     }
 
     /** Legacy v1 response fields projected from canonical data. */

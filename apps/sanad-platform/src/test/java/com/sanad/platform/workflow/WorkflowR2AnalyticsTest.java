@@ -1,5 +1,7 @@
 package com.sanad.platform.workflow;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.workflow.analytics.WorkflowAnalyticsProjectionService;
 import com.sanad.platform.workflow.analytics.WorkflowAnalyticsProjectionWorker;
 import com.sanad.platform.workflow.analytics.WorkflowAnalyticsQueryService;
@@ -46,6 +48,9 @@ class WorkflowR2AnalyticsTest {
     private static WorkflowTimerNotificationWorker timerWorker;
     private static WorkflowAnalyticsProjectionService projectionService;
     private static WorkflowAnalyticsProjectionWorker projectionWorker;
+    private static com.sanad.platform.security.rls.TenantRlsTransactionContext CTX;
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private static WorkflowAnalyticsQueryService queryService;
     private static WorkflowPerformanceMetricsService metricsService;
     private static boolean postgresAvailable;
@@ -63,8 +68,8 @@ class WorkflowR2AnalyticsTest {
      *  (workflow tables are FORCE RLS - V20261029_1). */
     private void inTenantScope(UUID tenantId, Runnable body) {
         tx.executeWithoutResult(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            // G1 REV3 — signed binding protocol (raw GUC untrusted post-V20261124_2).
+            CTX.applyForCurrentTransaction(tenantId);
             body.run();
         });
     }
@@ -72,8 +77,8 @@ class WorkflowR2AnalyticsTest {
     /** Result-bearing variant of {@link #inTenantScope(UUID, Runnable)}. */
     private <T> T inTenantScopeWithResult(UUID tenantId, java.util.function.Supplier<T> body) {
         return tx.execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            // G1 REV3 — signed binding protocol (raw GUC untrusted post-V20261124_2).
+            CTX.applyForCurrentTransaction(tenantId);
             return body.get();
         });
     }
@@ -108,7 +113,7 @@ class WorkflowR2AnalyticsTest {
                 new com.fasterxml.jackson.databind.ObjectMapper());
         journeyService = new WorkflowJourneyService(jdbc, new com.fasterxml.jackson.databind.ObjectMapper());
         timerWorker = new WorkflowTimerNotificationWorker(jdbc, notifications,
-                journeyService, true, 72, 24);
+                journeyService, new TenantRlsTransactionContext(jdbc), true, 72, 24);
         projectionService = new WorkflowAnalyticsProjectionService(jdbc);
         // FORCE RLS (V20261029_1): the projection worker needs the trusted
         // transaction-local tenant scope for its per-tenant pass.
@@ -116,6 +121,14 @@ class WorkflowR2AnalyticsTest {
                 new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc);
         projectionWorker = new WorkflowAnalyticsProjectionWorker(jdbc, projectionService,
                 transactionManager, workerRls, true);
+        // G1 REV3: shared signed-context handle + fixture signer (disposable
+        // fixture topology only) for the migrated seeding paths.
+        CTX = workerRls;
+        com.sanad.platform.security.rls.TenantRlsRuntimePolicy.install(
+                new com.sanad.platform.security.rls.TenantRlsRuntimePolicy.Policy(
+                        new com.sanad.platform.security.rls.TenantContextSigner(
+                                java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), true),
+                        true));
         queryService = new WorkflowAnalyticsQueryService(jdbc);
         metricsService = new WorkflowPerformanceMetricsService(jdbc);
     }
@@ -173,7 +186,8 @@ class WorkflowR2AnalyticsTest {
             // is_local=true (not false) scopes the GUC to this transaction only — no
             // session-level leak when the connection is returned to the (non-)pool.
             tx.executeWithoutResult(status -> {
-                jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+                // G1 REV3 — signed binding protocol for the FORCE-RLS identity plane.
+                CTX.applyForCurrentTransaction(tenant);
                 jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
                                 + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
                         user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);

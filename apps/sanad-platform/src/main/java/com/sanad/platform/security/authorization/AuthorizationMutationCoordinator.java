@@ -1,5 +1,7 @@
 package com.sanad.platform.security.authorization;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.access.evaluation.AuthorizationVersionService;
 import com.sanad.platform.access.evaluation.EffectivePermissionProjectionService;
 import org.springframework.context.ApplicationEventPublisher;
@@ -23,16 +25,18 @@ public class AuthorizationMutationCoordinator {
     private final AuthorizationVersionService versions;
     private final EffectivePermissionProjectionService projections;
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
     private final ApplicationEventPublisher publisher;
 
     public AuthorizationMutationCoordinator(
             AuthorizationVersionService versions,
             EffectivePermissionProjectionService projections,
             JdbcTemplate jdbc,
-            ApplicationEventPublisher publisher) {
+            ApplicationEventPublisher publisher, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.versions = versions;
         this.projections = projections;
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
         this.publisher = publisher;
     }
 
@@ -95,8 +99,9 @@ public class AuthorizationMutationCoordinator {
     }
 
     private void scope(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(
+                tenantId);
     }
 
     private record SubjectRef(UUID tenantId, UUID userId) {}
