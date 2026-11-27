@@ -73,7 +73,7 @@ jobs:
           SELECT format('CREATE ROLE sanad_control_plane LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS', :'cp_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
           ALTER ROLE sanad_control_plane LOGIN PASSWORD :'cp_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-          DO $
+          DO $cp_gate$
           BEGIN
             IF EXISTS (SELECT 1 FROM pg_auth_members m
                        JOIN pg_roles g ON g.oid=m.roleid
@@ -82,7 +82,7 @@ jobs:
                           OR (r.rolname = 'sanad_control_plane' AND g.rolname IN ('sanad','sanad_migrator'))) THEN
                 RAISE EXCEPTION 'CI_CONTROL_PLANE_MEMBERSHIP_VIOLATION';
             END IF;
-          END $;
+          END $cp_gate$;
 
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a
