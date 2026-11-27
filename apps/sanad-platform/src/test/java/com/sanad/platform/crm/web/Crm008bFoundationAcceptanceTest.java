@@ -2,6 +2,7 @@ package com.sanad.platform.crm.web;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -97,7 +98,8 @@ class Crm008bFoundationAcceptanceTest {
     //   V20261001_2..6 = Platform IAM membership/role/capability/bootstrap chain
     //   V20261001_7 = canonical Platform Owner executive-admin reconciliation
     //   V20261001_8..12 = forward-only UAC Wave 1 execution overlay
-    private static final String CRM_LATEST_VERSION = "20261113.1"; // SANAD G1 / P0 RLS closure (executive order 2026-11-11, PR #1509) heads it at V20261111_1 (fail-closed tenant RLS + FORCE RLS on service_callback_replay + dedicated least-privilege expired-row cleanup role); PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables); SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at V20261028_1 (validation-only per-tenant role-template matrix revalidation under RLS context); SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at V20261029_1 (fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables); SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29 heads it at V20261029_2 (empty-GUC fail-closed policy alignment) + V20261029_3 (external-portal pre-auth token index); SANAD P0 RLS closure (Issue #1462, T2 batch 2) heads it at V20261031_1 (fail-closed FORCE RLS on provisioning_jobs/provisioning_job_steps/subscription_commands, login_tenant_index ACL closure, owner-bypass FORCE bind for five legacy CRM tables); P0 G1 Phase 4 (PR #1465) heads it at V20261101_1 (auth-token index ACL + immutable identity) + V20261102_1 (restricted runtime ACL for the FORCE-RLS'd token tables) + V20261102_2 (restricted runtime ACL for the T2 batch 2 provisioning/subscription tables); SANAD P0 FINAL REMEDIATION (Issue #1462, Article 3) heads it at V20261103_1 (sanad_migrator role contract) + V20261103_2 (topology-gated migrator ownership + runtime ACL matrix, closes F-01); Issue #1462 production ACL-drift gate heads it at V20261103_3 (append-only ledger runtime ACL correction, separated topology)
+    // V20261113_1 (C4-TOKEN-01 external action token pointer rotation fix) and V20261115_1 (platform_audit_logs append-only runtime ACL, C4 audit-ledger hardening; S9/S10 enforcement) preceded the 20261116 head.
+    private static final String CRM_LATEST_VERSION = "20261118.2"; // ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction; SELECT/I/U/D grants; separated-topology runtime DML revocation). Recorded per watermark policy; no silent value bump. Prior: SESSION 13 (2026-11-20) advanced the recorded head to 20261117.2 (V20261117_1 WS7 tenant-scoped integrity + V20261117_2 subscription-owner runtime grants; byte-exact restored, checksum-certified vs the 10c registry, session13 P1.6); prior head: SANAD G1 / P0 RLS closure (executive order 2026-11-11, PR #1509) heads it at V20261111_1 (fail-closed tenant RLS + FORCE RLS on service_callback_replay + dedicated least-privilege expired-row cleanup role); PR #1413 advanced the head: V20261011_3 (public.users FORCE RLS) + V20261011_4 (pre-auth login_tenant_index resolver); PR #1417 advanced it again: V20261019_1 (public.users runtime-role fail-closed tenant policy); PR #1420 (transfer of #1050/#1044) advanced it to V20261020_1/_2 (Supabase Data API default-deny + post-baseline CRM RLS); PR #1422 heads it at V20261021_1 (forward-only fail-closed RLS on the nine post-baseline CRM tables); SANAD-G1-FULL-CLOSURE-EXEC-2026-10-28 (D1) heads it at V20261028_1 (validation-only per-tenant role-template matrix revalidation under RLS context); SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at V20261029_1 (fail-closed RLS for the 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables); SNAD-SEC-RLS-FORENSIC-CLOSURE-2026-10-29 heads it at V20261029_2 (empty-GUC fail-closed policy alignment) + V20261029_3 (external-portal pre-auth token index); SANAD P0 RLS closure (Issue #1462, T2 batch 2) heads it at V20261031_1 (fail-closed FORCE RLS on provisioning_jobs/provisioning_job_steps/subscription_commands, login_tenant_index ACL closure, owner-bypass FORCE bind for five legacy CRM tables); P0 G1 Phase 4 (PR #1465) heads it at V20261101_1 (auth-token index ACL + immutable identity) + V20261102_1 (restricted runtime ACL for the FORCE-RLS'd token tables) + V20261102_2 (restricted runtime ACL for the T2 batch 2 provisioning/subscription tables); SANAD P0 FINAL REMEDIATION (Issue #1462, Article 3) heads it at V20261103_1 (sanad_migrator role contract) + V20261103_2 (topology-gated migrator ownership + runtime ACL matrix, closes F-01); Issue #1462 production ACL-drift gate heads it at V20261103_3 (append-only ledger runtime ACL correction, separated topology); SANAD scope-audit remediation (reviewer conditional approval for remediation only, 2026-11-16) heads it at V20261116_1 (WS6 global hostname uniqueness index) + V20261116_2 (platform subscription-owner resolver: S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3 delete-cycle trigger, S6 default-deny ACL + pinned search_path) — watermark advanced under that documented decision, no silent value bump
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
@@ -217,8 +219,18 @@ class Crm008bFoundationAcceptanceTest {
         // Actually crm_assignments.assigned_user_id is NOT NULL — so we inject
         // a NULL subject_id by temporarily dropping the constraint, inserting,
         // and re-adding. The backfill must still fail.
+        //
+        // The whole poisoned phase (inject -> fail-closed assertions ->
+        // restore) is one try/finally: the poisoned row must be PRESENT while
+        // the V20260722.5 failure is asserted, and must be removed BEFORE the
+        // NOT NULL constraint is restored afterwards (SET NOT NULL fails on a
+        // surviving NULL row — the old best-effort restore silently failed
+        // exactly there and left the constraint dropped for every later class
+        // sharing this disposable database; real ordering defect behind the
+        // HrG1MigrationTest/CrmFlywayHistoryAssertionTest/CrmPostgresMigrationTest
+        // cross-class failures).
+        jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id DROP NOT NULL");
         try {
-            jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id DROP NOT NULL");
             jdbc.update(
                     "INSERT INTO crm_assignments (id, tenant_id, version, subject_type, subject_id, " +
                     "assigned_user_id, assignment_role, status, starts_at, " +
@@ -226,32 +238,40 @@ class Crm008bFoundationAcceptanceTest {
                     "VALUES (?, ?, 0, 'ACCOUNT', NULL, ?, 'OWNER', 'ACTIVE', CURRENT_TIMESTAMP, " +
                     "?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     UUID.randomUUID(), TENANT_ID, USER_ID_1, USER_ID_1, USER_ID_1);
+
+            // Attempt V20260722.5 — must FAIL
+            Flyway target5 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION));
+            assertThatThrownBy(target5::migrate)
+                    .hasMessageContaining("backfill");
+
+            // No successful history row for V20260722.5
+            Long successCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM flyway_schema_history " +
+                    "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_ASSIGNMENTS_VERSION);
+            assertThat(successCount).as("successful V20260722.5 history rows after failure").isZero();
+
+            // crm_ownership_history MUST NOT exist (transaction rollback)
+            Long historyTableExists = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.tables " +
+                    "WHERE table_schema='public' AND table_name='crm_ownership_history'", Long.class);
+            assertThat(historyTableExists).as("crm_ownership_history must not exist after failed migration").isZero();
+
+            // None of the new columns on crm_assignments should exist (transaction rollback)
+            assertThat(columnExists(jdbc, "crm_assignments", "owner_type")).isFalse();
+            assertThat(columnExists(jdbc, "crm_assignments", "record_type")).isFalse();
+            assertThat(columnExists(jdbc, "crm_assignments", "owner_user_id")).isFalse();
         } finally {
-            // Best-effort restore (test isolation)
-            try { jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id SET NOT NULL"); } catch (Exception ignored) {}
+            // Restore the shared disposable database exactly as found. The
+            // @AfterAll heal is the class-level backstop; this finally keeps
+            // the database sane even mid-class.
+            try {
+                jdbc.update("DELETE FROM crm_assignments WHERE subject_id IS NULL");
+                jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id SET NOT NULL");
+            } catch (Exception cleanupFailure) {
+                System.err.println("WARN: Crm008b unmappable-row cleanup failed: "
+                        + cleanupFailure.getMessage());
+            }
         }
-
-        // Attempt V20260722.5 — must FAIL
-        Flyway target5 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION));
-        assertThatThrownBy(target5::migrate)
-                .hasMessageContaining("backfill");
-
-        // No successful history row for V20260722.5
-        Long successCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history " +
-                "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_ASSIGNMENTS_VERSION);
-        assertThat(successCount).as("successful V20260722.5 history rows after failure").isZero();
-
-        // crm_ownership_history MUST NOT exist (transaction rollback)
-        Long historyTableExists = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.tables " +
-                "WHERE table_schema='public' AND table_name='crm_ownership_history'", Long.class);
-        assertThat(historyTableExists).as("crm_ownership_history must not exist after failed migration").isZero();
-
-        // None of the new columns on crm_assignments should exist (transaction rollback)
-        assertThat(columnExists(jdbc, "crm_assignments", "owner_type")).isFalse();
-        assertThat(columnExists(jdbc, "crm_assignments", "record_type")).isFalse();
-        assertThat(columnExists(jdbc, "crm_assignments", "owner_user_id")).isFalse();
     }
 
     // ============================================================
@@ -592,35 +612,89 @@ class Crm008bFoundationAcceptanceTest {
                     "VALUES (?, ?, 0, 'ACCOUNT', NULL, ?, 'OWNER', 'ACTIVE', CURRENT_TIMESTAMP, " +
                     "?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     UUID.randomUUID(), TENANT_ID, USER_ID_1, USER_ID_1, USER_ID_1);
+
+            Flyway target5 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION));
+            assertThatThrownBy(target5::migrate)
+                    .hasMessageContaining("backfill");
+
+            long columnsAfter = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns " +
+                    "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
+            assertThat(columnsAfter).as("crm_assignments column count must be unchanged after rollback")
+                    .isEqualTo(columnsBefore);
+
+            Long indexCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
+                    "AND tablename='crm_assignments' " +
+                    "AND indexname IN ('idx_owr_assignments_record','idx_owr_assignments_owner_user'," +
+                    "'idx_owr_assignments_owner_team','idx_owr_assignments_owner_queue'," +
+                    "'idx_owr_assignments_correlation','uk_assignments_active_per_record')", Long.class);
+            assertThat(indexCount).as("no V20260722.5 indexes after rollback").isZero();
+
+            Long successCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM flyway_schema_history " +
+                    "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_ASSIGNMENTS_VERSION);
+            assertThat(successCount).as("no successful V20260722.5 history row").isZero();
+
+            assertThat(tableExists(jdbc, "crm_ownership_history")).isFalse();
         } finally {
+            // Restore the shared disposable database exactly as found (same
+            // ordering-defect fix as g1BackfillFailsClosedOnUnmappableRow):
+            // remove the poisoned row BEFORE restoring NOT NULL, otherwise
+            // SET NOT NULL silently fails and the constraint stays dropped
+            // for every later class sharing this database.
+            try {
+                jdbc.update("DELETE FROM crm_assignments WHERE subject_id IS NULL");
+                jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id SET NOT NULL");
+            } catch (Exception cleanupFailure) {
+                System.err.println("WARN: Crm008b rollback-test cleanup failed: "
+                        + cleanupFailure.getMessage());
+            }
         }
+    }
 
-        Flyway target5 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION));
-        assertThatThrownBy(target5::migrate)
-                .hasMessageContaining("backfill");
-
-        long columnsAfter = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
-        assertThat(columnsAfter).as("crm_assignments column count must be unchanged after rollback")
-                .isEqualTo(columnsBefore);
-
-        Long indexCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
-                "AND tablename='crm_assignments' " +
-                "AND indexname IN ('idx_owr_assignments_record','idx_owr_assignments_owner_user'," +
-                "'idx_owr_assignments_owner_team','idx_owr_assignments_owner_queue'," +
-                "'idx_owr_assignments_correlation','uk_assignments_active_per_record')", Long.class);
-        assertThat(indexCount).as("no V20260722.5 indexes after rollback").isZero();
-
-        Long successCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history " +
-                "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_ASSIGNMENTS_VERSION);
-        assertThat(successCount).as("no successful V20260722.5 history row").isZero();
-
-        assertThat(tableExists(jdbc, "crm_ownership_history")).isFalse();
-
-        try { jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id SET NOT NULL"); } catch (Exception ignored) {}
+    /**
+     * Cross-class isolation heal for the shared disposable test_migration
+     * database.
+     *
+     * <p>The fail-closed acceptance tests above deliberately stop the
+     * migration chain at intermediate baselines (that is what "fail-closed"
+     * verifies), so the database this class leaves behind depends on which
+     * test method happened to run last. Classes that share this database and
+     * only call {@code migrate()} — for example {@code HrG1MigrationTest}'s
+     * {@code @BeforeEach ensureFullyMigrated}, whose comment documents the
+     * sharing contract "migrate() is idempotent, so this is a no-op when
+     * already current" — then resume the chain from whatever partial head
+     * this class left behind, and the fail-closed backfill (V20260722.5)
+     * fails against any leftover poisoned rows: an ordering dependency, not
+     * a product defect.</p>
+     *
+     * <p>This heal restores the documented sharing contract ("leave the
+     * database fully migrated"): clean + migrate to the latest head, so the
+     * class always exits with the shared disposable database fully migrated
+     * and unpoisoned, whatever intermediate baselines individual tests
+     * stopped at. Best-effort by design — a heal failure must not mask the
+     * real test result — but it is logged loudly so CI output shows the
+     * residue.</p>
+     */
+    @AfterAll
+    static void healSharedDisposableDatabase() {
+        try {
+            Flyway heal = Flyway.configure()
+                    .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(
+                            System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
+                            System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                            System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                    .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                    .cleanDisabled(false)
+                    .validateOnMigrate(false)
+                    .load();
+            heal.clean();
+            heal.migrate();
+        } catch (RuntimeException e) {
+            System.err.println("WARN: Crm008bFoundationAcceptanceTest @AfterAll shared-database heal failed: "
+                    + e.getMessage());
+        }
     }
 
     private Flyway flyway(MigrationVersion target) {

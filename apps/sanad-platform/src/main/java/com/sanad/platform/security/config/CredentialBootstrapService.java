@@ -15,6 +15,8 @@ import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
@@ -67,6 +69,8 @@ public class CredentialBootstrapService {
     private final PasswordEncoder passwordEncoder;
     private final AccessCapabilityRepository accessCapabilityRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
+    private final TenantRlsTransactionContext tenantRlsTransactionContext;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     public CredentialBootstrapService(
             TenantRepository tenantRepository,
@@ -77,7 +81,9 @@ public class CredentialBootstrapService {
             OrganizationMembershipRepository organizationMembershipRepository,
             PasswordEncoder passwordEncoder,
             AccessCapabilityRepository accessCapabilityRepository,
-            RoleCapabilityRepository roleCapabilityRepository
+            RoleCapabilityRepository roleCapabilityRepository,
+            TenantRlsTransactionContext tenantRlsTransactionContext,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
@@ -88,6 +94,8 @@ public class CredentialBootstrapService {
         this.passwordEncoder = passwordEncoder;
         this.accessCapabilityRepository = accessCapabilityRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
+        this.tenantRlsTransactionContext = tenantRlsTransactionContext;
+        this.controlPlaneDataAccess = controlPlaneDataAccess;
     }
 
     /**
@@ -155,6 +163,16 @@ public class CredentialBootstrapService {
 
         Tenant tenant = resolveTenant(tenantId, tenantName, tenantSubdomain);
         UUID resolvedTenantId = tenant.getId();
+
+        // F-BOOT-01 (G1): public.users is protected by FORCE ROW LEVEL SECURITY
+        // with a fail-closed tenant policy. The bootstrap flow runs pre-auth
+        // (no SecurityContextHolder tenant), so without an explicitly applied
+        // trusted tenant GUC every users write is rejected with SQLSTATE 42501
+        // — exactly the production bootstrap failure classified as F-BOOT-01.
+        // Establish the trusted scope on this transaction BEFORE any users
+        // access; TenantRlsTransactionContext verifies the GUC was really
+        // applied to the current connection (fail loud on wiring mistakes).
+        applyTrustedTenantGuc(resolvedTenantId);
 
         String normalizedEmail = adminEmail.trim().toLowerCase(Locale.ROOT);
         User existingCheck = userRepository.findByTenantIdAndEmail(resolvedTenantId, normalizedEmail)
@@ -227,6 +245,21 @@ public class CredentialBootstrapService {
     }
 
     /**
+     * Applies the trusted tenant GUC for the active bootstrap transaction.
+     * Defensive no-op when no Spring-managed transaction is active: FORCE RLS
+     * still rejects unscoped users writes (42501) at the database layer, so
+     * skipping here can never widen access.
+     */
+    private void applyTrustedTenantGuc(UUID resolvedTenantId) {
+        if (tenantRlsTransactionContext == null
+                || !org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isActualTransactionActive()) {
+            return;
+        }
+        tenantRlsTransactionContext.applyForCurrentTransaction(resolvedTenantId);
+    }
+
+    /**
      * Resolves the bootstrap tenant.
      *
      * <p>If {@code tenantId} is non-null, looks it up and requires ACTIVE status.</p>
@@ -264,10 +297,17 @@ public class CredentialBootstrapService {
             return tenant;
         }
 
-        Tenant created = tenantRepository.save(new Tenant(
-                tenantName.trim(),
-                normalizedSubdomain,
-                TenantStatus.ACTIVE));
+        // ORDER 11 (V20261118_1): tenant lifecycle DML is control-plane-only in
+        // the separated topology — the INSERT runs on the dedicated control-plane
+        // connection (independent identity, no runtime membership). Bootstrap is
+        // naturally idempotent: a retry re-uses the existing row via the
+        // findBySubdomain path above, so no rollback compensation is needed.
+        java.util.UUID createdId = controlPlaneDataAccess.inControlPlane(cp -> cp.queryForObject(
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', now(), now()) RETURNING id",
+                java.util.UUID.class, java.util.UUID.randomUUID(),
+                tenantName.trim(), normalizedSubdomain));
+        Tenant created = tenantRepository.getReferenceById(createdId);
         log.info("Bootstrap created new tenant id={} name='{}' subdomain='{}'",
                 created.getId(), created.getName(), created.getSubdomain());
         return created;

@@ -126,7 +126,9 @@ public class PgAcceptanceWiringConfig {
             OrganizationMembershipRepository organizationMembershipRepository,
             PasswordEncoder passwordEncoder,
             AccessCapabilityRepository accessCapabilityRepository,
-            RoleCapabilityRepository roleCapabilityRepository
+            RoleCapabilityRepository roleCapabilityRepository,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsTransactionContext,
+            com.sanad.platform.security.rls.ControlPlaneDataAccess controlPlaneRoleExecutor
     ) {
         return new CredentialBootstrapService(
                 tenantRepository,
@@ -137,7 +139,9 @@ public class PgAcceptanceWiringConfig {
                 organizationMembershipRepository,
                 passwordEncoder,
                 accessCapabilityRepository,
-                roleCapabilityRepository
+                roleCapabilityRepository,
+                tenantRlsTransactionContext,
+                controlPlaneRoleExecutor
         );
     }
 }

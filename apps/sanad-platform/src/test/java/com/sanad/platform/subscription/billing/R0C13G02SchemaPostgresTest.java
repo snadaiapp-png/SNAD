@@ -135,8 +135,20 @@ class R0C13G02SchemaPostgresTest {
             // V20261107_1 (PR #1486) heads the chain with the subscription child FK
             // NO ACTION alignment; V20261111_1 (P0 service_callback_replay RLS
             // closure) heads the chain with ENABLE+FORCE RLS, the fail-closed
-            // tenant policies and the dedicated expired-row cleanup role.
-            assertThat(rs.getString(1)).isEqualTo("20261113.1");
+            // tenant policies and the dedicated expired-row cleanup role;
+            // V20261115_1 (platform_audit_logs append-only runtime ACL, C4
+            // audit-ledger hardening with S9/S10 enforcement) preceded it.
+            // SANAD scope-audit remediation — reviewer conditional approval for remediation
+            // only (2026-11-16) heads the chain at V20261116_1 (WS6 global hostname
+            // SESSION 13 (2026-11-20): head advanced to 20261117.2 (V20261117_1 WS7
+            // tenant-scoped integrity + V20261117_2 subscription-owner runtime grants,
+            // byte-exact restored and checksum-certified vs the 10c registry, P1.6 265/265).
+            // Prior head: V20261116_1 (WS6 global hostname
+            // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
+            // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
+            // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
+            // ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
+            assertThat(rs.getString(1)).isEqualTo("20261118.2");
         }
     }
 

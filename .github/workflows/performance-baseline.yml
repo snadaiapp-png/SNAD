@@ -39,6 +39,8 @@ jobs:
       PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_perf
       SPRING_DATASOURCE_USERNAME: sanad_perf
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad_perf
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
@@ -74,12 +76,20 @@ jobs:
           # Ephemeral PostgreSQL Direct credentials — generated per run,
           # exported for the test runtime, masked in logs; never hardcoded.
           perf_password="$(openssl rand -hex 32)"
+          cp_password="$(openssl rand -hex 32)"
           test -n "${perf_password}"
+          test -n "${cp_password}"
+          test "${perf_password}" != "${cp_password}"
           echo "::add-mask::${perf_password}"
+          echo "::add-mask::${cp_password}"
           export SPRING_DATASOURCE_PASSWORD="${perf_password}"
           echo "SPRING_DATASOURCE_PASSWORD=${perf_password}" >> "$GITHUB_ENV"
+          # ORDER 11: dedicated control-plane connection identity — ephemeral,
+          # environment-provisioned only, masked, never in the tree.
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=${cp_password}" >> "$GITHUB_ENV"
           sudo -u postgres psql -v ON_ERROR_STOP=1 \
-            -v perf_password="${perf_password}" <<'SQL'
+            -v perf_password="${perf_password}" \
+            -v cp_password="${cp_password}" <<'SQL'
           SELECT format('CREATE ROLE sanad_perf WITH LOGIN PASSWORD %L', :'perf_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_perf')\gexec
           ALTER ROLE sanad_perf NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -96,6 +106,23 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- ORDER 11: dedicated control-plane LOGIN identity, provisioned
+          -- BEFORE Flyway (V20261118_1/_2 fail closed without it). Never a
+          -- member of the runtime in any direction (guard below).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')
+          \gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          DO $cp_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
 
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a
@@ -138,6 +165,8 @@ jobs:
           ALTER DATABASE sanad_perf OWNER TO sanad_perf;
           \c sanad_perf
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_perf;
+          GRANT CONNECT ON DATABASE sanad_perf TO sanad_control_plane;
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
           SQL
           role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_perf'")"
           echo "PERF_ROLE_CONTRACT=$role_contract"
@@ -244,6 +273,8 @@ jobs:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_health
       SPRING_DATASOURCE_USERNAME: sanad_health
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad_health
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -279,12 +310,20 @@ jobs:
           # Ephemeral PostgreSQL Direct credentials — generated per run,
           # exported for the test runtime, masked in logs; never hardcoded.
           health_password="$(openssl rand -hex 32)"
+          cp_password="$(openssl rand -hex 32)"
           test -n "${health_password}"
+          test -n "${cp_password}"
+          test "${health_password}" != "${cp_password}"
           echo "::add-mask::${health_password}"
+          echo "::add-mask::${cp_password}"
           export SPRING_DATASOURCE_PASSWORD="${health_password}"
           echo "SPRING_DATASOURCE_PASSWORD=${health_password}" >> "$GITHUB_ENV"
+          # ORDER 11: dedicated control-plane connection identity — ephemeral,
+          # environment-provisioned only, masked, never in the tree.
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=${cp_password}" >> "$GITHUB_ENV"
           sudo -u postgres psql -v ON_ERROR_STOP=1 \
-            -v health_password="${health_password}" <<'SQL'
+            -v health_password="${health_password}" \
+            -v cp_password="${cp_password}" <<'SQL'
           SELECT format('CREATE ROLE sanad_health WITH LOGIN PASSWORD %L', :'health_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_health')\gexec
           ALTER ROLE sanad_health NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -304,6 +343,23 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')
           \gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- ORDER 11: dedicated control-plane LOGIN identity, provisioned
+          -- BEFORE Flyway (V20261118_1/_2 fail closed without it). Never a
+          -- member of the runtime in any direction (guard below).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')
+          \gexec
+          ALTER ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT format('ALTER ROLE sanad_control_plane PASSWORD %L', :'cp_password')\gexec
+          DO $cp_guard$
+          BEGIN
+            IF pg_has_role('sanad', 'sanad_control_plane', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad', 'MEMBER')
+               OR pg_has_role('sanad_control_plane', 'sanad_migrator', 'MEMBER') THEN
+              RAISE EXCEPTION 'G1_CONTROL_PLANE_MEMBERSHIP_FORBIDDEN';
+            END IF;
+          END $cp_guard$;
 
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a
@@ -346,6 +402,8 @@ jobs:
           ALTER DATABASE sanad_health OWNER TO sanad_health;
           \c sanad_health
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_health;
+          GRANT CONNECT ON DATABASE sanad_health TO sanad_control_plane;
+          GRANT USAGE ON SCHEMA public TO sanad_control_plane;
           SQL
           role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_health'")"
           echo "HEALTH_ROLE_CONTRACT=$role_contract"

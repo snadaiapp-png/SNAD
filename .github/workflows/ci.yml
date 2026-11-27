@@ -102,6 +102,10 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      # ORDER 11: dedicated control-plane connection identity (password via
+      # GITHUB_ENV from the provisioning step; never committed).
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
@@ -180,7 +184,12 @@ jobs:
           echo "::add-mask::$rls_test_password"
           echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
           echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
+          # ORDER 11: per-run ephemeral control-plane connection credential.
+          cp_password="$(openssl rand -hex 24)"
+          test -n "$cp_password"
+          echo "::add-mask::$cp_password"
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" -v cp_password="$cp_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
@@ -213,6 +222,40 @@ jobs:
                             WHERE g.rolname = 'sanad_callback_replay_cleanup'
                               AND r.rolname = 'sanad') THEN
               GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+            END IF;
+          END $$;
+
+          -- ORDER 11 / G1-C4 PR-2 (V20261118_1/V20261118_2): dedicated
+          -- control-plane CONNECTION identity holding the tenants +
+          -- access_capabilities lifecycle DML. LOGIN with a per-run
+          -- ephemeral password (masked, GITHUB_ENV only — never committed).
+          -- There is deliberately NO membership between sanad and
+          -- sanad_control_plane in either direction: the runtime must not
+          -- be able to SET ROLE into the control plane. Any cluster
+          -- provisioned earlier with the deprecated membership contract is
+          -- corrected here (fail-closed REVOKE).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN;
+          ALTER ROLE sanad_control_plane PASSWORD :'cp_password';
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad_control_plane'
+                          AND r.rolname = 'sanad') THEN
+              REVOKE sanad_control_plane FROM sanad;
+            END IF;
+          END $$;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad'
+                          AND r.rolname = 'sanad_control_plane') THEN
+              REVOKE sanad FROM sanad_control_plane;
             END IF;
           END $$;
 
@@ -259,7 +302,21 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven'
+
+      - name: Restore isolated Maven CI cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/snad-ci-central-v1
+          key: snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('**/pom.xml', 'scripts/ci/prepare-maven-central.sh', 'tests/ci/test_maven_central_transport.py') }}
+          restore-keys: |
+            snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
+      - name: Configure Maven Central transport
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 tests/ci/test_maven_central_transport.py
+          bash scripts/ci/prepare-maven-central.sh
 
       - name: Generate ephemeral CRM encryption key
         shell: bash
@@ -397,6 +454,10 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      # ORDER 11: dedicated control-plane connection identity (password via
+      # GITHUB_ENV from the provisioning step; never committed).
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
@@ -438,7 +499,12 @@ jobs:
           echo "::add-mask::$app_password"
           echo "::add-mask::$rls_test_password"
           echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
+          # ORDER 11: per-run ephemeral control-plane connection credential.
+          cp_password="$(openssl rand -hex 24)"
+          test -n "$cp_password"
+          echo "::add-mask::$cp_password"
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v rls_test_password="$rls_test_password" -v cp_password="$cp_password" <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
@@ -472,6 +538,40 @@ jobs:
               GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
             END IF;
           END $$;
+
+          -- ORDER 11 / G1-C4 PR-2 (V20261118_1/V20261118_2): dedicated
+          -- control-plane CONNECTION identity holding the tenants +
+          -- access_capabilities lifecycle DML. LOGIN with a per-run
+          -- ephemeral password (masked, GITHUB_ENV only — never committed).
+          -- There is deliberately NO membership between sanad and
+          -- sanad_control_plane in either direction: the runtime must not
+          -- be able to SET ROLE into the control plane. Any cluster
+          -- provisioned earlier with the deprecated membership contract is
+          -- corrected here (fail-closed REVOKE).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN;
+          ALTER ROLE sanad_control_plane PASSWORD :'cp_password';
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad_control_plane'
+                          AND r.rolname = 'sanad') THEN
+              REVOKE sanad_control_plane FROM sanad;
+            END IF;
+          END $$;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad'
+                          AND r.rolname = 'sanad_control_plane') THEN
+              REVOKE sanad FROM sanad_control_plane;
+            END IF;
+          END $$;
           SELECT 'CREATE DATABASE sanad OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
@@ -497,7 +597,21 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven'
+
+      - name: Restore isolated Maven CI cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/snad-ci-central-v1
+          key: snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('**/pom.xml', 'scripts/ci/prepare-maven-central.sh', 'tests/ci/test_maven_central_transport.py') }}
+          restore-keys: |
+            snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
+      - name: Configure Maven Central transport
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 tests/ci/test_maven_central_transport.py
+          bash scripts/ci/prepare-maven-central.sh
 
       - name: Run CRM integration tests
         # -Dsurefire.useFile=true emits per-class JUnit XML (TEST-*.xml)
@@ -511,44 +625,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Maven Central can transiently reject artifact descriptor downloads
-          # (403/429/5xx or transport resets). Retry ONLY those transport
-          # failures; compile/test/assertion failures remain immediately fatal.
-          max_attempts=3
-          for attempt in $(seq 1 "$max_attempts"); do
-            log_file="$(mktemp)"
-            set +e
-            mvn test -B -ntp \
-              -Dsurefire.useFile=true \
-              -DfailIfNoTests=true \
-              -Dtest='com.sanad.platform.crm.**.*IntegrationTest' 2>&1 | tee "$log_file"
-            rc=${PIPESTATUS[0]}
-            set -e
-
-            if [ "$rc" -eq 0 ]; then
-              rm -f "$log_file"
-              exit 0
-            fi
-
-            if ! grep -Eiq \
-              'Could not transfer artifact|status code: (403|429|5[0-9]{2})|Connection reset|Connection timed out|Read timed out|Remote host terminated the handshake|Temporary failure in name resolution' \
-              "$log_file"; then
-              echo "::error::CRM integration tests failed for a non-transport reason; not retrying."
-              rm -f "$log_file"
-              exit "$rc"
-            fi
-
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "::error::Maven artifact transport failure persisted after $max_attempts attempts."
-              rm -f "$log_file"
-              exit "$rc"
-            fi
-
-            delay=$((attempt * 15))
-            echo "::warning::Transient Maven artifact transport failure on attempt $attempt/$max_attempts; retrying in ${delay}s."
-            rm -f "$log_file"
-            sleep "$delay"
-          done
+          mvn test -B -ntp \
+            -Dsurefire.useFile=true \
+            -DfailIfNoTests=true \
+            -Dtest='com.sanad.platform.crm.**.*IntegrationTest'
 
       - name: Upload CRM test reports
         if: always()
@@ -620,6 +700,10 @@ jobs:
       # the production Supabase / Render managed DB markers.
       PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
       PG_ACCEPTANCE_USERNAME: sanad
+      # ORDER 11: dedicated control-plane connection identity (password via
+      # GITHUB_ENV from the provisioning step; never committed).
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
 
     defaults:
       run:
@@ -656,7 +740,12 @@ jobs:
           app_password="$(openssl rand -hex 24)"
           echo "::add-mask::$app_password"
           echo "PG_ACCEPTANCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" <<'SQL'
+          # ORDER 11: per-run ephemeral control-plane connection credential.
+          cp_password="$(openssl rand -hex 24)"
+          test -n "$cp_password"
+          echo "::add-mask::$cp_password"
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v app_password="$app_password" -v cp_password="$cp_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
@@ -692,6 +781,40 @@ jobs:
             END IF;
           END $$;
 
+          -- ORDER 11 / G1-C4 PR-2 (V20261118_1/V20261118_2): dedicated
+          -- control-plane CONNECTION identity holding the tenants +
+          -- access_capabilities lifecycle DML. LOGIN with a per-run
+          -- ephemeral password (masked, GITHUB_ENV only — never committed).
+          -- There is deliberately NO membership between sanad and
+          -- sanad_control_plane in either direction: the runtime must not
+          -- be able to SET ROLE into the control plane. Any cluster
+          -- provisioned earlier with the deprecated membership contract is
+          -- corrected here (fail-closed REVOKE).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN;
+          ALTER ROLE sanad_control_plane PASSWORD :'cp_password';
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad_control_plane'
+                          AND r.rolname = 'sanad') THEN
+              REVOKE sanad_control_plane FROM sanad;
+            END IF;
+          END $$;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad'
+                          AND r.rolname = 'sanad_control_plane') THEN
+              REVOKE sanad FROM sanad_control_plane;
+            END IF;
+          END $$;
+
           -- 2. Recreate the dedicated pg_acceptance database from scratch.
           --    DROP + CREATE guarantees a known-empty sequence state at
           --    the start of every run (the test asserts ORD-NNNNNN-00001
@@ -712,7 +835,21 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'maven'
+
+      - name: Restore isolated Maven CI cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/snad-ci-central-v1
+          key: snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('**/pom.xml', 'scripts/ci/prepare-maven-central.sh', 'tests/ci/test_maven_central_transport.py') }}
+          restore-keys: |
+            snad-ci-central-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
+      - name: Configure Maven Central transport
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 tests/ci/test_maven_central_transport.py
+          bash scripts/ci/prepare-maven-central.sh
 
       - name: Generate ephemeral CRM encryption key (pg-acceptance)
         shell: bash
@@ -899,6 +1036,10 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      # ORDER 11: dedicated control-plane connection identity (password via
+      # GITHUB_ENV from the provisioning step; never committed).
+      SANAD_CONTROL_PLANE_DB_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SANAD_CONTROL_PLANE_DB_USERNAME: sanad_control_plane
       SPRING_PROFILES_ACTIVE: default
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
@@ -1056,6 +1197,10 @@ jobs:
           }
           tar -xjf "$RUNNER_TEMP/postgresql-16.2.tar.bz2" -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP/postgresql-16.2"
+          # PostgreSQL 16.2 predates C23: newer GCC defaults treat bool as a keyword.
+          # Pin only the PostgreSQL source build to GNU C17; keep version and hashes unchanged.
+          export CFLAGS="-O2 -std=gnu17"
+          echo "PG_SOURCE_CFLAGS=$CFLAGS" >> "$CANON_ROOT/toolchain.txt"
           ./configure --prefix="$PGHOME" > a6-configure.log 2>&1 || { tail -50 a6-configure.log; echo "::error::ENVIRONMENT_BLOCKER=PG_CONFIGURE_FAILED"; exit 1; }
           make -j"$(nproc)" > a6-make.log 2>&1 || { tail -50 a6-make.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_FAILED"; exit 1; }
           make install > a6-make-install.log 2>&1 || { tail -50 a6-make-install.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_INSTALL_FAILED"; exit 1; }
@@ -1109,8 +1254,13 @@ jobs:
           echo "SPRING_DATASOURCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
           echo "PG_ACCEPTANCE_PASSWORD=$app_password" >> "$GITHUB_ENV"
           echo "CRM_RLS_TEST_PASSWORD=$rls_test_password" >> "$GITHUB_ENV"
+          # ORDER 11: per-run ephemeral control-plane connection credential.
+          cp_password="$(openssl rand -hex 24)"
+          test -n "$cp_password"
+          echo "::add-mask::$cp_password"
+          echo "SANAD_CONTROL_PLANE_DB_PASSWORD=$cp_password" >> "$GITHUB_ENV"
           "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 \
-            -v app_password="$app_password" -v rls_test_password="$rls_test_password" <<'SQL'
+            -v app_password="$app_password" -v rls_test_password="$rls_test_password" -v cp_password="$cp_password" <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
@@ -1143,6 +1293,40 @@ jobs:
                             WHERE g.rolname = 'sanad_callback_replay_cleanup'
                               AND r.rolname = 'sanad') THEN
               GRANT sanad_callback_replay_cleanup TO sanad WITH INHERIT FALSE;
+            END IF;
+          END $$;
+
+          -- ORDER 11 / G1-C4 PR-2 (V20261118_1/V20261118_2): dedicated
+          -- control-plane CONNECTION identity holding the tenants +
+          -- access_capabilities lifecycle DML. LOGIN with a per-run
+          -- ephemeral password (masked, GITHUB_ENV only — never committed).
+          -- There is deliberately NO membership between sanad and
+          -- sanad_control_plane in either direction: the runtime must not
+          -- be able to SET ROLE into the control plane. Any cluster
+          -- provisioned earlier with the deprecated membership contract is
+          -- corrected here (fail-closed REVOKE).
+          SELECT 'CREATE ROLE sanad_control_plane LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN;
+          ALTER ROLE sanad_control_plane PASSWORD :'cp_password';
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad_control_plane'
+                          AND r.rolname = 'sanad') THEN
+              REVOKE sanad_control_plane FROM sanad;
+            END IF;
+          END $$;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                         JOIN pg_roles g ON g.oid = m.roleid
+                         JOIN pg_roles r ON r.oid = m.member
+                        WHERE g.rolname = 'sanad'
+                          AND r.rolname = 'sanad_control_plane') THEN
+              REVOKE sanad FROM sanad_control_plane;
             END IF;
           END $$;
 

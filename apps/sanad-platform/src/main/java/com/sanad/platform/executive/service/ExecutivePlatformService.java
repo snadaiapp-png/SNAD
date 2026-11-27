@@ -9,6 +9,7 @@ import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.security.rls.ControlPlaneDataAccess;
 import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,7 @@ public class ExecutivePlatformService {
     private final SessionVersionCache sessionVersionCache;
     private final TenantCommercialStateService commercialStateService;
     private final ExecutiveTenantProvisioningService provisioningService;
+    private final ControlPlaneDataAccess controlPlaneDataAccess;
 
     @Autowired
     public ExecutivePlatformService(
@@ -59,7 +61,8 @@ public class ExecutivePlatformService {
             TenantDomainService tenantDomainService,
             SessionVersionCache sessionVersionCache,
             TenantCommercialStateService commercialStateService,
-            ExecutiveTenantProvisioningService provisioningService
+            ExecutiveTenantProvisioningService provisioningService,
+            ControlPlaneDataAccess controlPlaneDataAccess
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
@@ -68,6 +71,7 @@ public class ExecutivePlatformService {
         this.sessionVersionCache = sessionVersionCache;
         this.commercialStateService = commercialStateService;
         this.provisioningService = provisioningService;
+        this.controlPlaneDataAccess = controlPlaneDataAccess;
     }
 
     /** Backward-compatible direct-instantiation constructor for focused tests. */
@@ -77,7 +81,7 @@ public class ExecutivePlatformService {
             RegistrationProvisioner registrationProvisioner,
             TenantDomainService tenantDomainService
     ) {
-        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null, null, null);
+        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null, null, null, null);
     }
 
     public DashboardResponse dashboard() {
@@ -140,7 +144,8 @@ public class ExecutivePlatformService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived tenant cannot be modified");
         }
 
-        jdbcTemplate.update(
+        // ORDER 11 (V20261118_1): dedicated control-plane connection.
+        controlPlaneDataAccess.inControlPlane(cp -> cp.update(
                 "UPDATE tenants SET "
                         + "name = COALESCE(?, name), "
                         + "legal_name = COALESCE(?, legal_name), "
@@ -153,7 +158,7 @@ public class ExecutivePlatformService {
                 trimToNull(request.name()), trimToNull(request.legalName()), lowerEmail(request.billingEmail()),
                 normalizeCountryCode(request.countryCode()), normalizeLocale(request.locale(), null),
                 normalizeTimezone(request.timezone(), null), normalizeCurrencyCode(request.currencyCode(), null),
-                tenantId);
+                tenantId));
 
         TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "UPDATE_TENANT", "TENANT", tenantId.toString(),
@@ -173,11 +178,12 @@ public class ExecutivePlatformService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot transition from " + before.status() + " to " + targetStatus);
         }
-        jdbcTemplate.update(
+        // ORDER 11 (V20261118_1): dedicated control-plane connection.
+        controlPlaneDataAccess.inControlPlane(cp -> cp.update(
                 "UPDATE tenants SET status = ?, suspension_reason = ?, updated_at = NOW() WHERE id = ?",
                 targetStatus,
                 Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus) ? request.reason() : null,
-                tenantId);
+                tenantId));
 
         if (Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus)) {
             // Tenant deactivation is a security boundary, not only a UI state.

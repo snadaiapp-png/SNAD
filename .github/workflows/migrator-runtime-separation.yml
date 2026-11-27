@@ -7,12 +7,24 @@ name: Migrator/Runtime Separation Certification (P0, Issue #1462)
 # isolated host-native PostgreSQL 17.6 + project-pinned Flyway
 # CLI 11.7.2. No production access. No test weakening.
 #
-# 35 probes: Flyway-as-migrator, runtime DML positives, DDL /
+# 96 probes: Flyway-as-migrator, runtime DML positives, DDL /
 # TRUNCATE / flyway-history / SET ROLE / BYPASSRLS denials,
 # Tenant A/B isolation, missing/empty GUC fail-closed, auth
 # plane (user creation, refresh/reset tokens, trigger-maintained
 # pre-auth index, pre-auth resolver), append-only subscription
-# ledger, ownership/ACL/RLS catalog snapshot.
+# ledger, ownership/ACL/RLS catalog snapshot, S9 runtime
+# append-only enforcement (identity + effective/inherited ACL +
+# live DML on both append-only ledgers), the S10 7-case
+# protected-deployment append-only gate self-test, plus the
+# ORDER 11 V20261118_1/V20261118_2 control-plane contract (plain
+# runtime denied tenants + access_capabilities lifecycle DML AND
+# denied SET ROLE to the control-plane identity; dedicated
+# sanad_control_plane CONNECTION lifecycle proven exactly;
+# membership absence asserted in every direction; effective ACL
+# matrices asserted), followed by the RED TEAM attack-surface
+# battery v4 (79 fail-closed probes including the RT-36/RT-37
+# dedicated-connection lifecycles, the RT-38 ACL matrix, the
+# RT-39 SET ROLE denial and the RT-40 identity-isolation gates).
 # ============================================================
 
 on:
@@ -23,6 +35,7 @@ on:
       - 'tests/security/migrator-separation/**'
       - 'tests/security/g1-c4/**'
       - 'apps/sanad-platform/src/main/resources/db/**'
+      - 'scripts/production/verify-append-only-gate.sh'
       - 'docs/security/G1-RELEASE-CATALOG-GATE-2026-11-10.sql'
   workflow_dispatch:
 
@@ -112,7 +125,19 @@ jobs:
           test "$other_dbs" = "0" || { echo "::error::Non-disposable PostgreSQL cluster; refusing role mutation"; exit 1; }
           mig_pw="$(openssl rand -hex 24)"
           echo "::add-mask::$mig_pw"
-          SEP_ISOLATED_CLUSTER=1 SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
+          # The runtime password is supplied explicitly (instead of being
+          # generated inside the certification script) so the red-team battery
+          # step can reuse the SAME disposable credential for its read-only
+          # isolation proofs before rotating it.
+          run_pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$run_pw"
+          echo "SEP_RUN_PW=$run_pw" >> "$GITHUB_ENV"
+          # ORDER 11: per-run ephemeral control-plane connection credential
+          # for the dedicated sanad_control_plane LOGIN identity.
+          cp_pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$cp_pw"
+          echo "SEP_CP_PW=$cp_pw" >> "$GITHUB_ENV"
+          SEP_ISOLATED_CLUSTER=1 SEP_KEEP_DB=1 SEP_MIG_PW="$mig_pw" SEP_RUN_PW="$run_pw" SEP_CP_PW="$cp_pw" bash tests/security/migrator-separation/run-separation-cert.sh 2>&1 | tee /tmp/separation-run.log
 
       - name: Capture read-only RLS and SECURITY DEFINER forensic inventory
         if: success()
@@ -142,7 +167,20 @@ jobs:
             WHERE c.oid=to_regclass('public.subscription_commands');")"
           printf '%s\n' "LEDGER_EFFECTIVE_ACL=$ledger_acl" | tee -a /tmp/separation-forensic-inventory.log
           test "$ledger_acl" = "true|true|true|false|false|false"
-          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only)"
+          # S9 / V20261115_1: the audit ledger must be append-only as well
+          # (SELECT/INSERT allowed; UPDATE/DELETE/TRUNCATE denied for runtime).
+          audit_acl="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "
+            SELECT (pg_get_userbyid(c.relowner) <> 'sanad')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'SELECT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'INSERT')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'UPDATE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'DELETE')::text || '|' ||
+                   has_table_privilege('sanad',c.oid,'TRUNCATE')::text
+            FROM pg_class c
+            WHERE c.oid=to_regclass('public.platform_audit_logs');")"
+          printf '%s\n' "AUDIT_LEDGER_EFFECTIVE_ACL=$audit_acl" | tee -a /tmp/separation-forensic-inventory.log
+          test "$audit_acl" = "true|true|true|false|false|false"
+          echo "FORENSIC_INVENTORY_CAPTURED=PASS (isolated DB only; both append-only ledgers enforced)"
 
       - name: Verify G1 certificate amendment catalog controls (isolated only)
         if: success()
@@ -251,6 +289,85 @@ jobs:
           echo 'C4_TOKEN_ROTATION_REGRESSION=PASS 7/7 (isolated PostgreSQL)'
           # Raw transcript uploaded by the always() evidence step.
 
+      - name: G1 S10 — protected-deployment append-only gate 7-case self-test
+        if: success()
+        shell: bash
+        env:
+          S10_PGHOST: 127.0.0.1
+          S10_PGPORT: '5432'
+          S10_FLYWAY: /tmp/flyway/flyway
+          S10_ADMIN_PSQL: sudo -u postgres psql
+          S10_ARTIFACTS: /tmp/s10-gate-artifacts
+        run: |
+          set -euo pipefail
+          # Only on the disposable isolated cluster provisioned by the
+          # separation matrix above (roles sanad / sanad_migrator already
+          # exist from S0). Never point this self-test at production.
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = "0"
+          bash tests/security/g1-c4/run-s10-protected-deployment-gate.sh 2>&1 | tee /tmp/s10-run.log
+          grep -q 'S10 GATE SELF-TEST: PASSED (7/7 cases)' /tmp/s10-run.log
+
+      # S10 creates seven disposable databases and intentionally retains its evidence.
+      # Red Team requires the same isolated cluster to contain ONLY separation_cert.
+      # Remove exactly the S10 fixtures after their gate passed; fail closed for
+      # unexpected databases or owners rather than weakening the RT precondition.
+      - name: Remove certified S10 fixture databases before RED TEAM isolation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(s10_case_separated s10_case_fixture s10_case_missing s10_case_empty s10_case_unknown s10_case_session_override s10_case_inherited_bypass)
+          for db in "${expected[@]}"; do
+            owner="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '$db';")"
+            test "$owner" = 'sanad_migrator' || { echo "::error::S10_FIXTURE_OWNER_MISMATCH db=$db owner=$owner"; exit 1; }
+          done
+          actual="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT string_agg(datname, ',' ORDER BY datname) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")"
+          expected_sorted="$(printf '%s\n' "${expected[@]}" | sort | paste -sd, -)"
+          test "$actual" = "$expected_sorted" || { echo "::error::S10_FIXTURE_SET_MISMATCH"; exit 1; }
+          for db in "${expected[@]}"; do
+            sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE \"$db\";"
+          done
+          remaining="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")"
+          test "$remaining" = '0' || { echo "::error::S10_FIXTURE_CLEANUP_INCOMPLETE"; exit 1; }
+
+      - name: G1 C4 — RED TEAM attack-surface battery (v3, control-plane compensating controls)
+        if: success()
+        shell: bash
+        env:
+          RT_PGHOST: 127.0.0.1
+          RT_PGPORT: '5432'
+          RT_DB: separation_cert
+          RT_ISOLATED_CLUSTER: '1'
+          RT_ARTIFACTS: /tmp/redteam-artifacts
+        run: |
+          set -euo pipefail
+          # Official CI wiring of the red-team attack-surface confirmation
+          # battery (previously maintained as a locally-invoked tool). It runs
+          # ONLY on the disposable separated-topology separation_cert database
+          # certified above (S0-S10 all green, S4 fixtures present) and NEVER
+          # against production. The battery:
+          #   - proves admin/runtime connection isolation (IP-01..IP-12),
+          #   - asserts the RT-07/08/09 + RT-12/13/14 denials introduced by
+          #     V20261118_1/V20261118_2 (control-plane ACL),
+          #   - proves the DEDICATED control-plane connection lifecycle
+          #     (RT-36/RT-37), the effective ACL matrix (RT-38), the runtime
+          #     SET ROLE denial (RT-39) and connection-identity isolation
+          #     (RT-40) — the ORDER 11 contract,
+          #   - fail-closes on any unexpected outcome, missing SQLSTATE or
+          #     skipped probe (exact probe-count assertion).
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = "0"
+          test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = 'sanad_migrator'
+          RT_EXPECTED_SYSID="$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c 'SELECT system_identifier::text FROM pg_control_system()')"
+          test -n "$RT_EXPECTED_SYSID"
+          # Reuse the disposable runtime credential provisioned by the
+          # separation matrix S0 for the read-only isolation proofs; the
+          # battery rotates it itself before any attack probe runs.
+          test -n "$SEP_RUN_PW"
+          echo "::add-mask::$SEP_RUN_PW"
+          test -n "$SEP_CP_PW"
+          echo "::add-mask::$SEP_CP_PW"
+          RT_EXPECTED_SYSID="$RT_EXPECTED_SYSID" RT_BOOTSTRAP_PW="$SEP_RUN_PW" RT_BOOTSTRAP_CP_PW="$SEP_CP_PW" bash tests/security/g1-c4/redteam-attack-surface-battery.sh 2>&1 | tee /tmp/redteam-run.log
+          grep -q 'REDTEAM_BATTERY=COMPLETE (all 79 probes executed with exact expected outcomes)' /tmp/redteam-run.log
+
       - name: Upload separation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -261,7 +378,11 @@ jobs:
             /tmp/separation-forensic-inventory.log
             /tmp/g1-addendum-catalog-gate.log
             /tmp/c4-probe-run.log
+            /tmp/s10-run.log
+            /tmp/redteam-run.log
             /tmp/c4-catalog-artifacts/
             /tmp/separation-cert-artifacts/
+            /tmp/s10-gate-artifacts/
+            /tmp/redteam-artifacts/
           if-no-files-found: warn
           retention-days: 30

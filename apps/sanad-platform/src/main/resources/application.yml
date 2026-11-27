@@ -99,6 +99,20 @@ springdoc:
   default-produces-media-type: application/json
 
 sanad:
+  # ============================================================
+  # ORDER 11 (2026-11-21) — dedicated control-plane connection.
+  # Tenant-lifecycle and capability-registry DML runs on its own
+  # limited-privilege identity (sanad_control_plane, LOGIN, no
+  # membership with the runtime in any direction — V20261118_1/_2).
+  # Credentials are environment-provisioned ONLY; when unset, the
+  # control-plane executor fails closed and never falls back to the
+  # runtime pool. Never copy the runtime credentials here.
+  # ============================================================
+  control-plane:
+    datasource:
+      url: ${SANAD_CONTROL_PLANE_DB_URL:${SPRING_DATASOURCE_CONTROL_PLANE_URL:}}
+      username: ${SANAD_CONTROL_PLANE_DB_USERNAME:${SPRING_DATASOURCE_CONTROL_PLANE_USERNAME:}}
+      password: ${SANAD_CONTROL_PLANE_DB_PASSWORD:${SPRING_DATASOURCE_CONTROL_PLANE_PASSWORD:}}
   # Wave 1 unified authorization core (UAC) feature flags — committed defaults.
   # The legacy CapabilityEvaluationService facade stays bit-for-bit until the
   # owner explicitly opts in to the authoritative five-stage pipeline.

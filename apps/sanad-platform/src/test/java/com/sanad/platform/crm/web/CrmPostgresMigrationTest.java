@@ -298,8 +298,28 @@ class CrmPostgresMigrationTest {
     private static final String MIGRATOR_OWNERSHIP_RUNTIME_ACL_VERSION = "20261103.2";
     // TEST_ALIGNMENT_REASON: SANAD G1 / P0 (executive order 2026-11-11) adds
     // V20261111_1 (service_callback_replay fail-closed tenant RLS + FORCE + the
-    // dedicated least-privilege cleanup role) at the sequence tail.
-    private static final String LATEST_MIGRATION_VERSION = "20261113.1";
+    // dedicated least-privilege cleanup role) at the sequence tail; C4-TOKEN-01
+    // advances the head to V20261113_1 (external action token pointer rotation
+    // fix); S9/S10 append-only hardening advances it to V20261115_1
+    // (platform_audit_logs append-only runtime ACL); SANAD scope-audit
+    // remediation — reviewer conditional approval for remediation only
+    // (2026-11-16) heads the chain at V20261116_1 (WS6 global hostname
+    // uniqueness index) + V20261116_2 (platform subscription-owner resolver:
+    // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
+    // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
+    // Watermark advanced under documented decisions; no silent value bump.
+    // SESSION 13 (2026-11-20) advances the recorded head to 20261117.2: V20261117_1
+    // (WS7 website tenant-scoped integrity) + V20261117_2 (platform_subscription_owners
+    // runtime grants) were byte-exact restored and checksum-certified against the 10c
+    // registry (session13 P1.6, 265/265). Recorded per watermark policy; no silent bump.
+    // G1/C4 PR-2 residual-risk remediation (doc 20, 2026-11-21), revised by
+    // ORDER 11 (doc 21, 2026-11-21) to the dedicated-connection model, advances
+    // the head to 20261118.2: V20261118_1 (tenants control-plane ACL) +
+    // V20261118_2 (access_capabilities control-plane ACL) close the RT-07/08/09
+    // and RT-12/13/14 red-team exposures via the sanad_control_plane dedicated
+    // LOGIN connection identity (NO membership with the runtime in any
+    // direction). Recorded per watermark policy; no silent value bump.
+    private static final String LATEST_MIGRATION_VERSION = "20261118.2";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -619,7 +639,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
+                        MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
+                        MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
+                        MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
+                        MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -881,7 +908,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261105.3"), // existing composite subscription FK migration
                         MigrationVersion.fromVersion("20261107.1"), // forward-only NO ACTION child FK policy
                         MigrationVersion.fromVersion("20261111.1"), // P0 service_callback_replay RLS closure
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // C4 token index rotation fix
+                        MigrationVersion.fromVersion("20261113.1"), // C4-TOKEN-01 external action token pointer rotation fix
+                        MigrationVersion.fromVersion("20261115.1"), // platform_audit_logs append-only runtime ACL (S9/S10)
+                        MigrationVersion.fromVersion("20261116.1"), // WS6 global hostname uniqueness index
+                        MigrationVersion.fromVersion("20261116.2"), // platform subscription-owner resolver (S1/S3/S6)
+                        MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
+                        MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
+                        MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

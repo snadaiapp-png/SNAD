@@ -367,6 +367,19 @@ class CrmFlywayHistoryAssertionTest {
             , "20261107.1"   // forward-only NO ACTION child FK policy
             , "20261111.1"   // P0 service_callback_replay RLS closure (executive order 2026-11-11)
             , "20261113.1"   // C4-TOKEN-01 external action token pointer rotation fix
+            , "20261115.1"   // V20261115_1 platform_audit_logs append-only runtime ACL (C4 audit-ledger hardening; S9/S10 enforcement)
+            // SANAD scope-audit remediation — reviewer conditional approval for
+            // remediation only (2026-11-16); S1/S3/S6 fixes recorded in V20261116_2:
+            , "20261116.1"   // WS6 global hostname uniqueness index (tenant_domains)
+            , "20261116.2"   // platform subscription-owner resolver (per-tenant backfill, delete cycle, default-deny ACL)
+            // SESSION 13 (2026-11-20): byte-exact restored from the certified 10c evidence,
+            // checksum-certified against the 10c registry (session13 P1.6, 265/265):
+            , "20261117.1"   // WS7 website tenant-scoped integrity (composite FKs + partial unique indexes + drift guard)
+            , "20261117.2"   // platform_subscription_owners restricted runtime ACL (D6/D5 follow-up)
+            // G1/C4 PR-2 residual-risk remediation (doc 20, P0-1 + P1-3),
+            // revised by ORDER 11 (doc 21) to the dedicated-connection model:
+            , "20261118.1"   // tenants control-plane ACL (dedicated sanad_control_plane LOGIN connection identity)
+            , "20261118.2"   // access_capabilities control-plane ACL (capability registry DML denial)
     );
 
 
