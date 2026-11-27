@@ -1,6 +1,7 @@
 package com.sanad.platform.platformiam;
 
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.platformiam.dto.CreatePlatformUserRequest;
 import com.sanad.platform.platformiam.dto.ReplacePlatformRolesRequest;
 import com.sanad.platform.platformiam.service.PlatformAuthorizationService;
@@ -51,6 +52,7 @@ class PlatformUserPostgresAcceptanceTest {
     @Autowired private PlatformAuthorizationService authorization;
     @Autowired private PlatformRoleService platformRoles;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
 
     private final List<UUID> createdUsers = new ArrayList<>();
     private final List<UUID> createdTenants = new ArrayList<>();
@@ -240,9 +242,9 @@ class PlatformUserPostgresAcceptanceTest {
 
     private <T> T inTenantTransaction(UUID tenantId, Supplier<T> work) {
         return new TransactionTemplate(transactionManager).execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            // REV3 contract: bind and verify an HMAC-signed tenant scope
+            // on this transaction's own connection. A raw GUC is forgeable.
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return work.get();
         });
     }
