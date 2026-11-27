@@ -147,11 +147,7 @@ public class HrOnboardingApiQueryService {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT set_config('app.tenant_id', ?, true)")) {
-                    ps.setString(1, tenantId.toString());
-                    ps.execute();
-                }
+                com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
                 T result = work.run(connection);
                 connection.commit();
                 return result;

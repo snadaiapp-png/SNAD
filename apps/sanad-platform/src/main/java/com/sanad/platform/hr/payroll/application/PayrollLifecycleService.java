@@ -359,11 +359,7 @@ public class PayrollLifecycleService {
     }
 
     private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId.toString());
-            ps.execute();
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
     }
 
     private static void rollbackQuietly(Connection connection) {

@@ -1,5 +1,7 @@
 package com.sanad.platform.platformiam;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.AccessResourceNotFoundException;
 import com.sanad.platform.admin.service.PlatformAuditService;
@@ -45,7 +47,7 @@ class PlatformTemporaryAccessServiceTest {
     private final Authentication actor = actor(TENANT);
     private final PlatformTemporaryAccessService service = new PlatformTemporaryAccessService(
             jdbc, new ControlPlaneAccessGuard(TENANT.toString()), authorization, users, audit,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC), org.mockito.Mockito.mock(TenantRlsTransactionContext.class));
 
     @BeforeEach
     void setup() {

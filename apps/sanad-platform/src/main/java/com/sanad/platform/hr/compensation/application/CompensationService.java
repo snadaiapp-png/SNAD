@@ -154,10 +154,7 @@ public class CompensationService {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
-                    ps.setString(1, ctx.tenantId().toString());
-                    ps.execute();
-                }
+                com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, ctx.tenantId());
                 sensitiveReadAuditService.recordOrThrow(connection,
                         new com.sanad.platform.hr.audit.HrAuthenticatedContext(ctx.tenantId(), ctx.actorUserId(),
                                 ctx.correlationId(), null),
@@ -190,10 +187,7 @@ public class CompensationService {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
-                    ps.setString(1, ctx.tenantId().toString());
-                    ps.execute();
-                }
+                com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, ctx.tenantId());
                 sensitiveReadAuditService.recordOrThrow(connection,
                         new com.sanad.platform.hr.audit.HrAuthenticatedContext(ctx.tenantId(), ctx.actorUserId(),
                                 ctx.correlationId(), null),

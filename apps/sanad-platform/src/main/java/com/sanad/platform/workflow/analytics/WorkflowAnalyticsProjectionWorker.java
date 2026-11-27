@@ -145,9 +145,10 @@ public class WorkflowAnalyticsProjectionWorker {
                         tenantId, e.getMessage());
             }
         }
-        if (callerScope != null) {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, callerScope);
+        if (callerScope != null && !callerScope.isBlank()) {
+            // Signed re-scope to the caller's tenant (last call wins) — the
+            // raw GUC write is untrusted after V20261124_2.
+            tenantRlsContext.applyForCurrentTransaction(java.util.UUID.fromString(callerScope));
         }
         return projected;
     }

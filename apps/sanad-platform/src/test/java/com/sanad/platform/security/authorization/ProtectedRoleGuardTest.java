@@ -1,5 +1,7 @@
 package com.sanad.platform.security.authorization;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.access.AccessConflictException;
 import com.sanad.platform.access.service.LastAdminGuard;
 import org.junit.jupiter.api.Test;
@@ -11,7 +13,7 @@ class ProtectedRoleGuardTest {
 
     @Test
     void protectedMutationRequiresPlatformManage() {
-        ProtectedRoleGuard guard = new ProtectedRoleGuard(null);
+        ProtectedRoleGuard guard = new ProtectedRoleGuard(null, new TenantRlsTransactionContext(null));
         assertThatThrownBy(() -> guard.assertProtectedMutation("TENANT_ADMIN", false))
                 .isInstanceOf(AccessConflictException.class);
         assertThatThrownBy(() -> guard.assertProtectedMutation("PLATFORM_ADMIN", false))
@@ -24,7 +26,7 @@ class ProtectedRoleGuardTest {
 
     @Test
     void lastAdminSimulationRejectsZeroRemainingAdminsBeforeWrite() {
-        LastAdminGuard guard = new LastAdminGuard(null);
+        LastAdminGuard guard = new LastAdminGuard(null, new TenantRlsTransactionContext(null));
         assertThatThrownBy(() -> guard.assertTenantSurvives(0L))
                 .isInstanceOf(AccessConflictException.class);
         assertThatCode(() -> guard.assertTenantSurvives(1L)).doesNotThrowAnyException();

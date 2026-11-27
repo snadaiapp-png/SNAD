@@ -1,5 +1,7 @@
 package com.sanad.platform.security.service;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -84,6 +86,13 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
         connection.setAutoCommit(false);
         dataSource = new SingleConnectionDataSource(connection, true);
         jdbc = new JdbcTemplate(dataSource);
+        // G1 REV3: fixture signer for the signed binding protocol (disposable
+        // fixture topology only) — matches the V20261124_2 chain provisioned key.
+        com.sanad.platform.security.rls.TenantRlsRuntimePolicy.install(
+                new com.sanad.platform.security.rls.TenantRlsRuntimePolicy.Policy(
+                        new com.sanad.platform.security.rls.TenantContextSigner(
+                                java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), true),
+                        true));
     }
 
     @AfterEach
@@ -118,7 +127,19 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
         UUID customerRole = insertRole(tenantA, "SUPPORT", "Customer support", false);
 
         // ---- Act: canonical runtime provisioning.
-        new RoleTemplateProvisioner(jdbc).provision(tenantA);
+        // G1 REV3 — the provisioner binds through the signed protocol, which
+        // requires a Spring-managed transaction: run it inside a template that
+        // JOINS the already-open transaction on the single fixture connection.
+        org.springframework.transaction.support.TransactionTemplate provisionTx =
+                new org.springframework.transaction.support.TransactionTemplate(
+                        new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        provisionTx.executeWithoutResult(status ->
+                new RoleTemplateProvisioner(jdbc, new TenantRlsTransactionContext(jdbc)).provision(tenantA));
+
+        // G1 REV3 — provisionTx committed the shared transaction (the signed
+        // binding is transaction-local): re-open the signed scope for the
+        // assertion reads.
+        setTenant(tenantA);
 
         // ---- Assert: exactly one ACTIVE TENANT_ADMIN with canonical template
         // ---- provenance.
@@ -166,11 +187,24 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
         // V20261029_1: roles is FORCE RLS — bind tenant B before its fixture writes.
         setTenant(tenantB);
         UUID hijackTarget = insertRole(tenantB, "TENANT_ADMIN", "Customer owned admin", false);
+        // G1 REV3 — commit the tenantB fixture independently so the expected
+        // provisioner abort (which rolls back its joining transaction) cannot
+        // erase the fixture; then re-establish the signed scope.
+        connection.commit();
+        setTenant(tenantB);
 
-        assertThatThrownBy(() -> new RoleTemplateProvisioner(jdbc).provision(tenantB))
+        org.springframework.transaction.support.TransactionTemplate negativeTx =
+                new org.springframework.transaction.support.TransactionTemplate(
+                        new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        assertThatThrownBy(() -> negativeTx.executeWithoutResult(status ->
+                        new RoleTemplateProvisioner(jdbc, new TenantRlsTransactionContext(jdbc)).provision(tenantB)))
                 .as("customer-owned TENANT_ADMIN code must never be hijacked")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("unbound customer-managed role");
+
+        // G1 REV3 — the aborted transaction rolled back the shared tx; re-open
+        // the signed scope for the negative assertions.
+        setTenant(tenantB);
 
         assertThat(jdbc.queryForObject(
                 "SELECT is_system_managed FROM roles WHERE id = ?",
@@ -205,10 +239,38 @@ class RoleTemplateProvisionerTenantAdminProvisioningTest {
                 UUID.randomUUID(), tenantId, roleId, capabilityCode);
     }
 
+    /**
+     * G1 REV3 — opens ONE explicit transaction on the single fixture
+     * connection and binds the HMAC-SIGNED tenant context (raw session GUC is
+     * untrusted after V20261124_2; roles/role_capabilities are FORCE RLS with
+     * the signed fail-closed policies). The transaction stays open so the
+     * fixture writes, the provisioner run and the assertions share the same
+     * signed scope; callers commit at the end of the scenario.
+     */
     private void setTenant(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)",
-                String.class, tenantId.toString());
+        try {
+            if (connection.getAutoCommit()) {
+                connection.setAutoCommit(false);
+            }
+            try (java.sql.PreparedStatement ps = connection.prepareStatement(
+                    "SELECT public.app_bind_tenant_ctx(?::uuid, encode(hmac((?::text||':'||txid_current()::text"
+                            + "||':'||pg_backend_pid()::text)::bytea, decode(?,'hex'),'sha256'),'hex'))")) {
+                ps.setString(1, tenantId.toString());
+                ps.setString(2, tenantId.toString());
+                ps.setString(3, FIXTURE_KEY_HEX);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next() || !rs.getBoolean(1)) {
+                        throw new AssertionError("signed fixture binding rejected");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("signed fixture binding failed", e);
+        }
     }
+
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     // ---- assertions helpers ----
 

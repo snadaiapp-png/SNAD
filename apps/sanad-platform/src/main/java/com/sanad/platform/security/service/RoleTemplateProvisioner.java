@@ -1,5 +1,7 @@
 package com.sanad.platform.security.service;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -31,9 +33,11 @@ public class RoleTemplateProvisioner {
     private static final String PROVISIONED_BY = "RoleTemplateProvisioner";
 
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
 
-    public RoleTemplateProvisioner(JdbcTemplate jdbc) {
+    public RoleTemplateProvisioner(JdbcTemplate jdbc, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
     }
 
     /** Exact matrix validated by V20260820_7. Package-private for contract tests. */
@@ -73,8 +77,9 @@ public class RoleTemplateProvisioner {
         // New-tenant provisioning can run before a normal tenant request context
         // exists. Scope the current transaction explicitly; SET LOCAL resets at
         // transaction end and does not leak across pooled connections.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(
+                tenantId);
 
         for (Map.Entry<String, Set<String>> entry : canonicalCapabilityMatrix().entrySet()) {
             provisionTemplate(tenantId, entry.getKey(), entry.getValue());

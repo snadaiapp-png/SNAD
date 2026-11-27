@@ -1,5 +1,7 @@
 package com.sanad.platform.access.evaluation;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,11 +39,14 @@ import java.util.UUID;
 public class EffectivePermissionProjectionService {
 
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
     private final AuthorizationVersionService authorizationVersionService;
 
     public EffectivePermissionProjectionService(
-            JdbcTemplate jdbc, AuthorizationVersionService authorizationVersionService) {
+            JdbcTemplate jdbc, AuthorizationVersionService authorizationVersionService,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
         this.authorizationVersionService = authorizationVersionService;
     }
 
@@ -191,8 +196,9 @@ public class EffectivePermissionProjectionService {
     }
 
     private void scope(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(
+                tenantId);
     }
 
     private static void requireSubject(UUID tenantId, UUID userId) {

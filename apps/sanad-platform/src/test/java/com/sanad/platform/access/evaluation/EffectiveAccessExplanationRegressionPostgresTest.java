@@ -1,5 +1,7 @@
 package com.sanad.platform.access.evaluation;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -211,7 +213,7 @@ class EffectiveAccessExplanationRegressionPostgresTest {
     // ------------------------------------------------------------------
 
     private static EffectivePermissionProjectionService service(JdbcTemplate jdbc) {
-        return new EffectivePermissionProjectionService(jdbc, new AuthorizationVersionService(jdbc));
+        return new EffectivePermissionProjectionService(jdbc, new AuthorizationVersionService(jdbc), new TenantRlsTransactionContext(jdbc));
     }
 
     private static Connection openMigratedConnection() throws Exception {

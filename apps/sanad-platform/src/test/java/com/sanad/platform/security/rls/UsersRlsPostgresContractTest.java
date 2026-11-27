@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * RED baseline for the proposed users RLS cutover.
@@ -65,17 +66,39 @@ class UsersRlsPostgresContractTest {
     }
 
     @Test
-    @DisplayName("users RLS policy must fail closed when tenant GUC is absent")
+    @DisplayName("users RLS policy must fail closed when tenant context is absent")
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     void usersWithoutTenantContextAreInvisible() {
         // This zero-row contract must be paired with seeded tenant A/B test
         // fixtures before it can constitute RLS certification evidence.
-        jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
-        Long visible = jdbc.queryForObject(
-                "SELECT count(*) FROM public.users", Long.class);
-        assertThat(visible)
-                .as("No authenticated tenant context must expose zero users")
-                .isZero();
+        //
+        // (a) APPLICATION-LAYER contract: an in-transaction tenant-data
+        // statement without any tenant context is rejected LOUDLY by the
+        // strict signed-binding handler — it can never silently return an
+        // empty result set.
+        assertThatThrownBy(() ->
+                jdbc.queryForObject("SELECT count(*) FROM public.users", Long.class))
+                .as("A context-less in-transaction tenant-data statement is rejected loudly")
+                .hasMessageContaining("Tenant RLS context missing");
+
+        // (b) DATABASE-LAYER contract: an unbound session that reaches the
+        // database through the explicitly classified infrastructure scope
+        // sees ZERO rows — the enforced policies read the HMAC validator and
+        // fail closed. The context-clearing probe is binding infrastructure
+        // (not tenant data access); the zero-row assertion is unchanged.
+        TenantRlsPreAuthScope.run(() -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
+            Long visible = jdbc.queryForObject(
+                    "SELECT count(*) FROM public.users", Long.class);
+            assertThat(visible)
+                    .as("No authenticated tenant context must expose zero users")
+                    .isZero();
+            String validated = jdbc.queryForObject(
+                    "SELECT public.app_tenant_ctx_text()", String.class);
+            assertThat(validated)
+                    .as("The HMAC validator must return NULL without a signed binding")
+                    .isNull();
+        });
     }
 
     @Test
@@ -154,6 +177,10 @@ class UsersRlsPostgresContractTest {
     @Test
     @DisplayName("users RLS must have an enforced tenant-aware policy for runtime")
     void runtimeUsersPolicyMustBeTenantScoped() {
+        // V20261124_2 rewrote the tenant policies from the raw (forgeable)
+        // GUC to the HMAC-validated app_tenant_ctx_text() fail-closed pattern;
+        // the tenant-scoping requirement is unchanged, only the expression
+        // contract advanced with the signed-context enforcement.
         Long matching = jdbc.queryForObject("""
                 SELECT count(*)
                 FROM pg_policies
@@ -161,11 +188,11 @@ class UsersRlsPostgresContractTest {
                   AND tablename = 'users'
                   AND cmd = 'ALL'
                   AND 'sanad' = ANY(roles)
-                  AND qual LIKE '%app.tenant_id%'
-                  AND with_check LIKE '%app.tenant_id%'
+                  AND qual LIKE '%app_tenant_ctx_text()%'
+                  AND with_check LIKE '%app_tenant_ctx_text()%'
                 """, Long.class);
         assertThat(matching)
-                .as("Runtime users policy must constrain reads and writes to a tenant")
+                .as("Runtime users policy must constrain reads and writes to the HMAC-validated tenant")
                 .isGreaterThan(0L);
     }
 

@@ -12,7 +12,11 @@ import java.util.UUID;
 @Component
 public class LastAdminGuard {
     private final JdbcTemplate jdbc;
-    public LastAdminGuard(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope;
+    public LastAdminGuard(JdbcTemplate jdbc, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
+        this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
+    }
 
     public void assertTenantSurvives(long remainingActiveAdmins) {
         if (remainingActiveAdmins < 1L) {
@@ -93,6 +97,7 @@ public class LastAdminGuard {
                 rs -> { while (rs.next()) rs.getObject(1); return null; }, tenantId);
     }
     private void scope(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(tenantId);
     }
 }

@@ -38,11 +38,7 @@ public class HrAuditReadService {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT set_config('app.tenant_id', ?, true)")) {
-                    ps.setString(1, tenantId.toString());
-                    ps.execute();
-                }
+                com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
                 String sql = "SELECT id, tenant_id, actor_user_id, action, resource_type, resource_id, " +
                         "data_classification, reason, result, correlation_id, occurred_at " +
                         "FROM hr_audit_ledger WHERE tenant_id = ?" +

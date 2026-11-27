@@ -36,6 +36,18 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     validate-on-migrate: true
+    # Dedicated UNWRAPPED migration channel (G1 F-INT fix, 2026-11-25):
+    # Flyway must run through its own DriverDataSource, never through the
+    # TenantRlsDataSource-wrapped pool. Migrations are infrastructure
+    # operations with no tenant context; the strict signed-context handler
+    # would otherwise reject Flyway's own in-transaction catalog statements
+    # and the application could not boot. On production the profile-specific
+    # override points this at the migrator channel (V20261103_1
+    # migrator/runtime separation); the runtime pool remains the only channel
+    # where the signed binding contract applies.
+    url: ${SANAD_FLYWAY_URL:${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sanad}}
+    user: ${SANAD_FLYWAY_USERNAME:${SPRING_DATASOURCE_USERNAME:sanad}}
+    password: ${SANAD_FLYWAY_PASSWORD:${SPRING_DATASOURCE_PASSWORD:}}
   lifecycle:
     timeout-per-shutdown-phase: 30s
 

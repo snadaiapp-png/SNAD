@@ -116,7 +116,10 @@ final class WorkflowTenantFixtureSweeper {
         // tables (hr_employees) delete their owned rows under normal policy.
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
-            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+            // G1 REV3 — signed binding protocol (raw GUC untrusted post-V20261124_2):
+            // FORCE-RLS deletes require the HMAC-verified signed context.
+            new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc)
+                    .applyForCurrentTransaction(tenantId);
             // Journey (append-only, trigger-guarded): TRUNCATE is the only
             // harness-legal cleanup — same precedent as
             // WorkflowJourneyTimeGovernanceTest @AfterEach. The test database
