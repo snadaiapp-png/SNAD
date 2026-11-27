@@ -2,7 +2,10 @@ package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.workflow.application.WorkflowDelegationService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Map;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,14 +51,22 @@ class WorkflowDelegationPolicyTest {
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        // Establish a verified tenant-bound principal before fixture JDBC statements.
+        var principal = UsernamePasswordAuthenticationToken.authenticated(
+                "workflow-fixture", "n/a", List.of());
+        principal.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(principal);
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Delegation Policy', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-del-" + tenantId.toString().substring(0, 8), now, now);
 
         // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
-        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        // TenantRlsConnectionHandler (signed HMAC binding); this fixture verifies that contract.
+        String verifiedTenant = jdbc.queryForObject(
+                "SELECT public.app_tenant_ctx_text()", String.class);
+        assertThat(verifiedTenant).isEqualTo(tenantId.toString());
 
         UUID startUserId = createUser("del-starter");
         definitionId = UUID.randomUUID();
@@ -149,6 +162,11 @@ class WorkflowDelegationPolicyTest {
         assertThatThrownBy(() -> delegationService.createDelegation(
                 tenantId, delegator, delegate, now, now, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
     }
 
     // ===== fixture helpers =====
