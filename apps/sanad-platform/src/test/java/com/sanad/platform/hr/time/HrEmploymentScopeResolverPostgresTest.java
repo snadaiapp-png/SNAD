@@ -1,6 +1,7 @@
 package com.sanad.platform.hr.time;
 
 import com.sanad.platform.hr.time.application.HrEmploymentScopeResolver;
+import com.sanad.platform.security.rls.TenantContextSigner;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +15,10 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.HexFormat;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,7 +89,13 @@ class HrEmploymentScopeResolverPostgresTest {
     @AfterEach
     void closeConnection() throws Exception {
         if (connection != null) {
-            connection.close();
+            try {
+                if (!connection.getAutoCommit()) {
+                    connection.rollback();
+                }
+            } finally {
+                connection.close();
+            }
         }
     }
 
@@ -178,11 +189,46 @@ class HrEmploymentScopeResolverPostgresTest {
                 "g2-scope-" + tenantId.toString().substring(0, 8));
     }
 
+    /**
+     * Direct PostgreSQL test fixture: run the genuine signed binding protocol
+     * on the same physical connection used by the HR resolver. This database
+     * is freshly migrated and disposable; the migration installs its documented
+     * fixture key. It is never a production credential or certification.
+     */
     private void setTenant(UUID tenantId) {
-        jdbc.queryForObject(
-                "SELECT set_config('app.tenant_id', ?, false)",
-                String.class,
-                tenantId.toString());
+        try {
+            connection.setAutoCommit(false);
+            String txid;
+            int pid;
+            try (Statement slot = connection.createStatement();
+                    ResultSet row = slot.executeQuery(
+                            "SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()")) {
+                if (!row.next()) {
+                    throw new IllegalStateException("Tenant context slot unavailable");
+                }
+                txid = row.getString("ctx_txid");
+                pid = row.getInt("ctx_pid");
+            }
+            TenantContextSigner signer = new TenantContextSigner(
+                    HexFormat.of().parseHex(
+                            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+                    true);
+            String mac = signer.macHex(tenantId, txid, pid);
+            try (PreparedStatement bind = connection.prepareStatement(
+                    "SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+                bind.setString(1, tenantId.toString());
+                bind.setString(2, mac);
+                try (ResultSet result = bind.executeQuery()) {
+                    if (!result.next() || !result.getBoolean(1)) {
+                        throw new IllegalStateException("Signed tenant context was rejected");
+                    }
+                }
+            }
+            assertThat(jdbc.queryForObject("SELECT public.app_tenant_ctx_text()", String.class))
+                    .isEqualTo(tenantId.toString());
+        } catch (Exception error) {
+            throw new IllegalStateException("Direct PostgreSQL signed tenant fixture failed", error);
+        }
     }
 
     private void seedUser(UUID tenantId, UUID userId, String label) {

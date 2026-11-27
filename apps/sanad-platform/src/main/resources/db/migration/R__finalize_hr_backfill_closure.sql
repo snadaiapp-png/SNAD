@@ -7,6 +7,22 @@
 -- SOURCE_SHA256 g0-backfill-precheck.sql b9809b62a152e898a635a04fad13bc6bad5f48b01b4117c176d3e8832b0baf83
 -- SOURCE_SHA256 g0-reconcile.sql f52fe6fe3f338a9bb77b317223e8f245251d5d92a213de3f050bb8c7bd5e2291
 -- SOURCE_SHA256 g0-backfill.sql bde37bc0793c9cf482a086841ef74d14c71d6da34f73ba01f07bbaed04351a81
+--
+-- G1 F-INT-02 CANONICALIZATION (2026-11-25):
+--   V20261124_2 (tenant-context policy enforcement) dynamically rewrites every
+--   public function that reads the raw tenant GUC, replacing
+--   current_setting('app.tenant_id', true) with (SELECT public.app_tenant_ctx_text()).
+--   This repeatable unit previously carried the PRE-enforcement body of
+--   hr_assert_migration_tenant_scope — because Flyway applies repeatable units
+--   AFTER all versioned migrations, a fresh chain apply (or a checksum-triggered
+--   re-apply) re-created the stale body and silently REGRESSED the enforced
+--   catalog (the function trusted the forgeable raw GUC again). The body is now
+--   canonicalized to the post-V20261124_2 form so the repeatable deployment and
+--   the enforcement migration can no longer disagree. The SOURCE_SHA256 values
+--   above identify the original reviewed source scripts; the canonical body
+--   below supersedes them exactly as V20261124_2's rewrite mandates (no other
+--   semantic change). Re-run isolation tests after applying repeatables.
+-- ============================================================
 
 -- ============================================================
 -- HRM-G0 / WS2 / Task 6 — Final Backfill Precheck
@@ -23,7 +39,7 @@ AS $$
 DECLARE
     v_caller_tenant TEXT;
 BEGIN
-    v_caller_tenant := NULLIF(BTRIM(current_setting('app.tenant_id', true)), '');
+    v_caller_tenant := NULLIF(BTRIM((SELECT public.app_tenant_ctx_text())), '');
 
     IF v_caller_tenant IS NULL OR v_caller_tenant <> p_tenant_id::text THEN
         RAISE EXCEPTION 'HR migration tenant scope denied: caller tenant %, requested tenant %',

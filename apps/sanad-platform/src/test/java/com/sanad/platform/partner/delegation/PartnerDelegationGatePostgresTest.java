@@ -1,5 +1,7 @@
 package com.sanad.platform.partner.delegation;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -69,8 +71,18 @@ class PartnerDelegationGatePostgresTest {
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(SOURCE_URL), USER, PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
         tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
-        gate = new PartnerDelegationGate(jdbc, CONTROL_TENANT);
+        gate = new PartnerDelegationGate(jdbc, new TenantRlsTransactionContext(jdbc), CONTROL_TENANT);
+        // G1 REV3: the signed binding protocol requires the fixture signer
+        // (disposable fixture topology only) — mirrors TenantRlsSecurityConfig.
+        com.sanad.platform.security.rls.TenantRlsRuntimePolicy.install(
+                new com.sanad.platform.security.rls.TenantRlsRuntimePolicy.Policy(
+                        new com.sanad.platform.security.rls.TenantContextSigner(
+                                java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), true),
+                        true));
     }
+
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     @AfterEach
     void restoreRegistryStatus() {
@@ -311,12 +323,13 @@ class PartnerDelegationGatePostgresTest {
 
     private void inTx(TxWork work) {
         tx.executeWithoutResult(status -> {
-            // Fixture writes mirror the production control plane: platform
-            // scope is required by FORCE RLS on partner governance tables.
+            // Fixture writes mirror the production control plane: the SIGNED
+            // platform scope is required by FORCE RLS on partner governance
+            // tables (G1 REV3 — raw GUC is untrusted after V20261124_2).
             // app.partner_id stays UNSET — the audit RLS platform branch
             // requires IS NULL, and grant writes fire audit triggers.
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, CONTROL_TENANT);
+            new TenantRlsTransactionContext(jdbc)
+                    .applyForCurrentTransaction(java.util.UUID.fromString(CONTROL_TENANT));
             work.run();
         });
     }

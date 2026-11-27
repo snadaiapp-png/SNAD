@@ -9,10 +9,12 @@ import org.springframework.jdbc.datasource.AbstractDataSource;
  * {@link javax.sql.DataSource} decorator that wraps every borrowed connection
  * in a dynamic proxy backed by {@link TenantRlsConnectionHandler}.
  *
- * <p>The proxy transparently applies {@code SET LOCAL app.tenant_id} before
- * the first statement execution inside a transaction, activating PostgreSQL
- * Row-Level Security policies as a defense-in-depth layer on top of the
- * existing application-level tenant filtering.</p>
+ * <p>The proxy transparently binds the HMAC-SIGNED tenant context before the
+ * first statement execution inside a transaction
+ * ({@code app_tenant_ctx_slot} → HMAC mint → {@code app_bind_tenant_ctx} —
+ * the V20261124_1 contract), activating PostgreSQL Row-Level Security
+ * policies as a defense-in-depth layer on top of the existing
+ * application-level tenant filtering.</p>
  *
  * <p>This class only wraps — it does not pool, close, or alter connection
  * lifecycle. HikariCP retains full ownership of pooling semantics.</p>

@@ -3,7 +3,10 @@ package com.sanad.platform.workflow;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.workflow.application.WorkflowDefinitionValidator;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionValidation;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,6 +19,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -47,12 +51,20 @@ class WorkflowDefinitionValidatorHardeningTest {
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        // Establish a verified tenant-bound principal before fixture JDBC statements.
+        var principal = UsernamePasswordAuthenticationToken.authenticated(
+                "workflow-fixture", "n/a", List.of());
+        principal.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", UUID.randomUUID().toString()));
+        SecurityContextHolder.getContext().setAuthentication(principal);
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'R0 Validator Hardening', ?, 'ACTIVE', ?, ?)",
                 tenantId, "r0-val-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        String verifiedTenant = jdbc.queryForObject(
+                "SELECT public.app_tenant_ctx_text()", String.class);
+        assertThat(verifiedTenant).isEqualTo(tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Hardening User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "r0-val-" + userId.toString().substring(0, 8) + "@test", now, now);
@@ -304,6 +316,11 @@ class WorkflowDefinitionValidatorHardeningTest {
         assertThat(result.valid())
                 .as("parallel graph errors: %s", result.errors())
                 .isTrue();
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
     }
 
     // ===== fixture helpers (same conventions as WorkflowDefinitionValidatorTest) =====

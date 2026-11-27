@@ -3,6 +3,7 @@ package com.sanad.platform.crm.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,7 @@ class CrmApiIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired TenantRlsTransactionContext signedTenantContext;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
     private org.springframework.transaction.support.TransactionTemplate seedTx;
 
@@ -179,9 +181,7 @@ class CrmApiIntegrationTest {
 
     private long tenantScopedCount(String sql, UUID tenantId) {
         Long value = seedTx.execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
-                    tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return jdbc.queryForObject(sql, Long.class, tenantId);
         });
         return value == null ? 0L : value;
@@ -238,11 +238,8 @@ class CrmApiIntegrationTest {
 
     private void purgeTenantRows(UUID tenantId) {
         seedTx.executeWithoutResult(status -> {
-            // Fail-closed RLS on every crm table: the DELETEs need the tenant
-            // GUC on this transaction or they silently see zero rows.
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)", String.class,
-                    tenantId.toString());
+            // Fail-closed RLS on CRM tables: cleanup must use a signed tenant scope.
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             for (String sql : new String[] {
                     "DELETE FROM crm_contact_relationship_history WHERE tenant_id = ?::uuid",
                     "DELETE FROM crm_account_status_history WHERE tenant_id = ?::uuid",
@@ -281,19 +278,17 @@ class CrmApiIntegrationTest {
 
     private void seedTenant(UUID id, String subdomain, String name, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?) ON CONFLICT DO NOTHING", id, subdomain, name, ts, ts);
+        seedTx.executeWithoutResult(status -> {
+            signedTenantContext.applyForCurrentTransaction(id);
+            jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?) ON CONFLICT DO NOTHING", id, subdomain, name, ts, ts);
+        });
     }
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        // Under FORCE RLS (V20261011_3) the fixture INSERT needs the tenant GUC
-        // on its own transaction: the class no longer shares one test tx, so
-        // each seed runs in an explicit transaction with set_config scoped to
-        // the user's tenant (no SecurityContextHolder bound, no guard state).
+        // REV3: fixture data uses an explicitly signed tenant binding on its own transaction.
         seedTx.executeWithoutResult(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, email, "CRM Test User", ts, ts);
         });
     }
@@ -302,9 +297,7 @@ class CrmApiIntegrationTest {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
         // roles is FORCE RLS (V20261029_1): seed inside the tenant context.
         seedTx.executeWithoutResult(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) VALUES (?,?,'ADMIN','Administrator','CRM integration role','ACTIVE',?,?) ON CONFLICT DO NOTHING", id, tenantId, ts, ts);
         });
     }
@@ -313,9 +306,7 @@ class CrmApiIntegrationTest {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
         // user_role_assignments is FORCE RLS (V20261029_1).
         seedTx.executeWithoutResult(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) VALUES (?,?,?,?,NULL,'ACTIVE',?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, userId, roleId, ts, ts);
         });
     }
@@ -324,9 +315,7 @@ class CrmApiIntegrationTest {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
         // role_capabilities is FORCE RLS (V20261029_1).
         seedTx.executeWithoutResult(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             List<UUID> capabilityIds = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'CRM.%'", UUID.class);
             for (UUID capabilityId : capabilityIds) {
                 jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);

@@ -349,8 +349,6 @@ public class JdbcHrInterviewRepository {
     }
 
     private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (Statement st = connection.createStatement()) {
-            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
     }
 }

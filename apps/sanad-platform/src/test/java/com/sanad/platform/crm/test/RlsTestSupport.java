@@ -21,10 +21,10 @@ import java.util.UUID;
  *   <li>{@link #setSecurityContext(UUID, UUID)} — sets SecurityContextHolder
  *       with tenant_id in Authentication.details so that
  *       {@code TenantRlsConnectionHandler} applies
- *       {@code SET LOCAL app.tenant_id} inside {@code @Transactional}
+ *       a signed context via {@code app_bind_tenant_ctx} inside {@code @Transactional}
  *       service boundaries.</li>
  *   <li>{@link #deleteTenantRows(NamedParameterJdbcTemplate, TransactionTemplate, UUID, List)}
- *       — runs per-tenant cleanup inside a transaction-local GUC scope so
+ *       — runs per-tenant cleanup with an authenticated tenant and signed scope so
  *       FORCE-RLS tables accept the DELETE.</li>
  * </ul>
  *
@@ -58,7 +58,7 @@ public final class RlsTestSupport {
 
     /**
      * Delete rows from the given FORCE-RLS tables for the specified tenant,
-     * using a transaction-local GUC so the RLS WITH CHECK clause accepts
+     * using the production signed binding in a tenant-authenticated transaction so RLS accepts
      * the DELETE.
      *
      * @param jdbc         NamedParameterJdbcTemplate bound to the same DataSource
@@ -70,15 +70,19 @@ public final class RlsTestSupport {
                                          TransactionTemplate transactions,
                                          UUID tenantId,
                                          List<String> tables) {
-        transactions.executeWithoutResult(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', :t, true)",
-                    new MapSqlParameterSource("t", tenantId.toString()),
-                    String.class);
-            for (String table : tables) {
-                jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t",
-                        new MapSqlParameterSource("t", tenantId));
-            }
-        });
+        Authentication previous = SecurityContextHolder.getContext().getAuthentication();
+        try {
+            // Fixture-only authenticated identity. The production handler
+            // performs the HMAC-signed transaction bind before any SQL.
+            setSecurityContext(tenantId, UUID.randomUUID());
+            transactions.executeWithoutResult(status -> {
+                for (String table : tables) {
+                    jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t",
+                            new MapSqlParameterSource("t", tenantId));
+                }
+            });
+        } finally {
+            SecurityContextHolder.getContext().setAuthentication(previous);
+        }
     }
 }

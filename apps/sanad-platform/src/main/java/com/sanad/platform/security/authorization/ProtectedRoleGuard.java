@@ -1,5 +1,7 @@
 package com.sanad.platform.security.authorization;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.access.AccessConflictException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -18,8 +20,12 @@ public class ProtectedRoleGuard {
     private static final Set<String> PROTECTED = Set.of(
             "PLATFORM_OWNER", "PLATFORM_ADMIN", "AGENT_SUPER_ADMIN", "TENANT_ADMIN");
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
 
-    public ProtectedRoleGuard(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ProtectedRoleGuard(JdbcTemplate jdbc, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
+        this.jdbc = jdbc;
+        this.tenantScope = tenantScope;
+    }
 
     public void assertProtectedMutation(String roleCode, boolean actorHasPlatformManage) {
         if (roleCode == null || !PROTECTED.contains(roleCode)) return;
@@ -70,7 +76,8 @@ public class ProtectedRoleGuard {
     }
 
     private void scope(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(tenantId);
     }
 
     private static UUID actorUserId() {

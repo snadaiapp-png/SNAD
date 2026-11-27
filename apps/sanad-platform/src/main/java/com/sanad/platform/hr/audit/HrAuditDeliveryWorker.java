@@ -54,6 +54,7 @@ public class HrAuditDeliveryWorker {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final PlatformAuditSink sink;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope;
     private final String workerId;
     private final int claimTimeoutSeconds;
 
@@ -62,11 +63,13 @@ public class HrAuditDeliveryWorker {
             DataSource dataSource,
             ObjectMapper objectMapper,
             PlatformAuditSink sink,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope,
             @Value("${sanad.hr.audit-worker.id:hr-audit-worker-1}") String workerId,
             @Value("${sanad.hr.audit-worker.claim-timeout-seconds:60}") int claimTimeoutSeconds) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.sink = Objects.requireNonNull(sink, "sink");
+        this.tenantScope = Objects.requireNonNull(tenantScope, "tenantScope");
         this.workerId = Objects.requireNonNull(workerId, "workerId");
         this.claimTimeoutSeconds = Math.max(10, Math.min(claimTimeoutSeconds, 300));
     }
@@ -303,10 +306,20 @@ public class HrAuditDeliveryWorker {
         }
     }
 
-    private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId.toString());
-            ps.execute();
+    /**
+     * G1 F-INT-03 (REV3): binds the HMAC-SIGNED tenant context on this
+     * caller-managed transaction through the production protocol
+     * (TenantRlsTransactionContext.bindConnection — app-side mint, the key
+     * never reaches SQL). The raw {@code set_config('app.tenant_id', ...)}
+     * write is untrusted after V20261124_2 and was removed.
+     */
+    private void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
+        try {
+            tenantScope.bindConnection(connection, tenantId);
+        } catch (SQLException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new SQLException("HRM_AUDIT_DELIVERY_SIGNED_BIND_FAILED: " + e.getMessage(), e);
         }
     }
 

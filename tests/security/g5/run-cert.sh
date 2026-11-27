@@ -101,10 +101,13 @@ head=$(history_head sanad)
 # integrity) + V20261117_2 (platform_subscription_owners runtime grants) were byte-exact
 # restored and checksum-certified against the 10c registry (P1.6, 265/265) — watermark
 # advances to 20261117.2. Recorded per watermark policy; no silent value bump.
-# ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
-[ "$head" = "20261118.2" ] || die A "fresh-DB head=$head, expected 20261118.2"
+# ORDER 11 established 20261118.2 for control-plane ACL separation.
+# G1 F-INT candidate adds exact versions 20261124.1 (HMAC binder), 20261124.2
+# (signed policy enforcement), and 20261124.3 (WS7 referential integrity).
+# Fresh, upgrade and injected-failure retry heads remain exact asserted values.
+[ "$head" = "20261124.3" ] || die A "fresh-DB head=$head, expected 20261124.3"
 tables=$(psql -At -U sanad -d sanad -c "SELECT count(*) FROM pg_tables WHERE schemaname='public';")
-gate A "PASS: head=20261118.2, public tables=$tables, chain window $((T1-T0))s"
+gate A "PASS: head=20261124.3, public tables=$tables, chain window $((T1-T0))s"
 
 rls_fresh=$(psql -At -U sanad -d sanad -c "$sql_rls" | tee "$ART/A-rls-catalog.txt")
 echo "$rls_fresh" | grep -q '^refresh_tokens:11$' || die A "refresh_tokens not ENABLE+FORCE"
@@ -155,7 +158,7 @@ gate B "checksum join at watermark: 100% match with production ledger"
 fw upgrade_hist migrate | tee "$ART/B-migrate-upgrade.log"
 fw upgrade_hist validate | tee "$ART/B-validate-upgrade.log"
 head_b2=$(history_head upgrade_hist)
-[ "$head_b2" = "20261118.2" ] || die B "upgraded head=$head_b2, expected 20261118.2"
+[ "$head_b2" = "20261124.3" ] || die B "upgraded head=$head_b2, expected 20261124.3"
 applied_new=$(psql -At -U sanad -d upgrade_hist -c "SELECT string_agg(version, ',' ORDER BY installed_rank) FROM flyway_schema_history WHERE success=true AND version > '20261021.1';")
 gate B "PASS: upgrade applied [$applied_new], validate OK"
 
@@ -229,11 +232,13 @@ before_succ=$(success_rows injection)
 # V20261117_1 (WS7) then existed in the certified chain — the C3 slot re-derived
 # to chain_tail + 1. ORDER 11 (2026-11-21, doc 21) advances the head to
 # 20261118.2 and REAL V20261118_1/V20261118_2 (control-plane ACL) now exist,
-# so the slot re-derives again to V20261119_1 = chain_tail + 1 (runtime-
+# so the slot formerly used V20261119_1 under that head. Signed-context
+# V20261124_1..3 advanced the head to 20261124.3; the temporary slot is now
+# V20261125_1 (strictly above the current head; runtime-
 # generated in the disposable chain copy; NEVER committed to the repository),
 # exactly as documented in the V20261117_2 header contract. Same governance
 # decision, no semantic change to the proof.
-printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V20261119_1__inject_failure.sql"
+printf 'CREATE TABLE certification_rollback_marker_xyz (id int);\nSELECT * FROM certification_nonexistent_table_xyz;\n' > "$CHAIN_COPY/V20261125_1__inject_failure.sql"
 if $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-midchain.log" 2>&1; then
   die C "c3: migrate PASSED despite failing migration (fail-open!)"
@@ -244,17 +249,17 @@ grep -q "Changes successfully rolled back" "$ART/C3-midchain.log" \
 # a failed in-transaction migration is fully rolled back and writes NO history row;
 # the success=false row exists only on non-transactional engines. Certify the
 # documented PG semantics: no row, no schema pollution, clean retry without repair.
-[ "$(psql -At -U sanad -d injection -c "SELECT count(*) FROM flyway_schema_history WHERE version='20261119.1';")" = "0" ] \
+[ "$(psql -At -U sanad -d injection -c "SELECT count(*) FROM flyway_schema_history WHERE version='20261125.1';")" = "0" ] \
   || die C "c3: failed migration left a history row (rollback incomplete)"
 psql -At -U sanad -d injection -c "SELECT to_regclass('public.certification_rollback_marker_xyz') IS NULL;" | grep -q t \
   || die C "c3: partial DDL from failed migration was not rolled back"
 [ "$(success_rows injection)" = "$before_succ" ] \
   || die C "c3: schema history row count changed after failed migration"
-rm "$CHAIN_COPY/V20261119_1__inject_failure.sql"
+rm "$CHAIN_COPY/V20261125_1__inject_failure.sql"
 $FLYWAY -url="jdbc:postgresql://127.0.0.1:5432/injection" -user=sanad -password="$CERT_PW" \
      -locations="$INJ_LOC" migrate > "$ART/C3-retry.log" 2>&1 \
   || die C "c3: retry after clean failure failed (database left inconsistent)"
-[ "$(history_head injection)" = "20261118.2" ] || die C "c3: head changed after retry"
+[ "$(history_head injection)" = "20261124.3" ] || die C "c3: head changed after retry"
 gate C "c3 PASS: mid-chain failure -> migrate aborted, transaction rolled back (real DDL marker absent, no history pollution), clean retry without repair [Flyway PG-transactional: no success=false row by design]"
 
 gate C "c4 PASS: repair/baseline never invoked at any point (no repair artifacts; all failures stay failed)"

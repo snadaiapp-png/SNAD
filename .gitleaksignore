@@ -39,3 +39,7 @@ apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonService
 # the canonical-write-integrity InMemoryTestCryptoService (NOT real secrets).
 # Same class of fixture as HrPersonServiceBehaviorIntegrationTest above.
 apps/sanad-platform/src/test/java/com/sanad/platform/hr/employment/HrEmploymentCanonicalWriteIntegrityIntegrationTest.java:generic-api-key:259
+
+# Exact known synthetic migration-fixture HMAC vector (disposable topology only).
+# Not a real credential; all other Gitleaks policies stay enforced.
+apps/sanad-platform/src/main/resources/db/migration/V20261124_2__tenant_context_policy_enforcement.sql:generic-api-key:93

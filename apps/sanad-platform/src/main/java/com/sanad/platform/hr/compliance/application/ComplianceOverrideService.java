@@ -353,7 +353,7 @@ public class ComplianceOverrideService {
     /** Transaction-scoped tenant GUC for fail-closed RLS (is_local = true). */
     private void bindTenant(UUID tenantId) {
         Objects.requireNonNull(tenantId, "tenantId");
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc).applyForCurrentTransaction(tenantId);
     }
 
     private JsonNode lifecyclePayload(UUID tenantId, UUID requestId, ComplianceOverrideRequest request) {
