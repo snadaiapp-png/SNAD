@@ -1,6 +1,7 @@
 package com.sanad.platform.platformiam;
 
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.platformiam.domain.PlatformMembershipStatus;
 import com.sanad.platform.platformiam.service.PlatformUserService;
 import com.sanad.platform.security.filter.SessionVersionCache;
@@ -44,6 +45,7 @@ class PlatformSessionInvalidationPostgresAcceptanceTest {
     @Autowired private SessionVersionCache sessionVersions;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
 
     private final List<UUID> createdUsers = new ArrayList<>();
 
@@ -157,10 +159,7 @@ class PlatformSessionInvalidationPostgresAcceptanceTest {
 
     private <T> T inControlTenantTransaction(Supplier<T> work) {
         return new TransactionTemplate(transactionManager).execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class,
-                    CONTROL_TENANT_ID);
+            signedTenantContext.applyForCurrentTransaction(CONTROL_TENANT);
             return work.get();
         });
     }
