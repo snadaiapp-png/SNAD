@@ -3,6 +3,7 @@ package com.sanad.platform.commerce;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.*;
@@ -89,6 +90,7 @@ class CommerceOrderPostgresConcurrencyTest {
     @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
     @Autowired private org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate namedJdbc;
     @Autowired private org.springframework.transaction.PlatformTransactionManager txManager;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @MockBean private EntitlementResolver entitlementResolver;
 
     @BeforeEach
@@ -616,8 +618,7 @@ class CommerceOrderPostgresConcurrencyTest {
     private <T> T withTenantDb(UUID tenantId, java.util.function.Supplier<T> reads) {
         var tt = new org.springframework.transaction.support.TransactionTemplate(txManager);
         return tt.execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return reads.get();
         });
     }
