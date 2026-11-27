@@ -3,6 +3,7 @@ package com.sanad.platform.crm.party;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ class AddressCommunicationHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired TenantRlsTransactionContext signedTenantContext;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @AfterEach
@@ -65,8 +67,7 @@ class AddressCommunicationHttpIntegrationTest {
         org.springframework.transaction.support.TransactionTemplate tx =
                 new org.springframework.transaction.support.TransactionTemplate(txManager);
         return tx.execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                    new MapSqlParameterSource("t", fixture.tenantId().toString()), String.class);
+            signedTenantContext.applyForCurrentTransaction(fixture.tenantId());
             return query.get();
         });
     }
@@ -260,8 +261,10 @@ class AddressCommunicationHttpIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        // Under FORCE RLS, INSERT INTO users requires app.tenant_id.
-        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantId.toString());
+        // All tenant-scoped fixture rows share one HMAC-verified transaction.
+        new org.springframework.transaction.support.TransactionTemplate(txManager)
+                .executeWithoutResult(status -> {
+            signedTenantContext.applyForCurrentTransaction(tenantId);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM-007 User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
@@ -283,6 +286,7 @@ class AddressCommunicationHttpIntegrationTest {
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
                         .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+        });
         return new Fixture(tenantId, userId);
     }
 
