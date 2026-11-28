@@ -9,7 +9,21 @@
 -- the governed tenant context explicitly. No BYPASSRLS is required.
 -- ============================================================
 
-SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+BEGIN;
+-- Tenant-bound transaction with signed CI fixture key; no raw-GUC reliance.
+DO $g2_human_signed$
+DECLARE
+    v_tenant uuid := '33333333-3333-4333-8333-333333333331'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'G2_HUMAN_SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END $g2_human_signed$;
 
 -- Employee attendance: completed history plus an open current-day record.
 INSERT INTO hr_attendance_records (
@@ -179,4 +193,4 @@ SELECT 'G2_VISUAL_FIXTURE schedules=' || COUNT(*)
 FROM hr_work_schedules
 WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
 
-SELECT set_config('app.tenant_id', '', false);
+COMMIT;
