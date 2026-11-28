@@ -127,7 +127,7 @@ BEGIN;
 SELECT public.app_bind_tenant_ctx('$3'::uuid, encode(hmac(
   convert_to('$3' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
   decode(\$1, 'hex'), 'sha256'), 'hex')) AS bound
-\bind :'ctx_key'
+\bind :ctx_key
 \gset
 $2;
 COMMIT;
