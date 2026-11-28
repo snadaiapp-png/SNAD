@@ -75,6 +75,7 @@ SELECT 'ctx-hmac-' || to_char(now(), 'YYYYMMDDHH24MI'), decode($1, 'hex'), 'ACTI
  WHERE NOT EXISTS (SELECT 1 FROM public.platform_tenant_ctx_keys
                     WHERE secret = decode($1, 'hex') AND status = 'ACTIVE')
 \bind :'ctx_key'
+\g
 
 -- Rotation summary — key material is never printed.
 SELECT k.key_id,
