@@ -1,6 +1,8 @@
 package com.sanad.platform.crm.party;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -54,13 +56,23 @@ class AccountV2HttpIntegrationTest {
     @Autowired
     NamedParameterJdbcTemplate jdbc;
 
+    @AfterEach
+    void clearTenantAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
     private UUID seedTenantAndOwner() {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
+        // Bind the JWT-shaped tenant identity before any fixture SQL in the
+        // existing test transaction. The JDBC proxy signs the context.
+        SecurityContextHolder.getContext().setAuthentication(buildAuth(tenantId, userId));
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new MapSqlParameterSource("id", tenantId));
         // Under FORCE RLS, INSERT INTO users requires app.tenant_id. This test is @Transactional.
-        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        String verifiedTenant = jdbc.getJdbcTemplate().queryForObject(
+                "SELECT public.app_tenant_ctx_text()", String.class);
+        org.junit.jupiter.api.Assertions.assertEquals(tenantId.toString(), verifiedTenant);
         jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "owner-" + userId.toString().substring(0, 8) + "@test.example"));
         seedAccountCapabilities(tenantId, userId);

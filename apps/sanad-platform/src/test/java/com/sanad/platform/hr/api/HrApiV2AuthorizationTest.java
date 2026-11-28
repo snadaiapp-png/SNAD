@@ -132,18 +132,21 @@ class HrApiV2AuthorizationTest {
         // reaches the role.
         UUID tenantId = UUID.randomUUID();
         insertTenant(tenantId);
-        setTenant(tenantId);
-        UUID hrManagerRoleId = insertRole(tenantId, "HR_MANAGER");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.READ");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
+        // Signed-bound scope (V20261124_1/_2): roles, role_capabilities and
+        // the verification reads are tenant-scoped under enforced FORCE RLS.
+        inTenantScope(tenantId, () -> {
+            UUID hrManagerRoleId = insertRole(tenantId, "HR_MANAGER");
+            grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.READ");
+            grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
+            grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
 
-        List<String> caps = roleCapabilities(tenantId, hrManagerRoleId);
-        assertThat(caps).containsExactlyInAnyOrder(
-                "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
-        assertThat(caps.stream().filter(c -> c.startsWith("HRM.")).count())
-                .as("no HRM.* capability may be bound to HR_MANAGER")
-                .isZero();
+            List<String> caps = roleCapabilities(tenantId, hrManagerRoleId);
+            assertThat(caps).containsExactlyInAnyOrder(
+                    "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+            assertThat(caps.stream().filter(c -> c.startsWith("HRM.")).count())
+                    .as("no HRM.* capability may be bound to HR_MANAGER")
+                    .isZero();
+        });
     }
 
     @Test
@@ -170,7 +173,17 @@ class HrApiV2AuthorizationTest {
 
         UUID tenantId = UUID.randomUUID();
         insertTenant(tenantId);
-        setTenant(tenantId);
+        // SEED AT THE LEGACY HEAD (target 20261002.3): at this chain point the
+        // V20261124_1/_2 signed-context objects do NOT exist yet (no pgcrypto,
+        // no app_bind_tenant_ctx) and the policies in force still trust the
+        // session app.tenant_id GUC. The seed therefore uses the session GUC —
+        // the contract actually enforced at that historical state — and the
+        // verification reads AFTER task4.migrate() re-run under the enforced
+        // signed-context contract. No assertion is weakened.
+        try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, false)")) {
+            ps.setString(1, tenantId.toString());
+            try (ResultSet ignored = ps.executeQuery()) { }
+        }
         UUID adminRoleId = insertRole(tenantId, "ADMIN");
         UUID hrManagerRoleId = insertRole(tenantId, "HR_MANAGER");
         grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.READ");
@@ -185,146 +198,212 @@ class HrApiV2AuthorizationTest {
                 .load();
         task4.migrate();
 
-        assertThat(roleCapabilities(tenantId, adminRoleId))
-                .as("Task 4 migration must backfill canonical G3 capabilities to existing ADMIN")
-                .containsAll(G3_PERFORMANCE_CAPABILITIES);
-        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
-                + "JOIN access_capabilities c ON c.id = g.capability_id "
-                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
-                + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
-                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
-                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+        // Signed-bound verification scope: the backfill results are tenant-
+        // scoped under enforced FORCE RLS, so the reads self-bind.
+        inTenantScope(tenantId, () -> {
+            assertThat(roleCapabilities(tenantId, adminRoleId))
+                    .as("Task 4 migration must backfill canonical G3 capabilities to existing ADMIN")
+                    .containsAll(G3_PERFORMANCE_CAPABILITIES);
+            assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                    + "JOIN access_capabilities c ON c.id = g.capability_id "
+                    + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                    + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
+                    + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                    .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+        });
 
         task4.migrate();
-        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
-                + "JOIN access_capabilities c ON c.id = rc.capability_id "
-                + "WHERE rc.tenant_id = '" + tenantId + "' AND rc.role_id = '" + adminRoleId + "' "
-                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
-                .as("Task 4 ADMIN role grant backfill must be idempotent")
-                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
-        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
-                + "JOIN access_capabilities c ON c.id = g.capability_id "
-                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
-                + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
-                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
-                .as("Task 4 TENANT scope backfill must be idempotent")
-                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+        inTenantScope(tenantId, () -> {
+            assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                    + "JOIN access_capabilities c ON c.id = rc.capability_id "
+                    + "WHERE rc.tenant_id = '" + tenantId + "' AND rc.role_id = '" + adminRoleId + "' "
+                    + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                    .as("Task 4 ADMIN role grant backfill must be idempotent")
+                    .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+            assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                    + "JOIN access_capabilities c ON c.id = g.capability_id "
+                    + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                    + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
+                    + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                    .as("Task 4 TENANT scope backfill must be idempotent")
+                    .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
 
-        List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
-        assertThat(hrManagerCaps).containsExactlyInAnyOrder(
-                "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
-        assertThat(hrManagerCaps).noneMatch(code -> code.startsWith("HRM."));
+            List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
+            assertThat(hrManagerCaps).containsExactlyInAnyOrder(
+                    "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+            assertThat(hrManagerCaps).noneMatch(code -> code.startsWith("HRM."));
+        });
     }
 
     @Test
     void adminGrantBackfillIsIdempotentAndCreatesTenantScopeGrants() throws Exception {
         UUID tenantId = UUID.randomUUID();
         insertTenant(tenantId);
-        setTenant(tenantId);
-        UUID adminRoleId = insertRole(tenantId, "ADMIN");
-        UUID hrManagerRoleId = insertRole(tenantId, "HR_MANAGER");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.READ");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
-        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
+        // Signed-bound seed scope (V20261124_1/_2 contract) — this test runs
+        // its seeds against the FULL chain head, where the enforced policies
+        // no longer trust the raw tenant GUC.
+        final UUID[] adminRoleIdRef = new UUID[1];
+        final UUID[] hrManagerRoleIdRef = new UUID[1];
+        inTenantScope(tenantId, () -> {
+            adminRoleIdRef[0] = insertRole(tenantId, "ADMIN");
+            hrManagerRoleIdRef[0] = insertRole(tenantId, "HR_MANAGER");
+            grant(tenantId, hrManagerRoleIdRef[0], "HR.EMPLOYEE.READ");
+            grant(tenantId, hrManagerRoleIdRef[0], "HR.EMPLOYEE.WRITE");
+            grant(tenantId, hrManagerRoleIdRef[0], "HR.EMPLOYEE.ARCHIVE");
+        });
+        UUID adminRoleId = adminRoleIdRef[0];
+        UUID hrManagerRoleId = hrManagerRoleIdRef[0];
 
         // Runtime provisioning excludes privileged HRM.PAYROLL.* capabilities
         // from ADMIN (RegistrationProvisioner semantics) — replicate, then apply the
         // migration's scope-grant backfill logic and verify idempotency.
-        executeUpdate("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) "
-                        + "SELECT gen_random_uuid(), ?, ?, c.id, NOW() FROM access_capabilities c "
-                        + "WHERE c.status = 'ACTIVE' AND c.code NOT LIKE 'HRM.PAYROLL.%' "
-                        + "AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = ? "
-                        + "AND rc.role_id = ? AND rc.capability_id = c.id)",
-                ps -> {
-                    ps.setObject(1, tenantId);
-                    ps.setObject(2, adminRoleId);
-                    ps.setObject(3, tenantId);
-                    ps.setObject(4, adminRoleId);
-                });
-        applyScopeGrantBackfill();
+        // The role_capabilities INSERT is a tenant-scoped write under the
+        // enforced chain head, so it runs inside the signed-bound scope.
+        inTenantScope(tenantId, () -> {
+            executeUpdate("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) "
+                            + "SELECT gen_random_uuid(), ?, ?, c.id, NOW() FROM access_capabilities c "
+                            + "WHERE c.status = 'ACTIVE' AND c.code NOT LIKE 'HRM.PAYROLL.%' "
+                            + "AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = ? "
+                            + "AND rc.role_id = ? AND rc.capability_id = c.id)",
+                    ps -> {
+                        ps.setObject(1, tenantId);
+                        ps.setObject(2, adminRoleId);
+                        ps.setObject(3, tenantId);
+                        ps.setObject(4, adminRoleId);
+                    });
+            applyScopeGrantBackfill(tenantId);
+        });
 
-        List<String> adminCaps = roleCapabilities(tenantId, adminRoleId);
-        assertThat(adminCaps).doesNotContain("HRM.PAYROLL.VIEW");
-        assertThat(adminCaps).as("ADMIN must hold the full canonical HRM capability set")
-                .containsAll(CANONICAL_HRM_CAPABILITIES);
-        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
-                + "JOIN access_capabilities c ON c.id = g.capability_id "
-                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
-                + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .as("one TENANT-scope grant per active HRM capability in this synthetic ADMIN backfill")
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
+        inTenantScope(tenantId, () -> {
+            List<String> adminCaps = roleCapabilities(tenantId, adminRoleId);
+            assertThat(adminCaps).doesNotContain("HRM.PAYROLL.VIEW");
+            assertThat(adminCaps).as("ADMIN must hold the full canonical HRM capability set")
+                    .containsAll(CANONICAL_HRM_CAPABILITIES);
+            assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                    + "JOIN access_capabilities c ON c.id = g.capability_id "
+                    + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                    + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
+                    .as("one TENANT-scope grant per active HRM capability in this synthetic ADMIN backfill")
+                    .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
+        });
 
         // Idempotency: re-running the backfill must not duplicate anything.
-        applyScopeGrantBackfill();
-        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
-                + "JOIN access_capabilities c ON c.id = g.capability_id "
-                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
-                + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
+        inTenantScope(tenantId, () -> applyScopeGrantBackfill(tenantId));
+        inTenantScope(tenantId, () -> {
+            assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                    + "JOIN access_capabilities c ON c.id = g.capability_id "
+                    + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                    + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
+                    .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
-        List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
-        assertThat(hrManagerCaps).containsExactlyInAnyOrder(
-                "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+            List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
+            assertThat(hrManagerCaps).containsExactlyInAnyOrder(
+                    "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+        });
     }
 
     @Test
     void payrollViewIsDirectOwnerOnlyAndNeverRoleInherited() throws Exception {
         UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID canonicalOwner = UUID.fromString("00000000-0000-0000-0000-000000000010");
-        setTenant(controlTenant);
-        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
-                + "JOIN access_capabilities c ON c.id=u.capability_id "
-                + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW' "
-                + "AND u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
-                + "AND u.scope_type='TENANT_ALL' AND u.valid_from<=NOW() "
-                + "AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
-                .as("the verified platform owner must have one effective direct payroll VIEW grant")
-                .isEqualTo("1");
-        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
-                + "JOIN access_capabilities c ON c.id=rc.capability_id "
-                + "WHERE c.code='HRM.PAYROLL.VIEW'"))
-                .as("no tenant role may inherit the owner-only payroll VIEW capability")
-                .isEqualTo("0");
-        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
-                + "JOIN access_capabilities c ON c.id=u.capability_id "
-                + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND u.effect='ALLOW' "
-                + "AND (u.user_id <> '" + canonicalOwner + "' OR u.tenant_id <> '" + controlTenant + "')"))
-                .as("no other user or tenant may receive the privileged direct grant")
-                .isEqualTo("0");
+        // Signed-bound scope (V20261124_1/_2): the ownership assertions read
+        // user_permission_overrides under enforced FORCE RLS, so they run
+        // bound as the canonical control tenant — a raw GUC would see zero
+        // rows and turn this test vacuous.
+        inTenantScope(controlTenant, () -> {
+            assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                    + "JOIN access_capabilities c ON c.id=u.capability_id "
+                    + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW' "
+                    + "AND u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
+                    + "AND u.scope_type='TENANT_ALL' AND u.valid_from<=NOW() "
+                    + "AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
+                    .as("the verified platform owner must have one effective direct payroll VIEW grant")
+                    .isEqualTo("1");
+            assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                    + "JOIN access_capabilities c ON c.id=rc.capability_id "
+                    + "WHERE c.code='HRM.PAYROLL.VIEW'"))
+                    .as("no tenant role may inherit the owner-only payroll VIEW capability")
+                    .isEqualTo("0");
+            assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                    + "JOIN access_capabilities c ON c.id=u.capability_id "
+                    + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND u.effect='ALLOW' "
+                    + "AND (u.user_id <> '" + canonicalOwner + "' OR u.tenant_id <> '" + controlTenant + "')"))
+                    .as("no other user or tenant may receive the privileged direct grant")
+                    .isEqualTo("0");
+        });
         UUID otherTenant = UUID.randomUUID();
         insertTenant(otherTenant);
-        setTenant(otherTenant);
-        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
-                + "JOIN access_capabilities c ON c.id=u.capability_id "
-                + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW'"))
-                .as("the owner direct payroll grant must not cross the tenant RLS boundary")
-                .isEqualTo("0");
+        inTenantScope(otherTenant, () -> {
+            assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                    + "JOIN access_capabilities c ON c.id=u.capability_id "
+                    + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW'"))
+                    .as("the owner direct payroll grant must not cross the tenant RLS boundary")
+                    .isEqualTo("0");
+        });
     }
 
     @Test
     void payrollMutationsHaveNoImplicitRoleOrDirectOwnerGrant() throws Exception {
         UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID canonicalOwner = UUID.fromString("00000000-0000-0000-0000-000000000010");
-        setTenant(controlTenant);
-        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
-                + "JOIN access_capabilities c ON c.id=rc.capability_id "
-                + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND c.code <> 'HRM.PAYROLL.VIEW'"))
-                .as("payroll mutations and export must not be inherited by any role")
-                .isEqualTo("0");
-        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
-                + "JOIN access_capabilities c ON c.id=u.capability_id "
-                + "WHERE u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
-                + "AND u.effect='ALLOW' AND c.code LIKE 'HRM.PAYROLL.%' "
-                + "AND c.code <> 'HRM.PAYROLL.VIEW' "
-                + "AND u.valid_from<=NOW() AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
-                .as("the owner VIEW exception must not enable any payroll mutation or export")
-                .isEqualTo("0");
+        // Signed-bound scope (V20261124_1/_2): the zero-count assertions must
+        // be evaluated on a bound connection — an unbound read returns zero
+        // vacuously and proves nothing.
+        inTenantScope(controlTenant, () -> {
+            assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                    + "JOIN access_capabilities c ON c.id=rc.capability_id "
+                    + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND c.code <> 'HRM.PAYROLL.VIEW'"))
+                    .as("payroll mutations and export must not be inherited by any role")
+                    .isEqualTo("0");
+            assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                    + "JOIN access_capabilities c ON c.id=u.capability_id "
+                    + "WHERE u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
+                    + "AND u.effect='ALLOW' AND c.code LIKE 'HRM.PAYROLL.%' "
+                    + "AND c.code <> 'HRM.PAYROLL.VIEW' "
+                    + "AND u.valid_from<=NOW() AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
+                    .as("the owner VIEW exception must not enable any payroll mutation or export")
+                    .isEqualTo("0");
+        });
     }
 
     // ==================== fixtures / plumbing ====================
 
+    /** One signed tenant-scope block on the fixture connection. */
+    private interface ScopeBlock {
+        void run() throws Exception;
+    }
+
+    /**
+     * Execute the block inside ONE signed-bound explicit transaction
+     * (V20261124_1/_2 contract): HMAC bind for the tenant → block → commit;
+     * failures roll the aborted transaction back. Replaces the raw
+     * {@code app.tenant_id} session GUC, which the enforced policies no
+     * longer authorize.
+     */
+    private void inTenantScope(UUID tenant, ScopeBlock block) throws Exception {
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try {
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(connection, tenant);
+            block.run();
+            connection.commit();
+        } catch (Throwable failure) {
+            try {
+                connection.rollback();
+            } catch (SQLException suppressed) {
+                failure.addSuppressed(suppressed);
+            }
+            throw failure;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
+        }
+    }
+
     /** Mirrors the V20260904_3 ADMIN scope-grant backfill statement (same SQL contract). */
-    private void applyScopeGrantBackfill() throws Exception {
+    private void applyScopeGrantBackfill(UUID tenantId) throws Exception {
+        // The tenant filter is an explicit bound parameter: under the enforced
+        // signed-context contract the raw app.tenant_id GUC is not authorized,
+        // and the statement must not depend on a forged session variable.
         executeUpdate("INSERT INTO access_scope_grants (id, tenant_id, role_id, capability_id, scope_type, "
                         + "is_direct_exception, reason, status, created_at) "
                         + "SELECT gen_random_uuid(), rc.tenant_id, rc.role_id, rc.capability_id, 'TENANT', "
@@ -332,11 +411,11 @@ class HrApiV2AuthorizationTest {
                         + "FROM role_capabilities rc "
                         + "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id AND r.code = 'ADMIN' "
                         + "JOIN access_capabilities cap ON cap.id = rc.capability_id AND cap.code LIKE 'HRM.%' "
-                        + "WHERE rc.tenant_id::text = current_setting('app.tenant_id', true) "
+                        + "WHERE rc.tenant_id = ?::uuid "
                         + "AND NOT EXISTS (SELECT 1 FROM access_scope_grants g "
                         + "WHERE g.tenant_id = rc.tenant_id AND g.role_id = rc.role_id "
                         + "AND g.capability_id = rc.capability_id AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE')",
-                null);
+                ps -> ps.setObject(1, tenantId));
     }
 
     private void insertTenant(UUID id) throws Exception {
@@ -346,13 +425,6 @@ class HrApiV2AuthorizationTest {
                     ps.setString(2, "WS5-CAP-" + id);
                     ps.setString(3, "ws5cap-" + id.toString().substring(0, 8));
                 });
-    }
-
-    private void setTenant(UUID tenant) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, false)")) {
-            ps.setString(1, tenant.toString());
-            ps.execute();
-        }
     }
 
     private UUID insertRole(UUID tenantId, String code) throws Exception {

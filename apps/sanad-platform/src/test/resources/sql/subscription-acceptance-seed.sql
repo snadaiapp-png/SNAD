@@ -2,7 +2,28 @@
 -- Extends crm-acceptance-seed.sql in a disposable PostgreSQL Direct database.
 -- Tenant A is also the configured control-plane tenant for this isolated job.
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- Open ONE transaction: the signed bind below is transaction-local.
+BEGIN;
+
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO saas_plans (
     id, code, name, status, currency_code,
@@ -97,3 +118,5 @@ ON CONFLICT (id) DO NOTHING;
 SELECT 'subscription-acceptance-seed: status=' || status
 FROM tenant_subscriptions
 WHERE id = '44444444-4444-4444-8444-444444444444';
+
+COMMIT;

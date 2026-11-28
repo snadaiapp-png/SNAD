@@ -343,10 +343,31 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/g2-seed.log"
 
           G2_TENANT_ID='33333333-3333-4333-8333-333333333331'
+          # Each verification query runs with a signed, transaction-bound tenant.
+          # Raw PGOPTIONS app.tenant_id is intentionally ignored by enforced RLS.
+          # The HMAC below is the disposable fixture key from V20261124_2,
+          # never a production secret or a security-policy bypass.
           g2_psql() {
             PGPASSWORD="$DATABASE_PASSWORD" \
-            PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
-              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -v ON_ERROR_STOP=1 -Atc "$1"
+              psql -X -qAt -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+              -v ON_ERROR_STOP=1 <<SQL
+          BEGIN;
+          DO \$g2_verified\$
+          DECLARE
+            v_tenant uuid := '$G2_TENANT_ID'::uuid;
+            v_mac text;
+          BEGIN
+            v_mac := encode(hmac(
+              convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+            IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+               OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+              RAISE EXCEPTION 'G2_SIGNED_VERIFICATION_BIND_REFUSED';
+            END IF;
+          END \$g2_verified\$;
+          $1;
+          COMMIT;
+          SQL
           }
 
           TENANT_COUNT=$(g2_psql "SELECT COUNT(*) FROM tenants WHERE id = '$G2_TENANT_ID'")

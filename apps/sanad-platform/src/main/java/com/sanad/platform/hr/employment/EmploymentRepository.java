@@ -10,7 +10,7 @@ import java.util.UUID;
  * EmploymentStatusPeriod.
  *
  * <p>Implementations MUST enforce tenant-scoped access on the same physical
- * database connection used for queries (FORCE RLS + set_config('app.tenant_id', ?, true)
+ * database connection used for queries (FORCE RLS + signed transaction context
  * on the same transaction).</p>
  *
  * <p>Task 2 RED skeleton: methods throw UnsupportedOperationException.

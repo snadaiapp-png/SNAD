@@ -1,5 +1,7 @@
 package com.sanad.platform.access.relationship;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -17,9 +19,11 @@ public class SubjectRelationshipRepository {
                     + " AND (valid_until IS NULL OR valid_until > NOW())";
 
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantScope;
 
-    public SubjectRelationshipRepository(JdbcTemplate jdbc) {
+    public SubjectRelationshipRepository(JdbcTemplate jdbc, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
     }
 
     public RelationshipRow insert(
@@ -80,8 +84,9 @@ public class SubjectRelationshipRepository {
 
     private void scope(UUID tenantId) {
         if (tenantId == null) throw new IllegalArgumentException("tenantId is required");
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(
+                tenantId);
     }
 
     private static RelationshipRow row(java.sql.ResultSet rs) throws java.sql.SQLException {

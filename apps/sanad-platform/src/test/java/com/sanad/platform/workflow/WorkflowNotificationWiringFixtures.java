@@ -1,5 +1,7 @@
 package com.sanad.platform.workflow;
 
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,11 +34,14 @@ final class WorkflowNotificationWiringFixtures {
 
     private final JdbcTemplate jdbc;
     private final PlatformTransactionManager transactionManager;
+    private final TenantRlsTransactionContext signedTenantContext;
     private final List<UUID> createdTenants = new ArrayList<>();
 
-    WorkflowNotificationWiringFixtures(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
+    WorkflowNotificationWiringFixtures(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
+                                       TenantRlsTransactionContext signedTenantContext) {
         this.jdbc = jdbc;
         this.transactionManager = transactionManager;
+        this.signedTenantContext = signedTenantContext;
     }
 
     Fixture fixture(String tag, String targetStepType, boolean workPool, int recipientCount) {
@@ -48,12 +53,17 @@ final class WorkflowNotificationWiringFixtures {
             recipients.add(new Recipient(UUID.randomUUID(), UUID.randomUUID()));
         }
 
+        // G1 signed-context contract (V20261124_1/_2): the tenants row is a
+        // platform row — it is written on the autocommit surface (no active
+        // transaction), because the strict connection handler rejects
+        // context-less statements inside an active transaction.
+        Timestamp tenantRowTs = Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
+                tenantId, "Task15 " + tag,
+                "t15-" + tag + "-" + tenantId.toString().substring(0, 8), tenantRowTs, tenantRowTs);
         tenantTx(tenantId, () -> {
             Timestamp now = Timestamp.from(Instant.now());
-            jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
-                            + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
-                    tenantId, "Task15 " + tag,
-                    "t15-" + tag + "-" + tenantId.toString().substring(0, 8), now, now);
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                             + "VALUES (?, ?, ?, 'Task15 Actor', 'ACTIVE', 'dummy', ?, ?)",
                     actorUserId, tenantId,
@@ -193,10 +203,18 @@ final class WorkflowNotificationWiringFixtures {
         }
     }
 
+    /**
+     * G1 signed-context contract (V20261124_1/_2): the raw app.tenant_id
+     * session GUC no longer authorizes anything — the enforced policies read
+     * the HMAC-validated public.app_tenant_ctx_text(). Every tenant-scoped
+     * fixture write goes through the full production binding protocol
+     * (slot → HMAC mint → SECURITY DEFINER bind → end-to-end verification).
+     * Fail-closed on any refusal; no RLS bypass.
+     */
     <T> T tenantTx(UUID tenantId, Supplier<T> supplier) {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         return tx.execute(status -> {
-            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return supplier.get();
         });
     }

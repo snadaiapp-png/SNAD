@@ -58,18 +58,16 @@ public class CrmAcceptanceBootstrapConfig {
      * the five acceptance grants to tenant scope before browser tests execute.
      *
      * <p>Under V20261029_1 (FORCE fail-closed tenant RLS on the identity plane)
-     * this startup write MUST bind {@code app.tenant_id} to the same
-     * transaction, mirroring the TransactionTemplate + set_config pattern used
-     * by every other sanctioned identity-plane writer. ApplicationRunner has no
-     * authenticated request context, so the TenantRlsConnectionHandler would
-     * otherwise leave the GUC unset and the fail-closed policy would silently
-     * match zero rows, leaving the grants organization-scoped and denying every
-     * browser request without an organizationId.</p>
+     * this startup write MUST attach a verified HMAC-signed tenant context
+     * inside its transaction. ApplicationRunner has no authenticated request
+     * context; a raw tenant GUC is deliberately not trusted after
+     * V20261124_2, and would either be rejected or match zero RLS rows.</p>
      */
     @Bean
     ApplicationRunner crmAcceptanceTenantWideRoleGrants(
             JdbcTemplate jdbcTemplate,
-            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+            org.springframework.transaction.PlatformTransactionManager transactionManager,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsTransactionContext) {
         return args -> {
             var txTemplate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
             var tenantGrants = java.util.Map.of(
@@ -83,17 +81,10 @@ public class CrmAcceptanceBootstrapConfig {
                     new String[] {
                         "a0000000-0000-4000-8000-000000000005"});
             tenantGrants.forEach((tenantId, grantIds) -> txTemplate.executeWithoutResult(status -> {
-                // Trusted fixed acceptance-tenant constant, never request input.
-                jdbcTemplate.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId);
-                String applied = jdbcTemplate.queryForObject(
-                        "SELECT current_setting('app.tenant_id', true)", String.class);
-                if (!tenantId.equals(applied)) {
-                    throw new IllegalStateException(
-                            "CRM_ACCEPTANCE_TENANT_GUC_BINDING_FAILED: expected " + tenantId
-                                    + " but the transaction reports " + applied);
-                }
+                // Fixed, acceptance-only tenant IDs; use the verified HMAC-signed
+                // transaction context rather than the legacy, forgeable raw GUC.
+                tenantRlsTransactionContext.applyForCurrentTransaction(
+                        java.util.UUID.fromString(tenantId));
                 String inList = String.join(", ", java.util.Arrays.stream(grantIds)
                         .map(id -> "'" + id + "'").toList());
                 int updated = jdbcTemplate.update(

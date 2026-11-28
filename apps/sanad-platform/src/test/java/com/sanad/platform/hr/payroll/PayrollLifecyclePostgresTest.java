@@ -16,7 +16,10 @@ import com.sanad.platform.hr.payroll.application.PayrollLifecycle;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
+import com.sanad.platform.security.rls.TenantContextSigner;
+import com.sanad.platform.security.rls.TenantRlsRuntimePolicy;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -70,6 +73,19 @@ class PayrollLifecyclePostgresTest {
         Assumptions.assumeTrue(available, "PostgreSQL Direct is not available");
         MigrationTestSchemaSupport.ensureDatabase(DB_URL, DB_USER, DB_PASSWORD);
         isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(DB_URL);
+        // G1 signed-context contract: the production service path binds its
+        // transactions via TenantSignedConnectionBinder, which refuses
+        // unsigned binding when no runtime policy is installed (fail-closed).
+        // This plain-JDBC test has no Spring context, so it installs the
+        // SAME policy TenantRlsSecurityConfig installs on a fixture topology:
+        // the resolved signing key (env operator key, else the documented
+        // fixture key that V20261124_2 provisions DB-side) with strict
+        // missing-context rejection. NEVER production evidence.
+        String keyHex = TenantGucDataSource.signingKeyHex();
+        boolean fixtureFallback = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".equals(keyHex);
+        TenantRlsRuntimePolicy.install(new TenantRlsRuntimePolicy.Policy(
+                new TenantContextSigner(java.util.HexFormat.of().parseHex(keyHex), fixtureFallback),
+                true));
     }
 
     @BeforeEach
@@ -96,9 +112,14 @@ class PayrollLifecyclePostgresTest {
 
         seedTenant(tenantId, "t5-payroll");
         seedTenant(foreignTenantId, "t5-foreign");
-        setTenant(tenantId);
-        seedLegalEntity();
-        seedPayrollRun();
+        // G1 signed-context contract (V20261124_1/_2): legal_entities and the
+        // payroll-run seed rows are tenant-scoped under enforced FORCE RLS, so
+        // they are seeded inside ONE signed-bound explicit transaction. A raw
+        // app.tenant_id GUC no longer authorizes any tenant-scoped row.
+        inTenantScope(tenantId, () -> {
+            seedLegalEntity();
+            seedPayrollRun();
+        });
     }
 
     @AfterEach
@@ -301,11 +322,17 @@ class PayrollLifecyclePostgresTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("HRM_PAYROLL_RUN_NOT_FOUND");
 
-        setTenant(tenantId);
         assertPristine();
-        setTenant(foreignTenantId);
-        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-foreign'"))
-                .isZero();
+        // Foreign-tenant probe: the count runs inside an explicit foreign-
+        // signed scope (NOT via the owning-tenant self-scoped helpers).
+        assertThat(inTenantScopeQuery(foreignTenantId, () -> {
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-foreign'");
+                 ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        })).isZero();
     }
 
     @Test
@@ -349,7 +376,6 @@ class PayrollLifecyclePostgresTest {
             assertThat(successes).isEqualTo(1);
             assertThat(conflicts).isEqualTo(1);
 
-            setTenant(tenantId);
             assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
                     .isEqualTo("CALCULATED");
             assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
@@ -536,7 +562,9 @@ class PayrollLifecyclePostgresTest {
     }
 
     private void assertPristine() throws Exception {
-        setTenant(tenantId);
+        // The read helpers below are self-scoped (signed-bound as the owning
+        // tenant), so the pristine-state assertions run under the same
+        // protocol without nesting scopes.
         assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
                 .isEqualTo("DRAFT");
         assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
@@ -592,27 +620,75 @@ class PayrollLifecyclePostgresTest {
         }
     }
 
-    private void setTenant(UUID tenant) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, false)")) {
-            ps.setString(1, tenant.toString());
-            ps.execute();
+    // ==================== signed tenant-scope segments ====================
+
+    /** One tenant-scoped block. */
+    private interface ScopeBlock {
+        void run() throws Exception;
+    }
+
+    /** One tenant-scoped query. */
+    private interface ScopeQuery<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Execute the block inside ONE signed-bound explicit transaction on the
+     * fixture connection (V20261124_1/_2 contract — HMAC mac over
+     * tenant:txid:pid, verified by the SECURITY DEFINER validator). The
+     * production service path binds its own transactions via
+     * TenantSignedConnectionBinder; this helper gives the fixture's direct
+     * verification/seeding statements the identical protocol. No RLS bypass
+     * and no raw tenant GUC.
+     */
+    private void inTenantScope(UUID tenant, ScopeBlock block) throws Exception {
+        inTenantScopeQuery(tenant, () -> {
+            block.run();
+            return null;
+        });
+    }
+
+    private <T> T inTenantScopeQuery(UUID tenant, ScopeQuery<T> action) throws Exception {
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try {
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(connection, tenant);
+            T result = action.run();
+            connection.commit();
+            return result;
+        } catch (Throwable failure) {
+            try {
+                connection.rollback();
+            } catch (Exception suppressed) {
+                failure.addSuppressed(suppressed);
+            }
+            throw failure;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
         }
     }
 
     private String query(String sql) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            assertThat(rs.next()).isTrue();
-            return rs.getString(1);
-        }
+        // Self-scoped read: runs inside ONE signed-bound transaction as the
+        // owning tenant (the fixture connection itself stays unbound between
+        // probes — the enforced FORCE-RLS policies would deny unbound reads).
+        return inTenantScopeQuery(tenantId, () -> {
+            try (PreparedStatement ps = connection.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                return rs.getString(1);
+            }
+        });
     }
 
     private int count(String sql) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            rs.next();
-            return rs.getInt(1);
-        }
+        // Self-scoped read (see query above).
+        return inTenantScopeQuery(tenantId, () -> {
+            try (PreparedStatement ps = connection.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        });
     }
 }

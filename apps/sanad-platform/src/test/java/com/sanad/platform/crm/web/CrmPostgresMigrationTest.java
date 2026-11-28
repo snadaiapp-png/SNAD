@@ -319,7 +319,7 @@ class CrmPostgresMigrationTest {
     // and RT-12/13/14 red-team exposures via the sanad_control_plane dedicated
     // LOGIN connection identity (NO membership with the runtime in any
     // direction). Recorded per watermark policy; no silent value bump.
-    private static final String LATEST_MIGRATION_VERSION = "20261118.2";
+    private static final String LATEST_MIGRATION_VERSION = "20261124.3";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -646,7 +646,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
                         MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
                         MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
+                        MigrationVersion.fromVersion("20261118.2"), // access_capabilities control-plane ACL
+                        MigrationVersion.fromVersion("20261124.1"), // forward-only G1 migration
+                        MigrationVersion.fromVersion("20261124.2"), // forward-only G1 migration
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // current certified head (20261124.3)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -915,7 +918,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
                         MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
                         MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
+                        MigrationVersion.fromVersion("20261118.2"), // access_capabilities control-plane ACL
+                        MigrationVersion.fromVersion("20261124.1"), // forward-only G1 migration
+                        MigrationVersion.fromVersion("20261124.2"), // forward-only G1 migration
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // current certified head (20261124.3)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -1238,8 +1244,16 @@ class CrmPostgresMigrationTest {
                 java.util.Objects.requireNonNull(jdbc.getDataSource()));
         return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    // Fixture-only signer: the isolated migration database provisions
+                    // the documented test key. A raw tenant GUC must not authorize RLS.
+                    Boolean accepted = jdbc.queryForObject("""
+                            SELECT public.app_bind_tenant_ctx(?::uuid, encode(hmac(
+                                convert_to(? || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+                                decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex'))
+                            """, Boolean.class, tenantId.toString(), tenantId.toString());
+                    assertThat(accepted).isTrue();
+                    assertThat(jdbc.queryForObject("SELECT public.app_tenant_ctx_text()", String.class))
+                            .isEqualTo(tenantId.toString());
                     return action.get();
                 });
     }

@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
@@ -66,6 +67,7 @@ class WorkflowSecurityNegativeTest {
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     private TransactionTemplate tx;
 
     private UUID tenantA;
@@ -108,9 +110,7 @@ class WorkflowSecurityNegativeTest {
         // Loop for [userA, approverA, noCapsUserA] — all inserted into tenantA.
         for (var uid : List.of(userA, approverA, noCapsUserA)) {
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantA.toString());
+                signedTenantContext.applyForCurrentTransaction(tenantA);
                 jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                         uid, tenantA, "wfs-" + uid.toString().substring(0, 8) + "@test", now, now);
@@ -118,9 +118,7 @@ class WorkflowSecurityNegativeTest {
         }
         // userB INSERT — tenantB.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantB.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantB);
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                             + "VALUES (?, ?, ?, 'User B', 'ACTIVE', 'dummy', ?, ?)",
                     userB, tenantB, "wfs-" + userB.toString().substring(0, 8) + "@test", now, now);
@@ -135,9 +133,7 @@ class WorkflowSecurityNegativeTest {
             var uid = tid == tenantA ? userA : userB;
             var roleId = UUID.randomUUID();
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tid.toString());
+                signedTenantContext.applyForCurrentTransaction(tid);
                 jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
                         + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
                         roleId, tid, now, now);
@@ -151,9 +147,7 @@ class WorkflowSecurityNegativeTest {
         // noCapsUserA gets an ADMIN role with NO workflow capabilities attached.
         var noCapsRole = UUID.randomUUID();
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantA.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantA);
             jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
                     + "VALUES (?, ?, 'VIEWER', 'Viewer (no caps)', 'Test', 'ACTIVE', ?, ?)",
                     noCapsRole, tenantA, now, now);
@@ -183,9 +177,7 @@ class WorkflowSecurityNegativeTest {
         // connection as the transaction-local tenant GUC; never bypass the policy or use a
         // session-scoped setting that can leak across pooled connections.
         return tx.execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tid.toString());
+            signedTenantContext.applyForCurrentTransaction(tid);
             var def = WorkflowDefinition.create(
                     tid, code, "Test Workflow " + code, "Test",
                     "GENERAL", WorkflowDefinition.TriggerType.MANUAL, uid);

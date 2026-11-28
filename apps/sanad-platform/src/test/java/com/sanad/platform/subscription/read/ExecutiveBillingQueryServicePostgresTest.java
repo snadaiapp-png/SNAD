@@ -54,6 +54,19 @@ class ExecutiveBillingQueryServicePostgresTest {
 
     @BeforeEach
     void migrate() {
+        // Deterministic G1 signed-context policy for this plain-JVM harness:
+        // TenantRlsRuntimePolicy is a process-wide static, and this class has
+        // no Spring context to run TenantRlsSecurityConfig for it. Installing
+        // the documented fixture-key signer here makes the binding protocol
+        // deterministic (independent of policies left behind by other classes
+        // in the same JVM fork). The DB side carries the same ACTIVE fixture
+        // key via the V20261124_2 fixture topology provisioning.
+        com.sanad.platform.security.rls.TenantRlsRuntimePolicy.install(
+                new com.sanad.platform.security.rls.TenantRlsRuntimePolicy.Policy(
+                        new com.sanad.platform.security.rls.TenantContextSigner(java.util.HexFormat.of()
+                                .parseHex("0123456789abcdef0123456789abcdef"
+                                        + "0123456789abcdef0123456789abcdef"), true),
+                        true));
         String url = MigrationTestSchemaSupport.getIsolatedJdbcUrl(isolatedUrl);
         String user = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
         String password = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");

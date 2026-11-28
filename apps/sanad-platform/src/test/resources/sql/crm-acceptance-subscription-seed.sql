@@ -6,7 +6,28 @@
 -- tenant_subscriptions is fail-closed FORCE RLS (V20261029_1): each
 -- subscription insert re-binds the session GUC to its owning tenant; the GUC
 -- is reset at the end of the file (repo seed convention).
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- Open ONE transaction: the signed bind below is transaction-local.
+BEGIN;
+
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO saas_plans (
     id, code, name, status, currency_code,
@@ -74,7 +95,25 @@ WHERE NOT EXISTS (
 )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 INSERT INTO tenant_subscriptions (
     id, tenant_id, plan_id, status, billing_cycle,
@@ -104,4 +143,4 @@ WHERE NOT EXISTS (
 ON CONFLICT (id) DO NOTHING;
 
 -- Session hygiene: clear the tenant context for any later statement.
-SELECT set_config('app.tenant_id', '', false);
+COMMIT;

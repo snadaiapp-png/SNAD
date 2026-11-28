@@ -66,6 +66,13 @@ class CrmRlsTenantIsolationPostgresTest {
     // cluster, so one pre-provisioned role can serve both RLS test classes.
     // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
     private static final String RLS_USER = "crm_contact_rls_test_user";
+    /**
+     * Documented fixture key provisioned by V20261124_2 on the disposable
+     * migration-fixture topology (repository-published BY DESIGN; NOT
+     * production evidence).
+     */
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     // The disposable CI fixture supplies an ephemeral credential through the
     // environment. Never embed the role password in source control.
     private static final String RLS_PASSWORD = requireRlsTestPassword();
@@ -127,6 +134,13 @@ class CrmRlsTenantIsolationPostgresTest {
         jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + RLS_USER);
         // Grant usage on sequences needed for INSERT
         jdbc.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO " + RLS_USER);
+        // Signed-binding protocol access for the probe role (the fixture's
+        // authorized runtime identity): the HMAC verifier is the security —
+        // without the key the bind fails closed. V20261124_1 default-denies
+        // slot()/bind() to PUBLIC; the fixture grants them to the probing
+        // identity explicitly, mirroring the runtime grant to sanad.
+        jdbc.execute("GRANT EXECUTE ON FUNCTION public.app_tenant_ctx_slot() TO " + RLS_USER);
+        jdbc.execute("GRANT EXECUTE ON FUNCTION public.app_bind_tenant_ctx(uuid, text) TO " + RLS_USER);
         jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO " + RLS_USER);
 
         // Seed two tenants.
@@ -169,7 +183,7 @@ class CrmRlsTenantIsolationPostgresTest {
 
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
 
             Long visibleToA = countAccounts(conn);
             assertThat(visibleToA)
@@ -190,7 +204,7 @@ class CrmRlsTenantIsolationPostgresTest {
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
             // Tenant A's context
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
 
             // Try to read tenant B's data — should get 0 rows
             Long crossTenantVisible = countAccountsByName(conn, "Account B");
@@ -208,7 +222,7 @@ class CrmRlsTenantIsolationPostgresTest {
 
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
 
             // Insert with matching tenant — should succeed
             insertAccount(conn, tenantA, "New Account A");
@@ -229,7 +243,7 @@ class CrmRlsTenantIsolationPostgresTest {
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
             // Context is tenant A
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
 
             // Attempt to INSERT a row with tenant B's id — WITH CHECK should block it
             assertThatThrownBy(() -> insertAccount(conn, tenantB, "Stolen Account B"))
@@ -268,7 +282,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // Transaction 1: set tenant A
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
             assertThat(countAccounts(conn)).isEqualTo(1L);
             conn.commit();
         }
@@ -305,7 +319,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantB, "Protected B Account");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setString(1, "Compromised B Account");
@@ -341,7 +355,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantB, "Protected B Delete");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "DELETE FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setObject(1, tenantB);
@@ -359,7 +373,7 @@ class CrmRlsTenantIsolationPostgresTest {
         seedAccount(tenantA, "Own A Account");
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
             try (var ps = conn.prepareStatement(
                     "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
                 ps.setString(1, "Own A Account Updated");
@@ -436,7 +450,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // After rollback: cross-tenant access should be possible (RLS disabled)
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            bindSignedTenant(conn, tenantA);
             Long visible = countAccounts(conn);
             // With RLS disabled, SET LOCAL has no effect — all rows visible
             assertThat(visible)
@@ -494,8 +508,51 @@ class CrmRlsTenantIsolationPostgresTest {
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        conn.createStatement().execute("SET app.tenant_id = '" + tenantId + "'");
+        // Signed-binding contract (V20261124_1/V20261124_2): the enforced
+        // policies ignore a raw GUC without a valid mac, so the fixture plane
+        // establishes its scope with the same HMAC protocol the application
+        // uses. The bind is transaction-local — the caller must commit.
+        conn.setAutoCommit(false);
+        bindSignedTenant(conn, tenantId);
         return conn;
+    }
+
+    /**
+     * Executes the application-side signed binding protocol on the given
+     * connection: slot (txid/pid) -> HMAC-SHA256 mint -> app_bind_tenant_ctx.
+     * Uses the DOCUMENTED FIXTURE KEY, which matches the ACTIVE key the chain
+     * provisions on the disposable migration-fixture topology — NOT
+     * production evidence. The security lives in the database verifier; a
+     * session without the key cannot bind.
+     */
+    private static void bindSignedTenant(Connection conn, UUID tenantId) throws SQLException {
+        String txid;
+        int pid;
+        try (var st = conn.createStatement();
+                var rs = st.executeQuery("SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()")) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = fixtureMac(tenantId, txid, pid);
+        try (var ps = conn.prepareStatement("SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenantId.toString());
+            ps.setString(2, mac);
+            ps.execute();
+        }
+    }
+
+    private static String fixtureMac(UUID tenantId, String txid, int pid) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(
+                    java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), "HmacSHA256"));
+            return java.util.HexFormat.of().formatHex(
+                    mac.doFinal((tenantId + ":" + txid + ":" + pid)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("fixture mac minting failed", e);
+        }
     }
 
     private void seedAccount(UUID tenantId, String name) {
@@ -514,6 +571,8 @@ class CrmRlsTenantIsolationPostgresTest {
                 ps.setObject(6, UUID.randomUUID());
                 ps.executeUpdate();
             }
+            // The signed bind (and the seeded row) are transaction-local — commit.
+            conn.commit();
         } catch (SQLException e) {
             throw new IllegalStateException("Seeding crm_accounts under tenant scope failed: " + e.getMessage(), e);
         }
@@ -532,7 +591,9 @@ class CrmRlsTenantIsolationPostgresTest {
             ps.setString(2, displayName);
             try (var rs = ps.executeQuery()) {
                 rs.next();
-                return rs.getLong(1);
+                long count = rs.getLong(1);
+                conn.commit();
+                return count;
             }
         }
     }

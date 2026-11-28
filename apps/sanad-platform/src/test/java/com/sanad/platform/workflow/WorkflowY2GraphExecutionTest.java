@@ -49,6 +49,9 @@ class WorkflowY2GraphExecutionTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private com.sanad.platform.security.rls.TenantRlsTransactionContext signedTenantContext;
+
     private UUID tenantId;
     private UUID userId;
     private UUID employeeId;
@@ -64,15 +67,14 @@ class WorkflowY2GraphExecutionTest {
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
 
-        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
-                        + "VALUES (?, 'Y2 Graph Test', ?, 'ACTIVE', ?, ?)",
-                tenantId, "y2-graph-" + tenantId.toString().substring(0, 8), now, now);
+        // Platform tenant bootstrap is explicitly pre-authenticated; tenant-data
+        // writes below must still use the verified HMAC-signed scope.
+        com.sanad.platform.security.rls.TenantRlsPreAuthScope.run(() ->
+                jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
+                                + "VALUES (?, 'Y2 Graph Test', ?, 'ACTIVE', ?, ?)",
+                        tenantId, "y2-graph-" + tenantId.toString().substring(0, 8), now, now));
 
-        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
-        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
-        // set_config MUST be set BEFORE the INSERT INTO users so that RLS sees the
-        // tenant context on the same connection within this @Transactional setUp().
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        signedTenantContext.applyForCurrentTransaction(tenantId);
 
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Y2 Graph User', 'ACTIVE', 'dummy', ?, ?)",

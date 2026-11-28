@@ -1,6 +1,10 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.util.Map;
 import com.sanad.platform.workflow.application.WorkflowDefinitionValidator;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionValidation;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,11 +49,21 @@ class WorkflowDefinitionValidatorTest {
     void setUp() {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
+        // REV3: establish the authenticated principal before the FIRST
+        // transactional statement. The production connection handler then
+        // binds an HMAC-verified tenant scope; raw tenant GUCs are untrusted.
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(
+                "workflow-validator-test", "n/a", List.of());
+        authentication.setDetails(Map.of("tenant_id", tenantId.toString(),
+                "user_id", userId.toString()));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Workflow Validator Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-valid-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        String verified = jdbc.queryForObject(
+                "SELECT public.app_tenant_ctx_text()", String.class);
+        assertThat(verified).isEqualTo(tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Validator User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "wf-valid-" + userId.toString().substring(0, 8) + "@test", now, now);
@@ -147,6 +161,11 @@ class WorkflowDefinitionValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.errors()).extracting(WorkflowDefinitionValidation.Error::code)
                 .containsExactly("DEFINITION_NOT_FOUND");
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
     }
 
     // ===== fixture helpers =====

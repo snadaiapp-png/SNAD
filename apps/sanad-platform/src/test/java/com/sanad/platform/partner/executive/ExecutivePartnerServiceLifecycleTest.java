@@ -1,5 +1,7 @@
 package com.sanad.platform.partner.executive;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,7 +25,7 @@ class ExecutivePartnerServiceLifecycleTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), eq(String.class), any()))
                 .thenReturn("00000000-0000-0000-0000-000000000001");
-        ExecutivePartnerService service = new ExecutivePartnerService(jdbc);
+        ExecutivePartnerService service = new ExecutivePartnerService(jdbc, org.mockito.Mockito.mock(TenantRlsTransactionContext.class));
 
         assertThatThrownBy(() -> service.createPartner("ROOT", auth()))
                 .isInstanceOf(ResponseStatusException.class)
@@ -41,7 +43,7 @@ class ExecutivePartnerServiceLifecycleTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), eq(String.class), any()))
                 .thenReturn("00000000-0000-0000-0000-000000000001");
-        ExecutivePartnerService service = spy(new ExecutivePartnerService(jdbc));
+        ExecutivePartnerService service = spy(new ExecutivePartnerService(jdbc, org.mockito.Mockito.mock(TenantRlsTransactionContext.class)));
         UUID partnerId = UUID.randomUUID();
 
         // DB lock/query behavior is covered by PostgreSQL regression; this test

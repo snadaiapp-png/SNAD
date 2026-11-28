@@ -32,17 +32,15 @@ class WorkflowModuleCatalogServiceTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private WorkflowModuleCatalogService catalogService;
+    @Autowired private com.sanad.platform.security.rls.TenantRlsTransactionContext signedTenantContext;
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
-    /** Runs FORCE-RLS seed writes inside a transaction-local app.tenant_id
-     * context (tenant_subscriptions is FORCE RLS — V20261029_1). */
+    /** Runs FORCE-RLS fixture operations inside a HMAC-signed tenant transaction. */
     private void inTenant(UUID tenantId, Runnable write) {
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject(
-                            "SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     write.run();
                 });
     }
@@ -111,9 +109,7 @@ class WorkflowModuleCatalogServiceTest {
     private void entitle(UUID tenantId, UUID moduleId, boolean enabled) {
         UUID planId = new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject(
-                            "SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     return jdbc.queryForObject(
                             "SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ?",
                             UUID.class, tenantId);

@@ -25,11 +25,11 @@ import java.util.UUID;
  * <h3>FORCE RLS contract (V20261029_1)</h3>
  * {@code crm_idempotency_records} is a fail-closed FORCE RLS table. Unlike the
  * CRM domain use-cases (which run inside {@code @Transactional} boundaries
- * where {@code TenantRlsConnectionHandler} applies the tenant GUC from the
+ * where {@code TenantRlsConnectionHandler} applies the signed tenant context from the
  * SecurityContext), this service is invoked at controller level BEFORE any
  * transaction exists — a raw connection would be in autocommit mode and every
  * write would be rejected fail-closed. Each operation therefore opens its own
- * transaction and applies the transaction-local {@code app.tenant_id} GUC from
+ * transaction and applies a transaction-local HMAC-verified tenant context from
  * the authenticated tenant id passed by the controller (the same trusted
  * identity the rest of the request uses).
  * <p>
@@ -168,16 +168,13 @@ public class JdbcIdempotencyService implements IdempotencyService {
     }
 
     /**
-     * Apply the transaction-local {@code app.tenant_id} GUC for the
+     * Apply a transaction-local HMAC-verified tenant binding for the
      * authenticated tenant. The value is a well-formed UUID supplied by the
      * controller from {@code Authentication.getDetails()} — the same trusted
      * identity used for every other tenant-scoped write in the request.
      */
     private void applyTenantScope(UUID tenantId) {
-        jdbc.queryForObject(
-                "SELECT set_config('app.tenant_id', :t, true)",
-                new MapSqlParameterSource("t", tenantId.toString()),
-                String.class);
+        new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc.getJdbcTemplate()).applyForCurrentTransaction(tenantId);
     }
 
     private static IdempotencyRecord mapRow(Map<String, Object> row) {

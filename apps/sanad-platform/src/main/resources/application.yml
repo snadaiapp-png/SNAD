@@ -36,6 +36,31 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     validate-on-migrate: true
+    # Dedicated UNWRAPPED migration channel (G1 F-INT fix, 2026-11-25):
+    # Flyway must run through its own DriverDataSource, never through the
+    # TenantRlsDataSource-wrapped pool. Migrations are infrastructure
+    # operations with no tenant context; the strict signed-context handler
+    # would otherwise reject Flyway's own in-transaction catalog statements
+    # and the application could not boot. On production the profile-specific
+    # override points this at the migrator channel (V20261103_1
+    # migrator/runtime separation); the runtime pool remains the only channel
+    # where the signed binding contract applies.
+    #
+    # G1 CI-remediation (2026-11-28): the fallback below references the
+    # spring.datasource PROPERTIES (not the SPRING_DATASOURCE_* env vars).
+    # Property references resolve through the full Environment order
+    # (command-line > env > profile > yml), so a deployment that overrides
+    # the datasource with --spring.datasource.username=<login role> (the
+    # pattern every acceptance workflow uses with an ephemeral LOGIN role)
+    # no longer leaves the Flyway channel pointing at the NOLOGIN policy
+    # role `sanad` — the previous default made Flyway bootstrap itself fail
+    # with 'role "sanad" is not permitted to log in' before the first
+    # health probe (G2/G3/HRM-preview/perf-test startup failures).
+    # SANAD_FLYWAY_* env overrides and the prod migrator channel are
+    # unaffected: they remain the first alternative in each expression.
+    url: ${SANAD_FLYWAY_URL:${spring.datasource.url}}
+    user: ${SANAD_FLYWAY_USERNAME:${spring.datasource.username}}
+    password: ${SANAD_FLYWAY_PASSWORD:${spring.datasource.password}}
   lifecycle:
     timeout-per-shutdown-phase: 30s
 

@@ -67,12 +67,33 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
+-- Open ONE transaction: the signed bind below is transaction-local.
+BEGIN;
+
 -- 2. Organizations (one per tenant)
 -- ----------------------------------------------------------------------------
 -- organizations is fail-closed FORCE RLS (V20261029_1): bind each tenant's
 -- scope before writing its organization row (last call wins on this session).
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
@@ -86,7 +107,25 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
@@ -100,7 +139,25 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 -- ----------------------------------------------------------------------------
 -- 3. Users (5 total, precomputed bcrypt hashes for isolated CI fixtures)
@@ -162,7 +219,25 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- Tenant B must be bound before inserting its user under FORCE RLS.
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (
@@ -184,7 +259,25 @@ ON CONFLICT (id) DO NOTHING;
 -- block re-binds the session GUC to the row's owning tenant (the previous
 -- section left the GUC at Tenant B for the Tenant B user insert).
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
@@ -242,7 +335,25 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
 VALUES (
@@ -278,7 +389,25 @@ ON CONFLICT (id) DO NOTHING;
 -- ordering change). roles is fail-closed FORCE RLS (V20261029_1): re-bind
 -- the session GUC per tenant block.
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
@@ -298,7 +427,25 @@ WHERE tenant.id = '11111111-1111-4111-8111-111111111111'
   )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 SELECT
@@ -322,7 +469,25 @@ ON CONFLICT (id) DO NOTHING;
 -- role_capabilities is fail-closed FORCE RLS (V20261029_1): a single
 -- cross-tenant INSERT..SELECT cannot satisfy WITH CHECK for two tenants
 -- under one session GUC, so the binding runs once per tenant scope.
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
@@ -342,7 +507,25 @@ WHERE role.code = 'ADMIN'
         AND existing.capability_id = cap.id
 );
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
 SELECT
     gen_random_uuid(),
@@ -362,7 +545,25 @@ WHERE role.code = 'ADMIN'
         AND existing.capability_id = cap.id
 );
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 -- Tenant A — CRM_READ_ONLY
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
@@ -488,7 +689,25 @@ AND NOT EXISTS (
 -- user_role_assignments is fail-closed FORCE RLS (V20261029_1): each block
 -- re-binds the session GUC to the assignment's owning tenant.
 
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 -- Tenant A admin → ADMIN
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -555,7 +774,25 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_22222222$
+DECLARE
+    v_tenant uuid := '22222222-2222-4222-8222-222222222222'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_22222222$;
 
 -- Tenant B admin → ADMIN
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -590,7 +827,25 @@ ON CONFLICT (id) DO NOTHING;
 -- FORCE-RLS CRM tables require the same tenant context used by the
 -- application transaction interceptor. This seed runs in one psql session,
 -- so set the session GUC before inserting Tenant A CRM fixtures.
-SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+-- G1 signed-context contract (V20261124_1/_2): bind the transaction's tenant
+-- with the disposable fixture key (repository-published for fixture topologies
+-- only; V20261124_2 provisions it automatically there). The raw session GUC is
+-- no longer trusted by the enforced policies — they read the HMAC-validated
+-- public.app_tenant_ctx_text().
+DO $signed_fixture_11111111$
+DECLARE
+    v_tenant uuid := '11111111-1111-4111-8111-111111111111'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END
+$signed_fixture_11111111$;
 
 INSERT INTO crm_accounts (
     id, tenant_id, version, display_name, normalized_name, account_type,
@@ -778,4 +1033,4 @@ WHERE id IN ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222
 
 -- Session hygiene: clear the tenant context so no later statement in this
 -- psql session inherits a stale tenant scope (repo seed convention).
-SELECT set_config('app.tenant_id', '', false);
+COMMIT;

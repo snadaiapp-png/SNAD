@@ -72,7 +72,7 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # grants) were byte-exact restored and checksum-certified against the 10c registry
 # (P1.6, 265/265). Recorded per watermark policy; no silent value bump.
 # ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
-EXPECTED_HEAD="20261118.2"
+EXPECTED_HEAD="20261124.3"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }
@@ -106,15 +106,42 @@ trap on_exit EXIT
 admin()   { $CRL_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 admin_secret() { printf '%s\n' "$1" | $CRL_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
-runtime_capture() { # runtime_capture <db> <sql> [tenant_guc|__EMPTY_GUC__]
-  local guc_args=()
-  if [ $# -ge 3 ] && [ "$3" = "__EMPTY_GUC__" ]; then
-    guc_args=(PGOPTIONS="-c app.tenant_id=")
-  elif [ $# -ge 3 ] && [ -n "$3" ]; then
-    guc_args=(PGOPTIONS="-c app.tenant_id=$3")
+runtime_capture() { # runtime_capture <db> <sql> [tenant_uuid|__EMPTY_GUC__]
+  # G1 signed-context contract (V20261124_1/_2): the enforced tenant policies
+  # read public.app_tenant_ctx_text() — a raw app.tenant_id GUC no longer
+  # authorizes anything. With a tenant argument, the harness acts as the
+  # TRUSTED APPLICATION SIGNER: it mints the HMAC over tenant:txid:pid and
+  # binds through public.app_bind_tenant_ctx inside the SAME transaction as
+  # the probe (the mac is transaction-local, so bind + probe must share one
+  # transaction). The signing key is read from the environment via psql
+  # \getenv and supplied as a PROTOCOL PARAMETER (\bind) — it never appears
+  # in query text, process argv, role state, or the evidence log.
+  if [ $# -ge 3 ] && [ -n "$3" ] && [ "$3" != "__EMPTY_GUC__" ]; then
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE \
+      SANAD_TENANT_CTX_HMAC_KEY="$CRL_CTX_KEY" PGPASSWORD="$CRL_RUN_PW" \
+      psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -At 2>"$ART/last-err.txt" <<SQL | sed '/^BEGIN$/d; /^COMMIT$/d'
+\getenv ctx_key SANAD_TENANT_CTX_HMAC_KEY
+BEGIN;
+SELECT public.app_bind_tenant_ctx('$3'::uuid, encode(hmac(
+  convert_to('$3' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+  decode(\$1, 'hex'), 'sha256'), 'hex')) AS bound
+\bind :ctx_key
+\gset
+$2;
+COMMIT;
+SQL
+    )
+  else
+    local guc_args=()
+    if [ $# -ge 3 ] && [ "$3" = "__EMPTY_GUC__" ]; then
+      # Explicit empty raw GUC: the validator returns NULL on the empty tenant
+      # (fail closed) — the observable no-context surface is preserved.
+      guc_args=(PGOPTIONS="-c app.tenant_id=")
+    fi
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$CRL_RUN_PW" "${guc_args[@]}" psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
+         -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   fi
-  runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$CRL_RUN_PW" "${guc_args[@]}" psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
-       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
   runtime_sqlstate=$(printf '%s\n' "$runtime_err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
@@ -196,7 +223,29 @@ record S0_MEMBERSHIP_SET_ONLY "t|f|t" "$memb_contract" "non-inheriting SET-only 
 # ============================================================================
 # S1 — Flyway as sanad_migrator (fresh chain, separated topology)
 # ============================================================================
-gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD)"
+gate S1 "Flyway staged migrate + operator HMAC provisioning + validate (head $EXPECTED_HEAD)"
+# V20261124_2 rejects separated-topology migration without a live HMAC
+# key and explicit operator enforcement approval. Preserve that safety gate.
+command -v openssl >/dev/null 2>&1 || die S1 "openssl missing for isolated key generation"
+env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
+  -user=sanad_migrator -locations="$LOCS" -target=20261124.1 migrate > "$ART/S1-stage-migrate.log" 2>&1 \
+  || die S1 "staged migration through key boundary failed"
+[ "$(admin postgres "$CRL_DB" "SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")" = "20261124.1" ] \
+  || die S1 "staged migration did not stop at operator boundary"
+CRL_CTX_KEY="$(openssl rand -hex 32)" || die S1 "isolated signing key generation failed"
+[ "${#CRL_CTX_KEY}" = "64" ] || die S1 "invalid isolated signing key length"
+env -u PGOPTIONS SANAD_TENANT_CTX_HMAC_KEY="$CRL_CTX_KEY" PGPASSWORD="$CRL_MIG_PW" \
+  psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad_migrator -d "$CRL_DB" \
+  -v ON_ERROR_STOP=1 -f "$CRL_REPO/scripts/ops/tenant-ctx/provision-ctx-key.sql" \
+  > "$ART/S1-key-provision.log" 2>&1 || die S1 "operator signing key provisioning failed"
+env -u PGOPTIONS PGPASSWORD="$CRL_MIG_PW" \
+  psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad_migrator -d "$CRL_DB" \
+  -v ON_ERROR_STOP=1 -c "INSERT INTO public.platform_ctx_enforce (flag,enabled_by) VALUES ('ON','callback-cert:operator') ON CONFLICT(flag) DO NOTHING" \
+  > "$ART/S1-enforce-approval.log" 2>&1 || die S1 "operator enforcement approval failed"
+[ "$(admin postgres "$CRL_DB" "SELECT count(*) FROM public.platform_tenant_ctx_keys WHERE status='ACTIVE'")" = "1" ] \
+  || die S1 "ACTIVE key missing after provision"
+[ "$(admin postgres "$CRL_DB" "SELECT count(*) FROM public.platform_ctx_enforce WHERE flag='ON'")" = "1" ] \
+  || die S1 "enforcement approval missing"
 env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
   -user=sanad_migrator -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
 env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
@@ -222,8 +271,10 @@ tenant_isolation_select:SELECT"
 $policies"
 update_policies=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policy WHERE polrelid='public.service_callback_replay'::regclass AND polcmd='U'")
 [ "$update_policies" = "0" ] || die S2 "UPDATE policy exists (must be default-denied)"
-tenant_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'tenant_isolation%' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%tenant_id%text = NULLIF(current_setting%app.tenant_id%'")
+tenant_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'tenant_isolation%' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%app_tenant_ctx_text()%'")
 [ "$tenant_pred" = "3" ] || die S2 "tenant predicate contract on $tenant_pred/3 policies"
+raw_guc_refs=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%current_setting(''app.tenant_id''%'")
+[ "$raw_guc_refs" = "0" ] || die S2 "raw tenant GUC references remain on $raw_guc_refs policy expression(s) (must read the signed validator only)"
 expiry_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'expired_cleanup%' AND qual LIKE '%expires_at <= CURRENT_TIMESTAMP%'")
 [ "$expiry_pred" = "2" ] || die S2 "expiry-bound predicate contract on $expiry_pred/2 policies"
 cleanup_acl=$(admin postgres "$CRL_DB" "SELECT has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','SELECT')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','DELETE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','INSERT')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','UPDATE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','TRUNCATE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','REFERENCES')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','TRIGGER')")

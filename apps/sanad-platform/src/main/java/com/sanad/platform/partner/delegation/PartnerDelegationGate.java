@@ -47,13 +47,16 @@ public class PartnerDelegationGate {
             UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private final JdbcTemplate jdbc;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope;
     private final UUID controlTenantId;
 
     public PartnerDelegationGate(
             JdbcTemplate jdbc,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope,
             @Value("${sanad.control-plane.tenant-id:00000000-0000-0000-0000-000000000001}")
             String configuredControlTenantId) {
         this.jdbc = jdbc;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
         UUID parsed = null;
         try {
             parsed = (configuredControlTenantId == null || configuredControlTenantId.isBlank())
@@ -208,8 +211,9 @@ public class PartnerDelegationGate {
         // platform branch requires it to be UNSET (IS NULL), and empty-string
         // blanking would break authorization_change_events writes that share
         // this transaction.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, controlTenantId.toString());
+        // G1 REV3 — signed binding protocol for the control-plane tenant; the
+        // raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(controlTenantId);
     }
 
     private static boolean inWindow(Instant validFrom, Instant validUntil, Instant now) {

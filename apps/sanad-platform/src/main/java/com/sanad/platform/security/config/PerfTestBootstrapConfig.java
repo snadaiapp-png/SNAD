@@ -4,6 +4,8 @@ import com.sanad.platform.access.grant.UserRoleGrantRepository;
 import com.sanad.platform.access.role.RoleRepository;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.repository.UserRepository;
 import org.slf4j.Logger;
@@ -105,6 +107,7 @@ public class PerfTestBootstrapConfig {
             JdbcTemplate jdbcTemplate,
             PasswordEncoder passwordEncoder,
             PlatformTransactionManager transactionManager,
+            TenantRlsTransactionContext signedTenantContext,
             @Value("${PERF_TEST_ADMIN_EMAIL:perf-admin@sanad.local}") String adminEmail,
             @Value("${PERF_TEST_ADMIN_PASSWORD:}") String adminPassword,
             @Value("${sanad.security.jwt.secret:}") String jwtSecret) {
@@ -123,34 +126,37 @@ public class PerfTestBootstrapConfig {
             String passwordHash = passwordEncoder.encode(adminPassword);
 
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
-            tx.executeWithoutResult(status -> seedEnvironment(jdbcTemplate, passwordHash, normalizedEmail));
+            tx.executeWithoutResult(status -> seedEnvironment(jdbcTemplate, signedTenantContext, passwordHash, normalizedEmail));
             log.info("Perf-test environment seeded: tenant={} admin={} account={} lead={}",
                     TENANT_ID, normalizedEmail, ACCOUNT_ID, LEAD_ID);
         };
     }
 
-    private void seedEnvironment(JdbcTemplate jdbc, String passwordHash, String adminEmail) {
-        Integer existing = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM tenants WHERE id = ?", Integer.class, TENANT_ID);
+    private void seedEnvironment(JdbcTemplate jdbc, TenantRlsTransactionContext signedTenantContext,
+                                 String passwordHash, String adminEmail) {
+        // G1 signed-context contract (V20261124_1/_2): the tenants row is a
+        // platform row read/written BEFORE any tenant scope exists. It is
+        // explicitly classified as a pre-auth bootstrap statement here
+        // (deliberate, code-visible, profile-gated — never active in prod).
+        // Everything below is tenant-scoped and runs under the full
+        // HMAC-signed binding; the raw app.tenant_id session GUC no longer
+        // authorizes anything (the enforced policies read
+        // public.app_tenant_ctx_text()).
+        Integer existing = TenantRlsPreAuthScope.call(() ->
+                jdbc.queryForObject(
+                "SELECT COUNT(*) FROM tenants WHERE id = ?", Integer.class, TENANT_ID));
         if (existing != null && existing > 0) {
             log.info("Perf-test environment already seeded for tenant={}; skipping.", TENANT_ID);
             return;
         }
 
-        // Under FORCE ROW LEVEL SECURITY on public.users (V20261011_3),
-        // INSERT INTO users requires app.tenant_id to match the row's tenant_id.
-        // The TenantRlsConnectionHandler normally derives the tenant id from
-        // the SecurityContextHolder, but this seed runs at ApplicationContext
-        // startup (no authenticated user), so the handler skips setting the
-        // GUC. We set it explicitly here, transaction-scoped (is_local=true),
-        // because seedEnvironment is invoked from a TransactionTemplate
-        // boundary in perfTestEnvironmentSeeder.
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + TENANT_ID + "', true)");
-
-        jdbc.update("""
+        TenantRlsPreAuthScope.run(() ->
+                jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (?, 'Perf Test Tenant', 'perf-test', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, TENANT_ID);
+                """, TENANT_ID));
+
+        applySignedContext(signedTenantContext);
 
         jdbc.update("""
                 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
@@ -207,11 +213,21 @@ public class PerfTestBootstrapConfig {
                 VALUES (?, ?, ?, ?, NULL, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, GRANT_ID, TENANT_ID, ADMIN_USER_ID, ADMIN_ROLE_ID);
 
-        // CRM FORCE-RLS tables use app.tenant_id. TransactionTemplate keeps
-        // JdbcTemplate on the same transaction-bound connection, so a local GUC
-        // is sufficient and cannot leak beyond this perf bootstrap transaction.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, TENANT_ID.toString());
+        // CRM FORCE-RLS tables use the HMAC-verified signed context.
+        // TransactionTemplate keeps JdbcTemplate on the same transaction-bound
+        // connection, so the signed binding holds for the CRM fixtures below
+        // and cannot leak beyond this perf bootstrap transaction.
+        applySignedContext(signedTenantContext);
         seedCrmFixtures(jdbc);
+    }
+
+    /**
+     * G1 signed-context contract (V20261124_1/_2): bind the perf tenant
+     * through the full production protocol (slot → HMAC mint → SECURITY
+     * DEFINER bind → end-to-end verification). Fail-closed on any refusal.
+     */
+    private void applySignedContext(TenantRlsTransactionContext signedTenantContext) {
+        signedTenantContext.applyForCurrentTransaction(TENANT_ID);
     }
 
     private void seedCrmFixtures(JdbcTemplate jdbc) {

@@ -55,17 +55,20 @@ public class HrmIamEventConsumer implements HrOutboxEventConsumer {
     private final ObjectMapper objectMapper;
     private final IamEmploymentAccessPort iamPort;
     private final HrmIamAccessPolicy policy;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope;
 
     @Autowired
     public HrmIamEventConsumer(
             DataSource dataSource,
             ObjectMapper objectMapper,
             IamEmploymentAccessPort iamPort,
-            HrmIamAccessPolicy policy) {
+            HrmIamAccessPolicy policy,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.iamPort = Objects.requireNonNull(iamPort, "iamPort");
         this.policy = Objects.requireNonNull(policy, "policy");
+        this.tenantScope = Objects.requireNonNull(tenantScope, "tenantScope");
     }
 
     @Override
@@ -216,10 +219,20 @@ public class HrmIamEventConsumer implements HrOutboxEventConsumer {
         return node == null || node.isNull() ? null : UUID.fromString(node.asText());
     }
 
-    private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId.toString());
-            ps.execute();
+    /**
+     * G1 F-INT-03 (REV3): binds the HMAC-SIGNED tenant context on this
+     * caller-managed transaction through the production protocol
+     * (TenantRlsTransactionContext.bindConnection — app-side mint, the key
+     * never reaches SQL). The raw {@code set_config('app.tenant_id', ...)}
+     * write is untrusted after V20261124_2 and was removed.
+     */
+    private void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
+        try {
+            tenantScope.bindConnection(connection, tenantId);
+        } catch (SQLException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new SQLException("HRM_IAM_CONSUMER_SIGNED_BIND_FAILED: " + e.getMessage(), e);
         }
     }
 

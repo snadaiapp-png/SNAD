@@ -280,14 +280,39 @@ jobs:
             -f apps/sanad-platform/src/test/resources/sql/g2-human-visual-fixtures.sql \
             2>&1 | tee -a "$RUNNER_TEMP/g2-visual-seed.log"
           G2_TENANT_ID='33333333-3333-4333-8333-333333333331'
-          COUNT=$(PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
-            psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
-            "SELECT COUNT(*) FROM users WHERE tenant_id='$G2_TENANT_ID'")
-          test "$COUNT" = "3"
+          # Verify fixtures using authenticated transaction-scoped RLS context.
+          # An unsigned app.tenant_id PGOPTIONS value is intentionally insufficient.
+          signed_count() {
+            local query="$1"
+            PGPASSWORD="$DATABASE_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 \
+              -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+              -v "fixture_tenant=$G2_TENANT_ID" -v "fixture_query=$query" <<'SQL'
+          BEGIN;
+          SELECT public.app_bind_tenant_ctx(
+            :'fixture_tenant'::uuid,
+            encode(hmac(
+              convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex')
+          ) AS signed_ok
+          \gset
+          \if :signed_ok
+          SELECT public.app_tenant_ctx_text() = :'fixture_tenant' AS ctx_verified
+          \gset
+          \if :ctx_verified
+          :fixture_query;
+          \else
+          SELECT 1 / 0;
+          \endif
+          \else
+          SELECT 1 / 0;
+          \endif
+          ROLLBACK;
+          SQL
+          }
+          COUNT=$(signed_count "SELECT COUNT(*) FROM users WHERE tenant_id='$G2_TENANT_ID'")
+          test "$COUNT" = "3" || { echo "::error::G2 visual fixture user count invalid"; exit 1; }
           for table in hr_attendance_records hr_timesheets hr_leave_requests hr_work_schedules; do
-            ROWS=$(PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
-              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
-              "SELECT COUNT(*) FROM $table WHERE tenant_id='$G2_TENANT_ID'")
+            ROWS=$(signed_count "SELECT COUNT(*) FROM $table WHERE tenant_id='$G2_TENANT_ID'")
             test "$ROWS" -gt 0 || { echo "::error::G2 visual fixture table $table is empty"; exit 1; }
           done
 

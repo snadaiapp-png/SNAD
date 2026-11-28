@@ -85,7 +85,12 @@ class HrG4PayrollSnapshotPostgresTest {
         flyway.migrate();
 
         connection = ds.getConnection();
-        connection.setAutoCommit(true);
+        // G1 signed-context contract (V20261124_1/_2): the signed tenant bind
+        // is TRANSACTION-LOCAL (mac over txid_current), so the fixture holds ONE
+        // explicit transaction across seeding + assertions and rolls back at
+        // close. The isolated schema is cleaned and re-migrated per test, so
+        // persistence semantics are unchanged.
+        connection.setAutoCommit(false);
 
         tenantId = UUID.randomUUID();
         foreignTenantId = UUID.randomUUID();
@@ -108,7 +113,11 @@ class HrG4PayrollSnapshotPostgresTest {
     @AfterEach
     void closeConnection() throws Exception {
         if (connection != null) {
-            connection.close();
+            try {
+                connection.rollback();
+            } finally {
+                connection.close();
+            }
         }
     }
 
@@ -339,11 +348,11 @@ class HrG4PayrollSnapshotPostgresTest {
     }
 
     private void setTenant(UUID tenant) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, false)")) {
-            ps.setString(1, tenant.toString());
-            ps.execute();
-        }
+        // G1 signed-context contract (V20261124_1/_2): bind through the SAME
+        // HMAC signed protocol the production application executes — inside
+        // this test's OPEN explicit transaction. A raw app.tenant_id GUC is no
+        // longer authorized by the enforced policies. No RLS bypass.
+        com.sanad.platform.test.TenantGucDataSource.bindSignedContext(connection, tenant);
     }
 
     private void execute(String sql, SqlBinder binder) throws Exception {

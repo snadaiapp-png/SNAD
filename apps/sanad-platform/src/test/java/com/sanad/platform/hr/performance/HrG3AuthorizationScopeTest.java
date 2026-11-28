@@ -6,7 +6,10 @@ import com.sanad.platform.hr.performance.application.PerformanceReviewInput;
 import com.sanad.platform.hr.performance.domain.PerformanceReview;
 import com.sanad.platform.hr.performance.infrastructure.PerformanceReviewRepository;
 import com.sanad.platform.hr.time.application.HrEmploymentScopeResolver;
+import com.sanad.platform.security.rls.TenantContextSigner;
+import com.sanad.platform.security.rls.TenantRlsRuntimePolicy;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -65,6 +68,7 @@ class HrG3AuthorizationScopeTest {
     private static final ThreadLocal<UUID> CURRENT_TENANT = new ThreadLocal<>();
 
     private DataSource dataSource;
+    private TenantGucDataSource scopeResolverDs;
     private HrEmploymentScopeResolver scopeResolver;
     private PerformanceReviewRepository repository;
     private HrPerformanceReviewService service;
@@ -87,8 +91,30 @@ class HrG3AuthorizationScopeTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .load()
                 .migrate();
-        dataSource = new TenantContextDataSource();
-        scopeResolver = new HrEmploymentScopeResolver(new JdbcTemplate(dataSource));
+        dataSource = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        // G1 signed-context contract (V20261124_1/_2): the production
+        // repository binds its own transactions via TenantSignedConnectionBinder
+        // (fail-closed when no runtime policy is installed), and the scope
+        // resolver reads through a DataSource whose acquisitions carry the
+        // actAs tenant via the SAME HMAC signed binding protocol. The policy
+        // below mirrors TenantRlsSecurityConfig on a fixture topology — the
+        // documented fixture key that V20261124_2 provisions DB-side (or the
+        // env operator key). NEVER production evidence.
+        String keyHex = com.sanad.platform.test.TenantGucDataSource.signingKeyHex();
+        boolean fixtureFallback =
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".equals(keyHex);
+        TenantRlsRuntimePolicy.install(new TenantRlsRuntimePolicy.Policy(
+                new TenantContextSigner(java.util.HexFormat.of().parseHex(keyHex), fixtureFallback),
+                true));
+        // The scope resolver reads tenant-scoped HR tables on plain JdbcTemplate
+        // paths that carry no Spring tenant context, so its DataSource must
+        // establish the signed binding per acquisition (actAs switches the
+        // default tenant; acquisitions without a default fail closed).
+        scopeResolverDs = new TenantGucDataSource(dataSource, null);
+        scopeResolver = new HrEmploymentScopeResolver(new JdbcTemplate(scopeResolverDs));
         repository = new PerformanceReviewRepository(dataSource);
         service = new HrPerformanceReviewService(repository, scopeResolver);
     }
@@ -298,6 +324,9 @@ class HrG3AuthorizationScopeTest {
 
     private void actAs(UUID tenantId) {
         CURRENT_TENANT.set(tenantId);
+        // The scope resolver's acquisitions now carry the signed binding for
+        // this tenant (repository calls bind explicitly from their own args).
+        scopeResolverDs.setDefaultTenant(tenantId);
     }
 
     private static Authentication authentication(UUID tenantId, UUID userId) {
@@ -310,8 +339,9 @@ class HrG3AuthorizationScopeTest {
 
     /** Seeds the tenant row exactly once; graph helpers never seed tenants. */
     private void seedTenantOnce(UUID tenantId) {
+        // tenants is ENABLE-RLS and the fixture connection is the table owner:
+        // no tenant binding is required (and none must be forged).
         try (Connection conn = dataSource.getConnection()) {
-            CURRENT_TENANT.remove();
             seedTenant(conn, tenantId);
         } catch (SQLException e) {
             throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
@@ -325,7 +355,11 @@ class HrG3AuthorizationScopeTest {
 
     private UUID employmentOf(UUID tenantId, UUID userId) {
         try (Connection conn = dataSource.getConnection()) {
-            setTenant(conn, tenantId);
+            // Signed-bound read (V20261124_1/_2): the employment lookup joins
+            // FORCE-RLS tenant tables, so it runs inside ONE signed-bound
+            // explicit transaction.
+            conn.setAutoCommit(false);
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(conn, tenantId);
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT e.id FROM hr_employees e "
                     + "JOIN hr_people p ON p.id = e.person_id AND p.tenant_id = e.tenant_id "
@@ -338,6 +372,8 @@ class HrG3AuthorizationScopeTest {
                     }
                     return (UUID) rs.getObject(1);
                 }
+            } finally {
+                conn.rollback();
             }
         } catch (SQLException e) {
             throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
@@ -346,24 +382,41 @@ class HrG3AuthorizationScopeTest {
 
     private UUID seedTenantUserWithoutEmployment(UUID tenantId) {
         try (Connection conn = dataSource.getConnection()) {
-            CURRENT_TENANT.remove();
-            setTenant(conn, tenantId);
-            return seedUser(conn, tenantId, UUID.randomUUID());
-        } catch (SQLException e) {
+            // Signed-bound seed transaction (V20261124_1/_2 contract).
+            conn.setAutoCommit(false);
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(conn, tenantId);
+            try {
+                UUID userId = seedUser(conn, tenantId, UUID.randomUUID());
+                conn.commit();
+                return userId;
+            } catch (SQLException | RuntimeException failure) {
+                conn.rollback();
+                throw failure;
+            }
+        } catch (SQLException | RuntimeException e) {
             throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
         }
     }
 
     private UUID seedCanonicalEmployeeGraph(UUID tenantId, String first, String last) {
         try (Connection conn = dataSource.getConnection()) {
-            CURRENT_TENANT.remove();
-            setTenant(conn, tenantId);
-            UUID userId = seedUser(conn, tenantId, UUID.randomUUID());
-            UUID personId = seedPerson(conn, tenantId, userId, first, last);
-            UUID legalEntityId = seedLegalEntity(conn, tenantId);
-            seedEmployment(conn, tenantId, personId, legalEntityId);
-            return userId;
-        } catch (SQLException e) {
+            // Signed-bound seed transaction (V20261124_1/_2 contract): users,
+            // people, legal entities and employments are tenant-scoped under
+            // enforced FORCE RLS.
+            conn.setAutoCommit(false);
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(conn, tenantId);
+            try {
+                UUID userId = seedUser(conn, tenantId, UUID.randomUUID());
+                UUID personId = seedPerson(conn, tenantId, userId, first, last);
+                UUID legalEntityId = seedLegalEntity(conn, tenantId);
+                seedEmployment(conn, tenantId, personId, legalEntityId);
+                conn.commit();
+                return userId;
+            } catch (SQLException | RuntimeException failure) {
+                conn.rollback();
+                throw failure;
+            }
+        } catch (SQLException | RuntimeException e) {
             throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
         }
     }
@@ -371,46 +424,32 @@ class HrG3AuthorizationScopeTest {
     /** Manager/report graph with a PRIMARY reporting assignment (tenant must already exist). */
     private Scenario seedReportingScenario(UUID tenantId, LocalDate managerAssignmentEffectiveTo) {
         try (Connection conn = dataSource.getConnection()) {
-            CURRENT_TENANT.remove();
-            setTenant(conn, tenantId);
+            // Signed-bound seed transaction (V20261124_1/_2 contract).
+            conn.setAutoCommit(false);
+            com.sanad.platform.test.TenantGucDataSource.bindSignedContext(conn, tenantId);
+            try {
+                UUID orgId = seedOrganization(conn, tenantId);
+                UUID legalEntityId = seedLegalEntity(conn, tenantId);
 
-            UUID orgId = seedOrganization(conn, tenantId);
-            UUID legalEntityId = seedLegalEntity(conn, tenantId);
+                UUID managerUserId = seedUser(conn, tenantId, UUID.randomUUID());
+                UUID managerPersonId = seedPerson(conn, tenantId, managerUserId, "Scope", "Manager");
+                UUID managerEmploymentId = seedEmployment(conn, tenantId, managerPersonId, legalEntityId);
+                UUID managerAssignmentId = seedAssignment(
+                        conn, tenantId, managerEmploymentId, orgId, null, managerAssignmentEffectiveTo);
 
-            UUID managerUserId = seedUser(conn, tenantId, UUID.randomUUID());
-            UUID managerPersonId = seedPerson(conn, tenantId, managerUserId, "Scope", "Manager");
-            UUID managerEmploymentId = seedEmployment(conn, tenantId, managerPersonId, legalEntityId);
-            UUID managerAssignmentId = seedAssignment(
-                    conn, tenantId, managerEmploymentId, orgId, null, managerAssignmentEffectiveTo);
+                UUID employeeUserId = seedUser(conn, tenantId, UUID.randomUUID());
+                UUID employeePersonId = seedPerson(conn, tenantId, employeeUserId, "Scope", "Employee");
+                UUID employeeEmploymentId = seedEmployment(conn, tenantId, employeePersonId, legalEntityId);
+                seedAssignment(conn, tenantId, employeeEmploymentId, orgId, managerAssignmentId, null);
 
-            UUID employeeUserId = seedUser(conn, tenantId, UUID.randomUUID());
-            UUID employeePersonId = seedPerson(conn, tenantId, employeeUserId, "Scope", "Employee");
-            UUID employeeEmploymentId = seedEmployment(conn, tenantId, employeePersonId, legalEntityId);
-            seedAssignment(conn, tenantId, employeeEmploymentId, orgId, managerAssignmentId, null);
-
-            return new Scenario(tenantId, managerUserId, employeeUserId);
-        } catch (SQLException e) {
-            throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
-        }
-    }
-
-    private final class TenantContextDataSource extends DriverManagerDataSource {
-        private TenantContextDataSource() {
-            setUrl(DB_URL);
-            setUsername(DB_USER);
-            setPassword(DB_PASSWORD);
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            Connection connection = super.getConnection();
-            UUID tenantId = CURRENT_TENANT.get();
-            if (tenantId != null) {
-                try (Statement st = connection.createStatement()) {
-                    st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-                }
+                conn.commit();
+                return new Scenario(tenantId, managerUserId, employeeUserId);
+            } catch (SQLException | RuntimeException failure) {
+                conn.rollback();
+                throw failure;
             }
-            return connection;
+        } catch (SQLException | RuntimeException e) {
+            throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
         }
     }
 
@@ -534,11 +573,5 @@ class HrG3AuthorizationScopeTest {
             ps.executeUpdate();
         }
         return assignmentId;
-    }
-
-    private void setTenant(Connection conn, UUID tenantId) throws SQLException {
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-        }
     }
 }

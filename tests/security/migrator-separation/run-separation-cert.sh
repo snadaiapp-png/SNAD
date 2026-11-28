@@ -63,7 +63,7 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL)
 # advance the watermark 20261117.2 -> 20261118.2. Recorded per watermark
 # policy; no silent value bump.
-EXPECTED_HEAD="20261118.2"
+EXPECTED_HEAD="20261124.3"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -90,7 +90,7 @@ on_exit() {
   local status=$?
   trap - EXIT
   # S1 can exit before its normal unset; clear Flyway credentials on all exits.
-  unset FLYWAY_PASSWORD
+  unset FLYWAY_PASSWORD SEP_CTX_KEY
   if [ "$status" -ne 0 ]; then
     # A failure can occur before provisioning; do not claim resources exist.
     printf 'EXIT_STATUS=%s\nAUTO_CLEANUP_ON_FAILURE=SKIPPED\nRESOURCE_EXISTENCE=UNVERIFIED\n' "$status" >> "$SUMMARY"
@@ -114,8 +114,30 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   fi
   # Never inherit an ambient PGOPTIONS tenant context into an unset-GUC probe.
   # Explicit tenant probes supply their own controlled PGOPTIONS value.
-  runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
-       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
+  if [ $# -ge 3 ] && [ -n "$3" ] && [ "$3" != "__EMPTY_GUC__" ]; then
+    # The certification harness represents the trusted application signer.
+    # Bind the per-transaction HMAC through psql protocol parameters; never
+    # put the secret in the query, process argv, runtime role, or evidence log.
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE \
+      SANAD_TENANT_CTX_HMAC_KEY="$SEP_CTX_KEY" PGPASSWORD="$SEP_RUN_PW" \
+      psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -At 2>"$ART/last-err.txt" <<SQL | sed '/^BEGIN$/d; /^COMMIT$/d'
+\getenv ctx_key SANAD_TENANT_CTX_HMAC_KEY
+BEGIN;
+SELECT public.app_bind_tenant_ctx('$3'::uuid, encode(hmac(
+  convert_to('$3' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+  decode(\$1, 'hex'), 'sha256'), 'hex')) AS bound
+\bind :ctx_key
+\gset
+$2;
+COMMIT;
+SQL
+    )
+  else
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" \
+      psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
+  fi
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
   # VERBOSITY=verbose emits "ERROR:  42501: ..."; whitespace varies.
@@ -277,9 +299,28 @@ gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD
 # CLI arguments (which may be visible in process listings and scanner matches).
 : "${SEP_MIG_PW:?SEP_MIG_PW must be supplied from the isolated test secret store}"
 # Scope the secret to each Flyway child; never export it in the parent shell.
+# Separated topology demands explicit operator key provisioning before enforcement.
+command -v openssl >/dev/null 2>&1 || die S1 "openssl missing for operator key"
 env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
-  -user=sanad_migrator \
-  -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
+  -user=sanad_migrator -locations="$LOCS" -target=20261124.1 migrate > "$ART/S1-stage-migrate.log" 2>&1 \
+  || die S1 "staged migration through V20261124_1 failed"
+[ "$(admin postgres "$SEP_DB" "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")" = "20261124.1" ] \
+  || die S1 "migration stage did not stop at the operator boundary"
+SEP_CTX_KEY="$(openssl rand -hex 32)" || die S1 "key generation failed"
+[ "${#SEP_CTX_KEY}" = 64 ] || die S1 "invalid key length"
+env -u PGOPTIONS SANAD_TENANT_CTX_HMAC_KEY="$SEP_CTX_KEY" PGPASSWORD="$SEP_MIG_PW" \
+  psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad_migrator -d "$SEP_DB" \
+  -v ON_ERROR_STOP=1 -f "$SEP_REPO/scripts/ops/tenant-ctx/provision-ctx-key.sql" \
+  > "$ART/S1-key-provision.log" 2>&1 || die S1 "operator HMAC key provisioning failed"
+env -u PGOPTIONS PGPASSWORD="$SEP_MIG_PW" \
+  psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad_migrator -d "$SEP_DB" \
+  -v ON_ERROR_STOP=1 -c "INSERT INTO public.platform_ctx_enforce (flag, enabled_by) VALUES ('ON', 'separation-cert:operator') ON CONFLICT (flag) DO NOTHING" \
+  > "$ART/S1-enforce-approval.log" 2>&1 || die S1 "operator enforcement approval failed"
+[ "$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.platform_tenant_ctx_keys WHERE status='ACTIVE'")" = 1 ] || die S1 "ACTIVE key precondition failed"
+[ "$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.platform_ctx_enforce WHERE flag='ON'")" = 1 ] || die S1 "enforcement flag precondition failed"
+env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
+  -user=sanad_migrator -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 \
+  || die S1 "post-operator migration failed (see S1-migrate.log)"
 env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
   -user=sanad_migrator \
   -locations="$LOCS" validate > "$ART/S1-validate.log" 2>&1 || die S1 "validate failed"
@@ -383,8 +424,8 @@ TB=33333333-3333-3333-3333-333333333333
 UA=44444444-4444-4444-4444-444444444444
 UB=55555555-5555-5555-5555-555555555555
 admin postgres "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$TA','Tenant A','sepa','ACTIVE',now(),now()), ('$TB','Tenant B','sepb','ACTIVE',now(),now())" >/dev/null || die S4 "tenant seeding"
-admin postgres "$SEP_DB" "SET app.tenant_id='$TA'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
-admin postgres "$SEP_DB" "SET app.tenant_id='$TB'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
+admin postgres "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
+admin postgres "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
 expect_value S4_A_SEES_A "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
 expect_value S4_A_CANNOT_SEE_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "0" "$TA"
 expect_value S4_B_SEES_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"

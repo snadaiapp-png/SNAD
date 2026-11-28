@@ -69,7 +69,22 @@ ON CONFLICT (id) DO NOTHING;
 -- fail-closed FORCE RLS (V20261029_1): psql runs this file on ONE session, so
 -- this session-level set_config scopes every later statement to the fixture
 -- tenant (re-asserted before the users and HR blocks — same value).
-SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
+BEGIN;
+-- Disposable CI fixture only: bind the transaction's tenant with a signed
+-- HMAC validated by the same database RLS helper as production.
+DO $g3_signed_fixture$
+DECLARE
+    v_tenant uuid := '44444444-4444-4444-8444-444444444441'::uuid;
+    v_mac text;
+BEGIN
+    v_mac := encode(hmac(
+        convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+        decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+    IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+       OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+        RAISE EXCEPTION 'G3_SIGNED_FIXTURE_BIND_REFUSED';
+    END IF;
+END $g3_signed_fixture$;
 
 -- ----------------------------------------------------------------------------
 -- 2. Plan + plan_version + tenant_subscription
@@ -176,7 +191,7 @@ WHERE m.code = 'HRM'
 -- ----------------------------------------------------------------------------
 -- 3. Organization
 -- ----------------------------------------------------------------------------
-SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
+
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
     '44444444-4444-4444-8444-444444444445',
@@ -194,7 +209,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- CI fixture only: establish the test tenant before FORCE-RLS users inserts.
 -- This grants no privileges and does not bypass the RLS policy.
-SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
+
 
 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
 VALUES (
@@ -248,7 +263,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 6. Canonical HR identity graph
 -- ----------------------------------------------------------------------------
-SELECT set_config('app.tenant_id', '44444444-4444-4444-8444-444444444441', false);
+
 
 -- Legal entity
 INSERT INTO legal_entities (
@@ -515,4 +530,4 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- Clear tenant context
-SELECT set_config('app.tenant_id', '', false);
+COMMIT;

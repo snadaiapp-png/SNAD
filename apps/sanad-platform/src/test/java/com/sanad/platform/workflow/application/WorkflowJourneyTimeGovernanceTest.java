@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.within;
 class WorkflowJourneyTimeGovernanceTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @Autowired private WorkflowJourneyService journey;
     @Autowired private WorkflowDeadlineEnforcementWorker worker;
     @Autowired private WorkflowResponsibilityService responsibility;
@@ -63,7 +65,7 @@ class WorkflowJourneyTimeGovernanceTest {
     private void inTenantTx(UUID tenantId, Runnable write) {
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     write.run();
                 });
     }
@@ -71,7 +73,7 @@ class WorkflowJourneyTimeGovernanceTest {
     private <T> T inTenantTxResult(UUID tenantId, java.util.function.Supplier<T> action) {
         return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     return action.get();
                 });
     }

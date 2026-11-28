@@ -1,6 +1,7 @@
 package com.sanad.platform.subscription.billing.application;
 
 import com.sanad.platform.admin.service.PlatformAuditWriter;
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.subscription.billing.domain.BillingPaymentProvider;
 import com.sanad.platform.subscription.billing.infrastructure.BillingWebhookResolutionContext;
@@ -65,15 +66,27 @@ public class BillingWebhookService {
                 provider.verifyAndParseEvent(payload, signatureHeader);
         String providerCode = provider.providerCode();
 
-        PaymentBinding binding;
-        webhookResolutionContext.applyVerifiedProviderForCurrentTransaction(providerCode);
-        try {
-            binding = resolveTrustedBinding(
-                    providerCode, envelope.providerPaymentRef());
-        } finally {
-            webhookResolutionContext.clearForCurrentTransaction();
-        }
+        java.util.concurrent.atomic.AtomicReference<PaymentBinding> resolvedBinding =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        // G1 CI-remediation (2026-11-28, PR #1554): the verified-provider
+        // resolution window is the webhook's documented PRE-AUTHENTICATION
+        // path — signature verification has already succeeded, the
+        // provider-scoped RLS policy (provider_webhook_resolution) gates the
+        // binding SELECT, and the trusted tenant bind happens right after the
+        // authoritative tenant id is resolved. The strict statement handler
+        // demands exactly this explicit classification for context-free
+        // statements; tenant-scoped writes below stay fail-closed.
+        TenantRlsPreAuthScope.run(() -> {
+            webhookResolutionContext.applyVerifiedProviderForCurrentTransaction(providerCode);
+            try {
+                resolvedBinding.set(resolveTrustedBinding(
+                        providerCode, envelope.providerPaymentRef()));
+            } finally {
+                webhookResolutionContext.clearForCurrentTransaction();
+            }
+        });
 
+        PaymentBinding binding = resolvedBinding.get();
         tenantRlsContext.applyForCurrentTransaction(binding.tenantId());
 
         UUID eventRowId = UUID.randomUUID();

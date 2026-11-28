@@ -209,9 +209,7 @@ public class PayrollApiService {
                 rs.getBigDecimal("net_amount"),rs.getString("status"),rs.getString("exception_code"),rs.getLong("version"));
     }
     private static void setTenant(Connection c,UUID tenantId)throws SQLException{
-        try(PreparedStatement ps=c.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")){
-            ps.setString(1,tenantId.toString()); ps.execute();
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(c, tenantId);
     }
 
     public record CreateRun(UUID legalEntityId, LocalDate periodStart, LocalDate periodEnd,

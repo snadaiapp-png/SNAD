@@ -1,5 +1,7 @@
 package com.sanad.platform.workflow.config;
 
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
@@ -76,8 +78,9 @@ public class WorkflowE2eBootstrapConfig {
     ApplicationRunner workflowE2eSeeder(JdbcTemplate jdbc,
                                          PasswordEncoder passwordEncoder,
                                          PlatformTransactionManager transactionManager,
-                                         Environment environment) {
-        return args -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                                         Environment environment,
+                                         TenantRlsTransactionContext signedTenantContext) {
+        return args -> {
             log.info("WorkflowE2eBootstrap: seeding E2E tenants, multi-actor fixtures and capabilities");
             var now = Timestamp.from(Instant.now());
             String e2ePassword = environment.getRequiredProperty("WF_E2E_PASSWORD");
@@ -85,21 +88,31 @@ public class WorkflowE2eBootstrapConfig {
                 throw new IllegalStateException("WF_E2E_PASSWORD must be non-blank for workflow-e2e profile");
             }
 
-            // 1. Tenants are platform rows and are created before selecting a tenant RLS context.
-            jdbc.update("""
-                    INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
-                    VALUES (?, 'Workflow E2E Tenant', 'wf-e2e', 'ACTIVE', ?, ?)
-                    ON CONFLICT (id) DO NOTHING
-                    """, TENANT_A_ID, now, now);
-            jdbc.update("""
-                    INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
-                    VALUES (?, 'Workflow E2E Tenant B', 'wf-e2e-b', 'ACTIVE', ?, ?)
-                    ON CONFLICT (id) DO NOTHING
-                    """, TENANT_B_ID, now, now);
+            // 1. Tenants are platform rows. G1 signed-context contract
+            // (V20261124_1/_2): the strict connection handler rejects
+            // context-less statements INSIDE an active transaction, so the
+            // platform-row INSERTs run on the autocommit surface (no
+            // transaction active) — the same contract the migrated workflow
+            // test suites use. Tenant-scoped writes below run inside ONE
+            // transaction with the HMAC-SIGNED binding; the raw
+            // app.tenant_id session GUC no longer authorizes anything.
+            TenantRlsPreAuthScope.run(() -> {
+                jdbc.update("""
+                        INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+                        VALUES (?, 'Workflow E2E Tenant', 'wf-e2e', 'ACTIVE', ?, ?)
+                        ON CONFLICT (id) DO NOTHING
+                        """, TENANT_A_ID, now, now);
+                jdbc.update("""
+                        INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+                        VALUES (?, 'Workflow E2E Tenant B', 'wf-e2e-b', 'ACTIVE', ?, ?)
+                        ON CONFLICT (id) DO NOTHING
+                        """, TENANT_B_ID, now, now);
+            });
 
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             // Tenant A block. All RLS-protected writes happen on the same
-            // transaction-bound connection under this transaction-local context.
-            setTenantContext(jdbc, TENANT_A_ID);
+            // transaction-bound connection under this signed context.
+            applySignedContext(signedTenantContext, TENANT_A_ID);
 
             // 2. Admin user with real PasswordEncoder hash (API-level setup actor)
             String passwordHash = passwordEncoder.encode(e2ePassword);
@@ -175,7 +188,7 @@ public class WorkflowE2eBootstrapConfig {
                             0, 0, 0, 10, 1, 0, ?, ?)
                     ON CONFLICT DO NOTHING
                     """, e2ePlanId, now, now);
-            setTenantContext(jdbc, TENANT_A_ID);
+            applySignedContext(signedTenantContext, TENANT_A_ID);
             jdbc.update("""
                     INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                          seat_quantity, credit_balance_minor, started_at, current_period_start,
@@ -202,12 +215,12 @@ public class WorkflowE2eBootstrapConfig {
             // P12's cross-tenant/source-entitlement proof intact while making
             // authentication reflect the real subscriber contract.
             // Switch the same transaction-bound connection to Tenant B BEFORE
-            // the Tenant B subscription write: tenant_subscriptions is FORCE RLS
+            // the Tenant B writes: tenant_subscriptions is FORCE RLS
             // (V20261029_1) and its WITH CHECK compares row tenant_id against the
-            // transaction-local app.tenant_id — seeding Tenant B's row while
+            // HMAC-verified signed context — seeding Tenant B's row while
             // Tenant A is the active context violates the policy and aborts
             // application startup (fail-closed by design).
-            setTenantContext(jdbc, TENANT_B_ID);
+            applySignedContext(signedTenantContext, TENANT_B_ID);
             UUID tenantBPlanId = deterministicId("B", "base-plan", "saas_plan");
             jdbc.update("""
                     INSERT INTO saas_plans (id, code, name, status, currency_code, monthly_price_minor,
@@ -217,7 +230,7 @@ public class WorkflowE2eBootstrapConfig {
                             0, 0, 0, 10, 1, 0, ?, ?)
                     ON CONFLICT DO NOTHING
                     """, tenantBPlanId, now, now);
-            setTenantContext(jdbc, TENANT_B_ID);
+            applySignedContext(signedTenantContext, TENANT_B_ID);
             jdbc.update("""
                     INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
                          seat_quantity, credit_balance_minor, started_at, current_period_start,
@@ -231,7 +244,7 @@ public class WorkflowE2eBootstrapConfig {
             seedActors(jdbc, TENANT_B_ID, TENANT_B_ACTORS, "B", passwordHash, now);
 
             // 8. Verify seeding through the same fail-closed tenant views.
-            setTenantContext(jdbc, TENANT_A_ID);
+            applySignedContext(signedTenantContext, TENANT_A_ID);
             Integer userCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM users WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_A_ID);
@@ -242,14 +255,15 @@ public class WorkflowE2eBootstrapConfig {
                     "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_A_ID);
 
-            setTenantContext(jdbc, TENANT_B_ID);
+            applySignedContext(signedTenantContext, TENANT_B_ID);
             Integer employeeCountB = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_B_ID);
 
             log.info("WorkflowE2eBootstrap: seeded tenantA={} (users={} employees={}) tenantB={} employees={} adminCaps={}",
                     TENANT_A_ID, userCount, employeeCountA, TENANT_B_ID, employeeCountB, capCount);
-        });
+            });
+        };
     }
 
     private void seedActors(JdbcTemplate jdbc, UUID tenantId,
@@ -305,25 +319,16 @@ public class WorkflowE2eBootstrapConfig {
         }
     }
 
-    private void setTenantContext(JdbcTemplate jdbc, UUID tenantId) {
-        String applied = jdbc.queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
-        if (!tenantId.toString().equals(applied)) {
-            throw new IllegalStateException("Failed to apply workflow-e2e tenant RLS context for " + tenantId);
-        }
-        // Verify the transaction-local value is still visible on the bound
-        // connection; set_config() returning the requested value alone does
-        // not prove SET LOCAL survived an unexpected transaction/DataSource
-        // boundary. This is especially important before FORCE-RLS writes.
-        String current = jdbc.queryForObject(
-                "SELECT current_setting('app.tenant_id', true)",
-                String.class);
-        if (!tenantId.toString().equals(current)) {
-            throw new IllegalStateException(
-                    "Workflow E2E tenant RLS context is not active on the bound transaction: expected "
-                            + tenantId + " but got " + (current == null ? "<null>" : current));
-        }
+    /**
+     * G1 signed-context contract (V20261124_1/_2): the raw app.tenant_id
+     * session GUC is untrusted and the enforced policies read the
+     * HMAC-validated public.app_tenant_ctx_text(). Every tenant-scoped write
+     * of this fixture goes through the full production binding protocol
+     * (slot → HMAC mint → SECURITY DEFINER bind → end-to-end verification)
+     * on the transaction-bound connection. Fail-closed on any refusal.
+     */
+    private void applySignedContext(TenantRlsTransactionContext signedTenantContext, UUID tenantId) {
+        signedTenantContext.applyForCurrentTransaction(tenantId);
     }
 
     /**

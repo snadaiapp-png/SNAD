@@ -47,7 +47,15 @@ jobs:
         run: |
           set -euo pipefail
           : "${SPRING_DATASOURCE_PASSWORD:?ephemeral PostgreSQL password missing}"
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -v sanad_password="$SPRING_DATASOURCE_PASSWORD" <<'SQL'
+          # Dedicated control-plane test identity: independent ephemeral credential,
+          # no runtime or migrator role membership, no privilege bypass.
+          cp_password="$(openssl rand -hex 32)"
+          test -n "$cp_password" && test "$cp_password" != "$SPRING_DATASOURCE_PASSWORD"
+          echo "::add-mask::$cp_password"
+          printf 'SANAD_CONTROL_PLANE_DB_URL=jdbc:postgresql://localhost:5432/sanad\n' >> "$GITHUB_ENV"
+          printf 'SANAD_CONTROL_PLANE_DB_USERNAME=sanad_control_plane\n' >> "$GITHUB_ENV"
+          printf 'SANAD_CONTROL_PLANE_DB_PASSWORD=%s\n' "$cp_password" >> "$GITHUB_ENV"
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v sanad_password="$SPRING_DATASOURCE_PASSWORD" -v cp_password="$cp_password" <<'SQL'
           SELECT format('CREATE ROLE sanad WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS', :'sanad_password')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')\gexec
           ALTER ROLE sanad WITH LOGIN PASSWORD :'sanad_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
@@ -59,6 +67,22 @@ jobs:
           SELECT 'CREATE ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_migrator')\gexec
           ALTER ROLE sanad_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- V20261118_1/_2 C4: required dedicated control-plane LOGIN identity.
+          -- Preserve least privilege and no membership with runtime/migrator.
+          SELECT format('CREATE ROLE sanad_control_plane LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS', :'cp_password')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_control_plane')\gexec
+          ALTER ROLE sanad_control_plane LOGIN PASSWORD :'cp_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          DO $cp_gate$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_auth_members m
+                       JOIN pg_roles g ON g.oid=m.roleid
+                       JOIN pg_roles r ON r.oid=m.member
+                       WHERE (g.rolname = 'sanad_control_plane' AND r.rolname IN ('sanad','sanad_migrator'))
+                          OR (r.rolname = 'sanad_control_plane' AND g.rolname IN ('sanad','sanad_migrator'))) THEN
+                RAISE EXCEPTION 'CI_CONTROL_PLANE_MEMBERSHIP_VIOLATION';
+            END IF;
+          END $cp_gate$;
 
           -- P0 V20261111_1 (service_callback_replay RLS closure): the chain
           -- requires the dedicated expired-row cleanup role cluster-wide, with a

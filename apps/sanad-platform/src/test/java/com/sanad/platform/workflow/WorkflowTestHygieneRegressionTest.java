@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
@@ -47,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WorkflowTestHygieneRegressionTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired private WorkflowExecutionService executionService;
     @Autowired private WorkflowGraphExecutionService graphExecutionService;
@@ -62,7 +64,7 @@ class WorkflowTestHygieneRegressionTest {
         for (int cycle = 1; cycle <= 2; cycle++) {
             // ---- RUN_TEST_A (cycle N): identical seeding + runtime path ----
             WorkflowNotificationWiringFixtures fixtures =
-                    new WorkflowNotificationWiringFixtures(jdbc, transactionManager);
+                    new WorkflowNotificationWiringFixtures(jdbc, transactionManager, signedTenantContext);
 
             WorkflowNotificationWiringFixtures.Fixture pool =
                     fixtures.fixture("hygiene-pool-" + cycle, "HUMAN_TASK", true, 2);

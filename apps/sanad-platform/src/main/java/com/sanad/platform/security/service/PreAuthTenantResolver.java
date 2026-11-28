@@ -1,5 +1,6 @@
 package com.sanad.platform.security.service;
 
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
@@ -30,10 +31,21 @@ public final class PreAuthTenantResolver {
             throw new IllegalArgumentException("Missing login identifier");
         }
         try {
-            return jdbc.query(
-                "SELECT tenant_id FROM public.g1_resolve_login_tenants(?, ?)",
-                (rs, rowNum) -> rs.getObject(1, UUID.class),
-                kind, normalizedIdentifier);
+            // G1 signed-context contract (V20261124_1/_2): login is the
+            // canonical pre-authentication path. The strict connection handler
+            // rejects context-less statements inside an active transaction —
+            // this discovery SELECT runs BEFORE any tenant is known, so it is
+            // explicitly classified as pre-auth here (deliberate, code-visible,
+            // reviewable — the same contract TenantRlsPreAuthScope documents for
+            // login flows). This does NOT bypass Row-Level Security: the query
+            // reads only login_tenant_index (pre-auth discovery table, no RLS
+            // by design, UUID-only result) and every subsequent tenant-data
+            // statement still requires the HMAC-signed binding.
+            return TenantRlsPreAuthScope.call(() ->
+                jdbc.query(
+                    "SELECT tenant_id FROM public.g1_resolve_login_tenants(?, ?)",
+                    (rs, rowNum) -> rs.getObject(1, UUID.class),
+                    kind, normalizedIdentifier));
         } catch (DataAccessException exception) {
             // Preserve the cause in server-side diagnostics, but never log
             // the identifier, SQL parameters, or password material.

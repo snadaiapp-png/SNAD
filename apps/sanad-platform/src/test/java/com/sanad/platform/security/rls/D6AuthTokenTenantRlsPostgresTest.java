@@ -28,26 +28,41 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Proves with REAL seeded tenant rows (not metadata only):
  * <ul>
- *   <li>forced fail-closed tenant_isolation policy on BOTH token tables;</li>
+ *   <li>forced fail-closed tenant_isolation policy on BOTH token tables —
+ *       since V20261124_2 the policy reads the HMAC-validated
+ *       {@code app_tenant_ctx_text()} (signed tenant-context binding,
+ *       F-DB-07 / RT-01) and fails closed when no signed context is
+ *       bound;</li>
  *   <li>{@code auth_token_tenant_index} exists and is intentionally NOT
  *       RLS'd (documented pre-auth discovery contract, mirrors
  *       {@code login_tenant_index});</li>
- *   <li>missing / empty {@code app.tenant_id} see ZERO token rows although
- *       real rows exist — including for the table owner (FORCE RLS);</li>
- *   <li>valid context exposes exactly that tenant's tokens in both
- *       directions (A vs B) for reads;</li>
+ *   <li>missing / empty / FORGED {@code app.tenant_id} GUCs see ZERO token
+ *       rows although real rows exist — including for the table owner
+ *       (FORCE RLS) — a raw GUC forgery cannot satisfy the HMAC
+ *       re-verification;</li>
+ *   <li>a properly SIGNED bound context exposes exactly that tenant's
+ *       tokens in both directions (A vs B) for reads;</li>
  *   <li>cross-tenant UPDATE/DELETE are row-filtered to zero rows;</li>
  *   <li>cross-tenant INSERT is rejected by WITH CHECK (SQLSTATE 42501);</li>
  *   <li>the sync trigger mirrors INSERT/DELETE into the discovery index and
  *       keeps kinds separate;</li>
  *   <li>the application's pre-auth contract holds end-to-end: index lookup
- *       (no context) → tenant id → scoped FOR UPDATE finds exactly the
- *       owning tenant's row and never another tenant's;</li>
- *   <li>{@code SET LOCAL} GUC resets at transaction end — a pooled
- *       connection reused for the next transaction sees ZERO rows
+ *       (no context) → tenant id → signed bind → scoped FOR UPDATE finds
+ *       exactly the owning tenant's row and never another tenant's;</li>
+ *   <li>the transaction-local signed bind resets at transaction end — a
+ *       pooled connection reused for the next transaction sees ZERO rows
  *       (pool-reuse leak prevention);</li>
  *   <li>the runtime role {@code sanad} has NO {@code BYPASSRLS}.</li>
  * </ul>
+ *
+ * <h2>G1-i role topology (2026-11-25 contract review)</h2>
+ * <p>The migration/fixture role (SPRING_DATASOURCE_USERNAME) applies the
+ * chain and seeds rows; the PROBE role (SPRING_PROBE_USERNAME, default
+ * {@code sanad}) is the restricted runtime identity that must NOT hold
+ * BYPASSRLS and is subject to the enforced policies. Probes bind a signed
+ * context per transaction with the documented fixture key provisioned by
+ * V20261124_2 on the disposable topology (repository-published BY DESIGN;
+ * this run is NOT production evidence).</p>
  */
 class D6AuthTokenTenantRlsPostgresTest {
     private static final String BASE_URL = System.getenv().getOrDefault(
@@ -56,9 +71,21 @@ class D6AuthTokenTenantRlsPostgresTest {
             "SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
+    /** Restricted probe identity — the role whose RLS subject behavior is verified. */
+    private static final String PROBE_USER = System.getenv().getOrDefault(
+            "SPRING_PROBE_USERNAME", "sanad");
+    private static final String PROBE_PASSWORD = System.getenv().getOrDefault(
+            "SPRING_PROBE_PASSWORD", "");
     private static final String JDBC_URL = MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_URL);
     private static final java.util.List<String> TOKEN_TABLES =
             java.util.List.of("refresh_tokens", "password_reset_tokens");
+    /**
+     * Documented fixture key provisioned by V20261124_2 on the disposable
+     * migration-fixture topology (repository-published BY DESIGN — see the
+     * V20261124_1 header). NOT production evidence.
+     */
+    private static final String FIXTURE_KEY =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private JdbcTemplate jdbc;
 
@@ -112,45 +139,174 @@ class D6AuthTokenTenantRlsPostgresTest {
         refreshB = seedRefreshToken(tenantB, userB, "d6-refresh-hash-B");
         resetA = seedPasswordResetToken(tenantA, userA, "d6-reset-hash-A");
         resetB = seedPasswordResetToken(tenantB, userB, "d6-reset-hash-B");
-        jdbc.execute("RESET app.tenant_id");
     }
 
+    // G1-REV2 re-verification fix: since V20261124_2 the identity plane
+    // (users, refresh_tokens, password_reset_tokens) is FORCE RLS with the
+    // signed fail-closed policy, so fixture seeding MUST go through the
+    // same signed binding protocol the production application uses
+    // (app_tenant_ctx_slot -> HMAC-SHA256 mint -> app_bind_tenant_ctx).
+    // Acceptance assertions are UNCHANGED — only the seeding mechanism was
+    // upgraded, exactly like the CrmIsolation/CrmPostBaseline harnesses
+    // (RETEST-TRAIL items #9/#10). NOT a relaxation of any test criterion.
     private UUID seedUser(String tenant, String label) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
         UUID userId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.users (id, tenant_id, email, display_name, status,
-                                          password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', 'd6-test-hash', now(), now())
-                """, userId, UUID.fromString(tenant),
-                "d6-" + label + "-" + userId + "@sanad.test", "D6 " + label);
+        try (Connection conn = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection()) {
+            conn.setAutoCommit(false);
+            bindTx(conn, tenant);
+            try (PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO public.users (id, tenant_id, email, display_name, status,
+                                              password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', 'd6-test-hash', now(), now())
+                    """)) {
+                ps.setObject(1, userId);
+                ps.setObject(2, UUID.fromString(tenant));
+                ps.setString(3, "d6-" + label + "-" + userId + "@sanad.test");
+                ps.setString(4, "D6 " + label);
+                ps.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            throw new IllegalStateException("signed-bound seeding failed for users", e);
+        }
         return userId;
     }
 
     private UUID seedRefreshToken(String tenant, UUID userId, String tokenHash) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
-                """, id, UUID.fromString(tenant), userId, tokenHash);
+        try (Connection conn = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection()) {
+            conn.setAutoCommit(false);
+            bindTx(conn, tenant);
+            try (PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
+                    """)) {
+                ps.setObject(1, id);
+                ps.setObject(2, UUID.fromString(tenant));
+                ps.setObject(3, userId);
+                ps.setString(4, tokenHash);
+                ps.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            throw new IllegalStateException("signed-bound seeding failed for refresh_tokens", e);
+        }
         return id;
     }
 
     private UUID seedPasswordResetToken(String tenant, UUID userId, String tokenHash) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
-                                                          status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '30 minutes', now())
-                """, id, UUID.fromString(tenant), userId, tokenHash);
+        try (Connection conn = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection()) {
+            conn.setAutoCommit(false);
+            bindTx(conn, tenant);
+            try (PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '30 minutes', now())
+                    """)) {
+                ps.setObject(1, id);
+                ps.setObject(2, UUID.fromString(tenant));
+                ps.setObject(3, userId);
+                ps.setString(4, tokenHash);
+                ps.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            throw new IllegalStateException("signed-bound seeding failed for password_reset_tokens", e);
+        }
         return id;
     }
 
     // ------------------------------------------------------------------
-    // §5.4.8/§5.4.9 — policy metadata: FORCE RLS + fail-closed policy
+    // G1-i signed-context helpers (probe role + transaction-local bind)
+    // ------------------------------------------------------------------
+
+    /** Opens a connection for the RESTRICTED probe role (RLS applies to it). */
+    private Connection probeConnection() throws Exception {
+        Connection connection = new SingleConnectionDataSource(JDBC_URL, PROBE_USER, PROBE_PASSWORD, false)
+                .getConnection();
+        return connection;
+    }
+
+    /**
+     * Binds a SIGNED tenant context for {@code tenant} inside the caller's
+     * CURRENT transaction: the HMAC is computed over (tenant, txid, pid) of
+     * the binding transaction itself, so the validator's re-verification
+     * (same txid/pid) succeeds. Transaction-local by contract.
+     */
+    private void bindTx(Connection connection, String tenant) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT public.app_bind_tenant_ctx(?::uuid, "
+                        + "encode(hmac((?::text||':'||txid_current()::text||':'||pg_backend_pid()::text)::bytea, "
+                        + "decode(?,'hex'),'sha256'),'hex'))")) {
+            ps.setObject(1, UUID.fromString(tenant));
+            ps.setString(2, tenant);
+            ps.setString(3, FIXTURE_KEY);
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).as("bind returned").isTrue();
+                assertThat(rs.getBoolean(1)).as("bind accepted for %s", tenant).isTrue();
+            }
+        }
+    }
+
+    private int countOn(Connection connection, String table) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM public." + table);
+             ResultSet rs = ps.executeQuery()) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
+    private int countByIdOn(Connection connection, String table, UUID id) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM public." + table + " WHERE id = ?")) {
+            ps.setObject(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int visibleForUpdateOn(Connection connection, String table, UUID id) throws Exception {
+        // FOR UPDATE cannot wrap an aggregate — count over the locked row-set.
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM (SELECT id FROM public." + table + " WHERE id = ? FOR UPDATE) locked")) {
+            ps.setObject(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private String statusOn(Connection connection, String table, UUID id) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT status FROM public." + table + " WHERE id = ?")) {
+            ps.setObject(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String indexLookupOn(Connection connection, String kind, String tokenHash) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT tenant_id::text FROM public.auth_token_tenant_index "
+                        + "WHERE kind = ? AND token_hash = ?")) {
+            ps.setString(1, kind);
+            ps.setString(2, tokenHash);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // §5.4.8/§5.4.9 — policy metadata: FORCE RLS + signed fail-closed policy
     // ------------------------------------------------------------------
     @Test
     void tokenTablesHaveForcedFailClosedTenantPolicyAndIndexIsUnprotected() {
@@ -162,14 +318,14 @@ class D6AuthTokenTenantRlsPostgresTest {
                       AND tablename = ?
                       AND policyname = 'tenant_isolation'
                       AND cmd = 'ALL'
-                      AND qual ILIKE '%NULLIF%'
-                      AND qual ILIKE '%app.tenant_id%'
+                      AND qual ILIKE '%app_tenant_ctx_text%'
+                      AND qual ILIKE '%IS NOT NULL%'
                       AND qual NOT ILIKE '%IS NULL OR%'
-                      AND with_check ILIKE '%NULLIF%'
-                      AND with_check ILIKE '%app.tenant_id%'
+                      AND with_check ILIKE '%app_tenant_ctx_text%'
+                      AND with_check ILIKE '%IS NOT NULL%'
                       AND with_check NOT ILIKE '%IS NULL OR%'
                     """, Integer.class, table);
-            assertThat(policyCount).as("fail-closed USING/WITH CHECK policy for %s", table)
+            assertThat(policyCount).as("fail-closed signed-context USING/WITH CHECK policy for %s", table)
                     .isEqualTo(1);
 
             Integer forced = jdbc.queryForObject("""
@@ -207,102 +363,110 @@ class D6AuthTokenTenantRlsPostgresTest {
         Integer bypass = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM pg_roles
                 WHERE rolname = ? AND rolbypassrls
-                """, Integer.class, USER);
+                """, Integer.class, PROBE_USER);
         assertThat(bypass).as("runtime role must not have BYPASSRLS").isZero();
     }
 
     // ------------------------------------------------------------------
-    // §5.4.4 — missing/empty context denies reads (owner included: FORCE)
+    // §5.4.4 — missing/empty/forged context denies reads (owner included: FORCE)
     // ------------------------------------------------------------------
     @Test
-    void missingAndEmptyTenantContextsSeeNoTokenRowsEvenAsOwner() {
-        for (String table : TOKEN_TABLES) {
-            jdbc.execute("RESET app.tenant_id");
-            assertThat(count(table))
-                    .as("%s must deny reads with missing context although rows exist (FORCE RLS binds the owner)", table)
-                    .isZero();
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', '', false)", String.class);
-            assertThat(count(table))
-                    .as("%s must deny reads with EMPTY context", table)
-                    .isZero();
-            jdbc.execute("RESET app.tenant_id");
+    void missingAndEmptyTenantContextsSeeNoTokenRowsEvenAsOwner() throws Exception {
+        try (Connection connection = probeConnection()) {
+            connection.setAutoCommit(true);
+            for (String table : TOKEN_TABLES) {
+                // 1. no context at all
+                assertThat(countOn(connection, table))
+                        .as("%s must deny reads with missing context although rows exist (FORCE RLS binds the owner)", table)
+                        .isZero();
+                // 2. EMPTY context
+                connection.createStatement().execute("SELECT set_config('app.tenant_id', '', false)");
+                assertThat(countOn(connection, table))
+                        .as("%s must deny reads with EMPTY context", table)
+                        .isZero();
+                // 3. G1-i RT-01: a FORGED tenant id WITHOUT a signed mac is fail-closed.
+                connection.createStatement().execute("SELECT set_config('app.tenant_id', '" + tenantB + "', false)");
+                assertThat(countOn(connection, table))
+                        .as("%s must deny reads under a forged tenant GUC without a signed mac", table)
+                        .isZero();
+                connection.createStatement().execute("RESET app.tenant_id");
+            }
         }
     }
 
     // ------------------------------------------------------------------
-    // §5.4.1–3 — A/B isolation, both directions
+    // §5.4.1–3 — A/B isolation, both directions, under signed binds
     // ------------------------------------------------------------------
     @Test
-    void tenantContextsExposeExactlyTheirOwnTokenRows() {
-        jdbc.execute("RESET app.tenant_id");
+    void tenantContextsExposeExactlyTheirOwnTokenRows() throws Exception {
+        try (Connection connection = probeConnection()) {
+            connection.setAutoCommit(false);
 
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
-        assertThat(countById("refresh_tokens", refreshA)).isEqualTo(1);
-        assertThat(countById("refresh_tokens", refreshB)).isZero();
-        assertThat(countById("password_reset_tokens", resetA)).isEqualTo(1);
-        assertThat(countById("password_reset_tokens", resetB)).isZero();
+            bindTx(connection, tenantA);
+            assertThat(countByIdOn(connection, "refresh_tokens", refreshA)).isEqualTo(1);
+            assertThat(countByIdOn(connection, "refresh_tokens", refreshB)).isZero();
+            assertThat(countByIdOn(connection, "password_reset_tokens", resetA)).isEqualTo(1);
+            assertThat(countByIdOn(connection, "password_reset_tokens", resetB)).isZero();
+            connection.rollback();
 
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantB);
-        assertThat(countById("refresh_tokens", refreshB)).isEqualTo(1);
-        assertThat(countById("refresh_tokens", refreshA)).isZero();
-        assertThat(countById("password_reset_tokens", resetB)).isEqualTo(1);
-        assertThat(countById("password_reset_tokens", resetA)).isZero();
-
-        jdbc.execute("RESET app.tenant_id");
+            bindTx(connection, tenantB);
+            assertThat(countByIdOn(connection, "refresh_tokens", refreshB)).isEqualTo(1);
+            assertThat(countByIdOn(connection, "refresh_tokens", refreshA)).isZero();
+            assertThat(countByIdOn(connection, "password_reset_tokens", resetB)).isEqualTo(1);
+            assertThat(countByIdOn(connection, "password_reset_tokens", resetA)).isZero();
+            connection.rollback();
+        }
     }
 
     // ------------------------------------------------------------------
     // §5.4.6/7 — cross-tenant writes denied (row-filter + WITH CHECK)
     // ------------------------------------------------------------------
     @Test
-    void crossTenantTokenWritesAreDenied() {
-        jdbc.execute("RESET app.tenant_id");
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
+    void crossTenantTokenWritesAreDenied() throws Exception {
+        try (Connection connection = probeConnection()) {
+            connection.setAutoCommit(false);
+            bindTx(connection, tenantA);
 
-        // A cannot consume/revoke B's refresh token (row-filtered UPDATE).
-        int hijack = jdbc.update(
-                "UPDATE public.refresh_tokens SET status = 'USED' WHERE id = ?", refreshB);
-        assertThat(hijack).as("cross-tenant UPDATE affects zero rows").isZero();
+            // A cannot consume/revoke B's refresh token (row-filtered UPDATE).
+            int hijack = connection.createStatement().executeUpdate(
+                    "UPDATE public.refresh_tokens SET status = 'USED' WHERE id = '" + refreshB + "'");
+            assertThat(hijack).as("cross-tenant UPDATE affects zero rows").isZero();
 
-        // A cannot delete B's password reset token (row-filtered DELETE).
-        int deleted = jdbc.update(
-                "DELETE FROM public.password_reset_tokens WHERE id = ?", resetB);
-        assertThat(deleted).as("cross-tenant DELETE affects zero rows").isZero();
+            // A cannot delete B's password reset token (row-filtered DELETE).
+            int deleted = connection.createStatement().executeUpdate(
+                    "DELETE FROM public.password_reset_tokens WHERE id = '" + resetB + "'");
+            assertThat(deleted).as("cross-tenant DELETE affects zero rows").isZero();
 
-        // A cannot mint a refresh token inside B (WITH CHECK, SQLSTATE 42501).
-        UUID smuggled = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, 'd6-smuggled', 'ACTIVE', now() + interval '7 days', now())
-                """, smuggled, UUID.fromString(tenantB), userB))
-                .as("cross-tenant INSERT must be rejected by WITH CHECK")
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseInstanceOf(PSQLException.class)
-                .hasStackTraceContaining("row-level security policy");
+            // A cannot mint a refresh token inside B (WITH CHECK, SQLSTATE 42501).
+            UUID smuggled = UUID.randomUUID();
+            assertThatThrownBy(() -> connection.createStatement().executeUpdate(
+                    "INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash, status, expires_at, created_at) "
+                            + "VALUES ('" + smuggled + "', '" + tenantB + "', '" + userB + "', 'd6-smuggled', 'ACTIVE', now() + interval '7 days', now())"))
+                    .as("cross-tenant INSERT must be rejected by WITH CHECK")
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasStackTraceContaining("row-level security policy");
 
-        // A cannot mint a password-reset token inside B either.
-        UUID smuggledReset = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash,
-                                                          status, expires_at, created_at)
-                VALUES (?, ?, ?, 'd6-smuggled-reset', 'ACTIVE', now() + interval '30 minutes', now())
-                """, smuggledReset, UUID.fromString(tenantB), userB))
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseInstanceOf(PSQLException.class)
-                .hasStackTraceContaining("row-level security policy");
+            // A cannot mint a password-reset token inside B either.
+            UUID smuggledReset = UUID.randomUUID();
+            assertThatThrownBy(() -> connection.createStatement().executeUpdate(
+                    "INSERT INTO public.password_reset_tokens (id, tenant_id, user_id, token_hash, status, expires_at, created_at) "
+                            + "VALUES ('" + smuggledReset + "', '" + tenantB + "', '" + userB + "', 'd6-smuggled-reset', 'ACTIVE', now() + interval '30 minutes', now())"))
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasStackTraceContaining("row-level security policy");
 
-        // The smuggled hash never reached the discovery index.
-        Integer smuggledInIndex = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM public.auth_token_tenant_index WHERE token_hash LIKE 'd6-smuggled%'",
-                Integer.class);
-        assertThat(smuggledInIndex).isZero();
+            // The smuggled hash never reached the discovery index.
+            Integer smuggledInIndex = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM public.auth_token_tenant_index WHERE token_hash LIKE 'd6-smuggled%'",
+                    Integer.class);
+            assertThat(smuggledInIndex).isZero();
 
-        // B's rows are intact.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantB);
-        assertThat(statusOf("refresh_tokens", refreshB)).isEqualTo("ACTIVE");
-        assertThat(statusOf("password_reset_tokens", resetB)).isEqualTo("ACTIVE");
-        jdbc.execute("RESET app.tenant_id");
+            // B's rows are intact (signed bind for B in a fresh transaction).
+            connection.rollback();
+            bindTx(connection, tenantB);
+            assertThat(statusOn(connection, "refresh_tokens", refreshB)).isEqualTo("ACTIVE");
+            assertThat(statusOn(connection, "password_reset_tokens", resetB)).isEqualTo("ACTIVE");
+            connection.rollback();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -310,23 +474,46 @@ class D6AuthTokenTenantRlsPostgresTest {
     // ------------------------------------------------------------------
     @Test
     void discoveryIndexStaysInSyncWithTokenRows() {
-        jdbc.execute("RESET app.tenant_id");
-
-        // New refresh token under A's context appears in the index.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA);
+        // New refresh token under A appears in the index (seeded via the
+        // SIGNED binding protocol — the enforced catalog rejects unbound
+        // owner writes; the trigger itself is context-independent).
         String newHash = "d6-sync-hash-" + UUID.randomUUID();
         UUID newId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
-                                                   status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
-                """, newId, UUID.fromString(tenantA), userA, newHash);
+        try (Connection conn = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection()) {
+            conn.setAutoCommit(false);
+            bindTx(conn, tenantA);
+            try (PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO public.refresh_tokens (id, tenant_id, user_id, token_hash,
+                                                       status, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, 'ACTIVE', now() + interval '7 days', now())
+                    """)) {
+                ps.setObject(1, newId);
+                ps.setObject(2, UUID.fromString(tenantA));
+                ps.setObject(3, userA);
+                ps.setString(4, newHash);
+                ps.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            throw new IllegalStateException("signed-bound seeding failed for index-sync insert", e);
+        }
         assertThat(indexTenantFor("refresh", newHash))
                 .as("index mirrors INSERT with the owning tenant")
                 .contains(tenantA);
 
-        // Deleting the token removes the index entry.
-        jdbc.update("DELETE FROM public.refresh_tokens WHERE id = ?", newId);
+        // Deleting the token removes the index entry (signed-bound, same tenant).
+        try (Connection conn = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection()) {
+            conn.setAutoCommit(false);
+            bindTx(conn, tenantA);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM public.refresh_tokens WHERE id = ?")) {
+                ps.setObject(1, newId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            throw new IllegalStateException("signed-bound seeding failed for index-sync delete", e);
+        }
         assertThat(indexTenantFor("refresh", newHash))
                 .as("index mirrors DELETE")
                 .isEmpty();
@@ -335,150 +522,80 @@ class D6AuthTokenTenantRlsPostgresTest {
         assertThat(indexTenantFor("password_reset", "d6-refresh-hash-A"))
                 .as("refresh hash must not resolve under the password_reset kind")
                 .isEmpty();
-        jdbc.execute("RESET app.tenant_id");
     }
 
     // ------------------------------------------------------------------
     // §5.3 application contract end-to-end: index lookup (pre-auth) →
-    // scoped FOR UPDATE under the discovered tenant.
+    // signed bind → scoped FOR UPDATE under the discovered tenant.
     // ------------------------------------------------------------------
     @Test
     void preAuthIndexContractScopesThenFindsExactlyTheOwningRow() throws Exception {
-        try (Connection connection = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false)
-                .getConnection()) {
+        try (Connection connection = probeConnection()) {
             connection.setAutoCommit(false);
 
             // Simulate AuthService#refresh with a B-tenant refresh token:
-            // 1. NO tenant context yet — hash-only scoped lookup sees NOTHING.
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshB)).isZero();
+            // 1. NO signed context yet — hash-only scoped lookup sees NOTHING.
+            assertThat(countOn(connection, "refresh_tokens")).isZero();
+            assertThat(visibleForUpdateOn(connection, "refresh_tokens", refreshB)).isZero();
 
             // 2. Pre-auth discovery via the index (no RLS) yields the owning tenant.
-            String discovered = indexLookupInTx(connection, "refresh", "d6-refresh-hash-B");
+            String discovered = indexLookupOn(connection, "refresh", "d6-refresh-hash-B");
             assertThat(discovered).as("index resolves the owning tenant without any GUC")
                     .isEqualTo(tenantB);
 
-            // 3. applyTrustedUserScope(discovered) then the FOR UPDATE lookup.
-            setTenantTx(connection, discovered);
-            assertThat(visibleForUpdateInTx(connection, "refresh_tokens", refreshB)).isEqualTo(1);
-            assertThat(visibleForUpdateInTx(connection, "refresh_tokens", refreshA)).isZero();
+            // 3. applyTrustedUserScope(discovered) — signed bind — then the FOR UPDATE lookup.
+            bindTx(connection, discovered);
+            assertThat(visibleForUpdateOn(connection, "refresh_tokens", refreshB)).isEqualTo(1);
+            assertThat(visibleForUpdateOn(connection, "refresh_tokens", refreshA)).isZero();
 
             // 4. The same contract for the password-reset flow with A's token.
             connection.rollback();
-            String discoveredReset = indexLookupInTx(connection, "password_reset", "d6-reset-hash-A");
+            String discoveredReset = indexLookupOn(connection, "password_reset", "d6-reset-hash-A");
             assertThat(discoveredReset).isEqualTo(tenantA);
-            setTenantTx(connection, discoveredReset);
-            assertThat(visibleForUpdateInTx(connection, "password_reset_tokens", resetA)).isEqualTo(1);
-            assertThat(visibleForUpdateInTx(connection, "password_reset_tokens", resetB)).isZero();
+            bindTx(connection, discoveredReset);
+            assertThat(visibleForUpdateOn(connection, "password_reset_tokens", resetA)).isEqualTo(1);
+            assertThat(visibleForUpdateOn(connection, "password_reset_tokens", resetB)).isZero();
 
             connection.rollback();
         }
     }
 
     // ------------------------------------------------------------------
-    // §5.4.10 — pool-reuse safety: SET LOCAL resets at transaction end
+    // §5.4.10 — pool-reuse safety: the signed bind is transaction-local
     // ------------------------------------------------------------------
     @Test
     void contextDoesNotLeakAcrossTransactionsOnOneConnection() throws Exception {
-        try (Connection connection = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false)
-                .getConnection()) {
+        try (Connection connection = probeConnection()) {
             connection.setAutoCommit(false);
 
-            // Transaction 1: scope to A and observe A's row.
-            setTenantTx(connection, tenantA);
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshA)).isEqualTo(1);
+            // Transaction 1: bind A and observe A's row.
+            bindTx(connection, tenantA);
+            assertThat(countOn(connection, "refresh_tokens")).isEqualTo(1);
             connection.commit();
 
-            // Transaction 2 on the SAME physical connection: no context was
-            // re-applied — SET LOCAL must have reset at COMMIT, so the pooled
-            // connection must NOT leak A's tokens.
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshA))
-                    .as("SET LOCAL app.tenant_id must reset at transaction end (pool reuse safety)")
+            // Transaction 2 on the SAME physical connection: no bind was
+            // re-applied — the transaction-local signed bind must have reset at
+            // COMMIT, so the pooled connection must NOT leak A's tokens.
+            assertThat(countOn(connection, "refresh_tokens"))
+                    .as("the signed bind must reset at transaction end (pool reuse safety)")
                     .isZero();
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshB)).isZero();
+            assertThat(countOn(connection, "refresh_tokens")).isZero();
 
-            // Transaction 3: scope to B — only B visible; A gone.
-            setTenantTx(connection, tenantB);
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshB)).isEqualTo(1);
-            assertThat(visibleInTx(connection, "refresh_tokens", refreshA)).isZero();
+            // Transaction 3: bind B — only B visible; A gone.
+            bindTx(connection, tenantB);
+            assertThat(countOn(connection, "refresh_tokens")).isEqualTo(1);
             connection.rollback();
         }
     }
 
     // ------------------------------------------------------------------
-    // helpers
+    // helpers (migration/fixture role — catalog and index-level probes)
     // ------------------------------------------------------------------
-    private int count(String table) {
-        return jdbc.queryForObject("SELECT COUNT(*) FROM public." + table, Integer.class);
-    }
-
-    private int countById(String table, UUID id) {
-        return jdbc.queryForObject(
-                "SELECT COUNT(*) FROM public." + table + " WHERE id = ?", Integer.class, id);
-    }
-
-    private String statusOf(String table, UUID id) {
-        return jdbc.queryForObject(
-                "SELECT status FROM public." + table + " WHERE id = ?", String.class, id);
-    }
-
     private java.util.Optional<String> indexTenantFor(String kind, String tokenHash) {
         java.util.List<String> found = jdbc.query(
                 "SELECT tenant_id::text FROM public.auth_token_tenant_index "
                         + "WHERE kind = ? AND token_hash = ?",
                 (rs, n) -> rs.getString(1), kind, tokenHash);
         return found.stream().findFirst();
-    }
-
-    private static void setTenantTx(Connection connection, String tenant) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenant);
-            try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
-            }
-        }
-    }
-
-    private static int visibleInTx(Connection connection, String table, UUID id) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT COUNT(*) FROM public." + table + " WHERE id = ?")) {
-            ps.setObject(1, id);
-            try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
-            }
-        }
-    }
-
-    private static int visibleForUpdateInTx(Connection connection, String table, UUID id)
-            throws Exception {
-        // Mirrors RefreshTokenRepository#findByTokenHashForUpdate semantics
-        // (SELECT ... FOR UPDATE) without aggregates — FOR UPDATE cannot wrap COUNT(*).
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT id FROM public." + table + " WHERE id = ? FOR UPDATE")) {
-            ps.setObject(1, id);
-            try (ResultSet rs = ps.executeQuery()) {
-                int rows = 0;
-                while (rs.next()) {
-                    rows++;
-                }
-                return rows;
-            }
-        }
-    }
-
-    private static String indexLookupInTx(Connection connection, String kind, String tokenHash)
-            throws Exception {
-        // The exact SQL AuthTokenTenantScopeResolver issues — pre-context,
-        // SECURITY INVOKER, discovery index only.
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT tenant_id::text FROM public.auth_token_tenant_index "
-                        + "WHERE kind = ? AND token_hash = ?")) {
-            ps.setString(1, kind);
-            ps.setString(2, tokenHash);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getString(1) : null;
-            }
-        }
     }
 }

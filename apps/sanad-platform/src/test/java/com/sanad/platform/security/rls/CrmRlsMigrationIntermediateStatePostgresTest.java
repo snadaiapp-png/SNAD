@@ -111,10 +111,20 @@ class CrmRlsMigrationIntermediateStatePostgresTest {
 
             String qual = policyExpression(jdbc, table, "qual").toLowerCase();
             String withCheck = policyExpression(jdbc, table, "with_check").toLowerCase();
-            assertThat(qual).contains("nullif").contains("is not null");
-            assertThat(withCheck).contains("nullif").contains("is not null");
+            // G1-REV2 chain advancement: V20261124_1/V20261124_2 replaced the
+            // raw-GUC `nullif(current_setting('app.tenant_id',true),'')` pattern
+            // with the HMAC-validated signed validator (app_tenant_ctx_text()).
+            // The fail-closed ACCEPTANCE is preserved and strengthened: the
+            // policy must gate on the signed context being present (IS NOT
+            // NULL), must not carry any missing-context allowance (IS NULL),
+            // and must no longer consult the forgeable raw GUC (no nullif) —
+            // matching the catalog gate policies_raw_guc_remaining_zero.
+            assertThat(qual).contains("app_tenant_ctx_text").contains("is not null");
+            assertThat(withCheck).contains("app_tenant_ctx_text").contains("is not null");
             assertThat(qual).doesNotContain("is null");
             assertThat(withCheck).doesNotContain("is null");
+            assertThat(qual).doesNotContain("nullif");
+            assertThat(withCheck).doesNotContain("nullif");
         }
     }
 

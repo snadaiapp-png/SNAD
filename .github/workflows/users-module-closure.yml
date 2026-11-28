@@ -301,14 +301,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tenant_psql() {
-            PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$USERS_TENANT_ID" \
-              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "$1"
+          # Every verification query runs inside a fresh, signed transaction.
+          # The raw app.tenant_id session GUC is deliberately not trusted.
+          signed_psql() {
+            local tenant="$1" query="$2"
+            PGPASSWORD="$DATABASE_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 \
+              -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+              -v "fixture_tenant=$tenant" -v "fixture_query=$query" <<'SQL'
+          BEGIN;
+          SELECT public.app_bind_tenant_ctx(
+            :'fixture_tenant'::uuid,
+            encode(hmac(
+              convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex')
+          ) AS signed_ok
+          \gset
+          \if :signed_ok
+          SELECT public.app_tenant_ctx_text() = :'fixture_tenant' AS ctx_verified
+          \gset
+          \if :ctx_verified
+          :fixture_query;
+          \else
+          SELECT 1 / 0;
+          \endif
+          \else
+          SELECT 1 / 0;
+          \endif
+          ROLLBACK;
+          SQL
           }
-          control_psql() {
-            PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$USERS_CONTROL_TENANT_ID" \
-              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "$1"
-          }
+          tenant_psql() { signed_psql "$USERS_TENANT_ID" "$1"; }
+          control_psql() { signed_psql "$USERS_CONTROL_TENANT_ID" "$1"; }
           test "$(tenant_psql "SELECT COUNT(*) FROM users WHERE tenant_id='$USERS_TENANT_ID' AND lower(email)=lower('$USERS_TENANT_EMAIL') AND status='ACTIVE'")" = "1"
           test "$(control_psql "SELECT COUNT(*) FROM users WHERE tenant_id='$USERS_CONTROL_TENANT_ID' AND lower(email)=lower('$USERS_CONTROL_EMAIL') AND status='ACTIVE'")" = "1"
           READ_CAPS=$(tenant_psql "SELECT COUNT(DISTINCT cap.code) FROM user_role_assignments ura JOIN role_capabilities rc ON rc.tenant_id=ura.tenant_id AND rc.role_id=ura.role_id JOIN access_capabilities cap ON cap.id=rc.capability_id WHERE ura.tenant_id='$USERS_TENANT_ID' AND ura.user_id='33333333-3333-4333-8333-333333333343' AND ura.status='ACTIVE' AND cap.code IN ('USER.READ','MEMBERSHIP.READ','ROLE.READ','CAPABILITY.READ')")

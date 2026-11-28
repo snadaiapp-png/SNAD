@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
@@ -46,6 +47,9 @@ class WorkflowBreakGlassTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private TenantRlsTransactionContext signedTenantContext;
+
     private UUID tenantId;
     private UUID userId;
     private UUID instanceId;
@@ -53,9 +57,13 @@ class WorkflowBreakGlassTest {
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
-        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
-        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        // G1 signed-context contract (V20261124_1/_2): the enforced FORCE-RLS
+        // policies validate the HMAC-verified signed context, so the fixture
+        // binds through TenantRlsTransactionContext inside this class's
+        // @Transactional boundary — the same per-transaction protocol the
+        // production services execute. A raw app.tenant_id GUC no longer
+        // authorizes anything. No RLS bypass.
+        signedTenantContext.applyForCurrentTransaction(tenantId);
         userId = createUser(tenantId, "bg-actor");
         instanceId = createInstance(tenantId, userId, "FAILED");
     }

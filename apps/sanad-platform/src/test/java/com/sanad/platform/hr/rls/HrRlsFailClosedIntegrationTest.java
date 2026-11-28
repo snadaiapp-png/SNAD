@@ -1585,14 +1585,21 @@ class HrRlsFailClosedIntegrationTest {
     }
 
     private void setTenant(UUID tenantId) throws Exception {
-        try (Statement s = conn.createStatement()) {
-            s.execute("SET app.tenant_id = '" + tenantId + "'");
-        }
+        // G1 signed-context contract (V20261124_1/_2): the enforced policies
+        // validate public.app_tenant_ctx_text() — a raw app.tenant_id GUC is
+        // not authorized. Bind through the SAME HMAC signed protocol the
+        // production application executes, inside this test's OPEN explicit
+        // transaction (autocommit disabled in @BeforeEach, rollback in
+        // @AfterEach). Re-binding mid-transaction mints a fresh mac over the
+        // same txid — switching tenants stays valid. No RLS bypass.
+        com.sanad.platform.test.TenantGucDataSource.bindSignedContext(conn, tenantId);
     }
 
     private void resetTenant() throws Exception {
+        // Clear BOTH transaction-local GUCs so the probe below exercises the
+        // never-bound fail-closed surface (validator returns NULL → 0 rows).
         try (Statement s = conn.createStatement()) {
-            s.execute("RESET app.tenant_id");
+            s.execute("SELECT set_config('app.tenant_id', '', true), set_config('app.ctx_mac', '', true)");
         }
     }
 }
