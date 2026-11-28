@@ -314,10 +314,16 @@ jobs:
             encode(hmac(
               convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
               decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex')
-          ) AND public.app_tenant_ctx_text() = :'fixture_tenant' AS signed_ok
+          ) AS signed_ok
           \gset
           \if :signed_ok
+          SELECT public.app_tenant_ctx_text() = :'fixture_tenant' AS ctx_verified
+          \gset
+          \if :ctx_verified
           :fixture_query;
+          \else
+          SELECT 1 / 0;
+          \endif
           \else
           SELECT 1 / 0;
           \endif
