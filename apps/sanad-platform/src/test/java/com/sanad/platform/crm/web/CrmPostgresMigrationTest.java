@@ -1238,8 +1238,16 @@ class CrmPostgresMigrationTest {
                 java.util.Objects.requireNonNull(jdbc.getDataSource()));
         return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    // Fixture-only signer: the isolated migration database provisions
+                    // the documented test key. A raw tenant GUC must not authorize RLS.
+                    Boolean accepted = jdbc.queryForObject("""
+                            SELECT public.app_bind_tenant_ctx(?::uuid, encode(hmac(
+                                convert_to(? || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+                                decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex'))
+                            """, Boolean.class, tenantId.toString(), tenantId.toString());
+                    assertThat(accepted).isTrue();
+                    assertThat(jdbc.queryForObject("SELECT public.app_tenant_ctx_text()", String.class))
+                            .isEqualTo(tenantId.toString());
                     return action.get();
                 });
     }
