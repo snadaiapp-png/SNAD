@@ -338,7 +338,19 @@ BEGIN;
 INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at)
   VALUES ('$TA','Cert Tenant A','cert-a','ACTIVE',now(),now())
   ON CONFLICT (id) DO NOTHING;
-SELECT set_config('app.tenant_id','$TA',true);
+DO \$signed_fixture\$
+DECLARE
+  v_tenant uuid := '$TA'::uuid;
+  v_mac text;
+BEGIN
+  v_mac := encode(hmac(
+    convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+    decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+  IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+     OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+    RAISE EXCEPTION 'G5_SIGNED_FIXTURE_BIND_REFUSED';
+  END IF;
+END \$signed_fixture\$;
 INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at)
   VALUES ('a0000000-0000-0000-0000-000000000001','$TA','cert-a@sanad.test','ACTIVE',now(),now());
 INSERT INTO public.refresh_tokens (id,tenant_id,user_id,token_hash,status,expires_at,created_at)
@@ -347,22 +359,56 @@ INSERT INTO public.password_reset_tokens (id,tenant_id,user_id,token_hash,status
   VALUES ('a1000000-0000-0000-0000-000000000002','$TA','a0000000-0000-0000-0000-000000000001','reset-A','ACTIVE',now()+interval '1 day',now());
 COMMIT;
 SQL
+# Query under a verified, transaction-scoped signed tenant context. The
+# fixture HMAC key is public, documented in V20261124_2, and is never a
+# production secret. The server-side RLS policies remain fully enforced.
+signed_probe() {
+  local tenant="$1" statement="$2"
+  psql -v ON_ERROR_STOP=1 -At -U sanad -d restored <<SQL | sed '/^BEGIN$/d; /^DO$/d; /^COMMIT$/d'
+BEGIN;
+DO \$signed_probe\$
+DECLARE
+  v_tenant uuid := '$tenant'::uuid;
+  v_mac text;
+BEGIN
+  v_mac := encode(hmac(
+    convert_to(v_tenant::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+    decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+  IF NOT public.app_bind_tenant_ctx(v_tenant, v_mac)
+     OR public.app_tenant_ctx_text() IS DISTINCT FROM v_tenant::text THEN
+    RAISE EXCEPTION 'G5_SIGNED_PROBE_BIND_REFUSED';
+  END IF;
+END \$signed_probe\$;
+$statement;
+COMMIT;
+SQL
+}
 idx=$(psql -At -U sanad -d restored -c "SELECT count(*) FROM public.auth_token_tenant_index;")
 [ "$idx" = "2" ] || die D "pre-auth index read w/o GUC failed (count=$idx, expected 2)"
-ct_read=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); SELECT count(*) FROM public.refresh_tokens;" | tail -1)
+ct_read=$(signed_probe "$TB" "SELECT count(*) FROM public.refresh_tokens")
 [ "$ct_read" = "0" ] || die D "cross-tenant READ leaked rows (tenant B saw $ct_read)"
 # DML command tags are 'UPDATE 0'/'DELETE 0' (verified) — assert the exact tag,
 # which pins BOTH the statement type and the zero-rows outcome.
-ct_upd=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); UPDATE public.refresh_tokens SET status='ACTIVE';" | tail -1)
+ct_upd=$(signed_probe "$TB" "UPDATE public.refresh_tokens SET status='ACTIVE'")
 [ "$ct_upd" = "UPDATE 0" ] || die D "cross-tenant UPDATE affected rows (tag=$ct_upd)"
-ct_del=$(psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TB',true); DELETE FROM public.password_reset_tokens;" | tail -1)
+ct_del=$(signed_probe "$TB" "DELETE FROM public.password_reset_tokens")
 [ "$ct_del" = "DELETE 0" ] || die D "cross-tenant DELETE affected rows (tag=$ct_del)"
 noguc=$(psql -At -U sanad -d restored -c "SELECT count(*) FROM public.refresh_tokens;" | tail -1)
 [ "$noguc" = "0" ] || die D "missing-GUC read leaked rows (fail-open!)"
-if psql -v ON_ERROR_STOP=1 -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TA',true); UPDATE public.refresh_tokens SET token_hash='changed' WHERE id='a1000000-0000-0000-0000-000000000001';" > /dev/null 2>&1; then
+if signed_probe "$TA" "UPDATE public.refresh_tokens SET token_hash='changed' WHERE id='a1000000-0000-0000-0000-000000000001'" > /dev/null 2>&1; then
   die D "token_hash immutability violated (update accepted)"
 fi
-psql -At -U sanad -d restored -c "SELECT set_config('app.tenant_id','$TA',true); SELECT count(*) FROM public.refresh_tokens;" | tail -1 | grep -q '^1$' || die D "tenant A lost its row (over-blocking!)"
+signed_probe "$TA" "SELECT count(*) FROM public.refresh_tokens" | grep -q '^1 || die D "tenant A lost its row (over-blocking!)"
+gate D "D4 PASS: Tenant A/B isolation (read/update/delete zero-effect), missing-GUC denial, pre-auth index w/o GUC=2, token_hash immutability 23514 AUTH_TOKEN_IDENTITY_IMMUTABLE (verified locally on PG 17.6.0 before CI)"
+
+owner=$(psql -At -U sanad -d restored -c "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.refresh_tokens'::regclass;")
+gate D "D5: refresh_tokens owner=$owner (FORCE binds owner); sanad super/bypassrls=$(psql -At -U sanad -d restored -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad' AND (rolsuper OR rolbypassrls));")"
+[ "$(psql -At -U sanad -d restored -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad' AND (rolsuper OR rolbypassrls));")" = "f" ] || die D "sanad became super/bypassrls!"
+gate D "D5 PASS: runtime role remains NOSUPERUSER/NOBYPASSRLS after full chain + restore"
+
+gate ALL "G5 scenarios A/B/C + G6 backup/restore: ALL GATES PASSED"
+cat "$SUMMARY"
+ || die D "tenant A lost its row (over-blocking!)"
 gate D "D4 PASS: Tenant A/B isolation (read/update/delete zero-effect), missing-GUC denial, pre-auth index w/o GUC=2, token_hash immutability 23514 AUTH_TOKEN_IDENTITY_IMMUTABLE (verified locally on PG 17.6.0 before CI)"
 
 owner=$(psql -At -U sanad -d restored -c "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.refresh_tokens'::regclass;")
