@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.module.lifecycle.SubscriptionImpactService;
 import com.sanad.platform.module.lifecycle.SubscriptionImpactService.SubscriptionImpactPreview;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -36,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class WorkflowEntitlementEnforcementTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @Autowired private WorkflowEntitlementGuard guard;
     @Autowired private SubscriptionImpactService impactService;
     @Autowired private WorkflowRuntimeImpactCounter counter;
@@ -80,9 +82,7 @@ class WorkflowEntitlementEnforcementTest {
         }
         for (UUID tenantId : tenantIds) {
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                signedTenantContext.applyForCurrentTransaction(tenantId);
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
         }
@@ -100,18 +100,14 @@ class WorkflowEntitlementEnforcementTest {
      * are FORCE RLS — V20261029_1). */
     private void inTenant(UUID tenantId, Runnable write) {
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             write.run();
         });
     }
 
     private <T> T inTenantResult(UUID tenantId, java.util.function.Supplier<T> read) {
         return tx.execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return read.get();
         });
     }
@@ -138,9 +134,7 @@ class WorkflowEntitlementEnforcementTest {
         // scopes the GUC to this transaction only — no session-level leak.
         // set_config uses JDBC prepared parameter ? for the tenant value.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
                             + "VALUES (?, ?, ?, 'R1 Enf User', 'ACTIVE', 'x', NOW(), NOW())",
                     id, tenantId, "r1enf-" + label + "-" + id + "@test");
