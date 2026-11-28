@@ -68,13 +68,24 @@ public class AuthTokenTenantScopeResolver {
             throw new IllegalArgumentException("Missing token hash");
         }
         try {
-            return jdbc.query(
-                    "SELECT tenant_id FROM public.auth_token_tenant_index "
-                            + "WHERE kind = ? AND token_hash = ?",
-                    (rs, rowNum) -> rs.getObject(1, UUID.class),
-                    kind, tokenHash)
-                    .stream()
-                    .findFirst();
+            // G1 signed-context contract (V20261124_1/_2): refresh and
+            // password-reset are pre-authentication flows. The strict
+            // connection handler rejects context-less statements inside an
+            // active transaction — this hash-index discovery runs BEFORE any
+            // tenant is known, so it is explicitly classified as pre-auth
+            // here (deliberate, code-visible, reviewable). This does NOT
+            // bypass Row-Level Security: the query reads only
+            // auth_token_tenant_index (pre-auth discovery table, no RLS by
+            // design) and the token tables themselves remain FORCE-RLS
+            // fail-closed until the caller applies the signed binding.
+            return TenantRlsPreAuthScope.call(() ->
+                    jdbc.query(
+                            "SELECT tenant_id FROM public.auth_token_tenant_index "
+                                    + "WHERE kind = ? AND token_hash = ?",
+                            (rs, rowNum) -> rs.getObject(1, UUID.class),
+                            kind, tokenHash)
+                            .stream()
+                            .findFirst());
         } catch (DataAccessException exception) {
             // Preserve the cause in server-side diagnostics, but never log
             // the hash or any token material.

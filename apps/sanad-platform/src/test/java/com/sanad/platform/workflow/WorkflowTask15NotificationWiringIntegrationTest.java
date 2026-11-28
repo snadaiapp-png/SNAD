@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.application.WorkflowNotificationService;
@@ -47,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class WorkflowTask15NotificationWiringIntegrationTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private WorkflowExecutionService executionService;
     @Autowired private WorkflowGraphExecutionService graphExecutionService;
@@ -67,7 +69,7 @@ class WorkflowTask15NotificationWiringIntegrationTest {
 
     @BeforeEach
     void createFixtures() {
-        fixtures = new WorkflowNotificationWiringFixtures(jdbc, transactionManager);
+        fixtures = new WorkflowNotificationWiringFixtures(jdbc, transactionManager, signedTenantContext);
     }
 
     @AfterEach

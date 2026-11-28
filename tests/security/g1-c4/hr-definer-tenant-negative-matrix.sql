@@ -8,6 +8,7 @@ DO $c4_negative$
 DECLARE
   tenant_a constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a4';
   tenant_b constant uuid := 'bbbbbbbb-0000-0000-0000-0000000000b4';
+  v_mac text;
   sig text;
   statement text;
   scenario text;
@@ -67,7 +68,19 @@ BEGIN
   END IF;
   -- The minimal positive control validates the scope checker itself; it
   -- performs no HR mutations and uses a synthetic tenant with no data.
-  PERFORM set_config('app.tenant_id',tenant_a::text,true);
+  -- G1 signed-context contract (V20261124_1/_2): the scope checker reads the
+  -- HMAC-validated public.app_tenant_ctx_text() — a raw session GUC no longer
+  -- authorizes anything (it would read as caller tenant <none> and fail the
+  -- positive control). Bind the positive tenant through the documented
+  -- fixture-key protocol (repository-published for disposable topologies
+  -- only; EXECUTE on the bind protocol is granted to the sanad runtime role).
+  v_mac := encode(hmac(
+      convert_to(tenant_a::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+      decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+  IF NOT public.app_bind_tenant_ctx(tenant_a, v_mac)
+     OR public.app_tenant_ctx_text() IS DISTINCT FROM tenant_a::text THEN
+    RAISE EXCEPTION 'C4_POSITIVE_SIGNED_BIND_REFUSED' USING ERRCODE='42501';
+  END IF;
   PERFORM public.hr_assert_migration_tenant_scope(tenant_a);
   RAISE NOTICE 'C4_HR_NEGATIVE_MATRIX=PASS 20/20 expected_denials; positive_scope=PASS';
 END
