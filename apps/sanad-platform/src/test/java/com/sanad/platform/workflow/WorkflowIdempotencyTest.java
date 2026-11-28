@@ -1,12 +1,14 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.test.TestIsolation;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.application.WorkflowMonitoringService;
 import com.sanad.platform.workflow.domain.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -70,6 +74,8 @@ class WorkflowIdempotencyTest {
     @Autowired private WorkflowApprovalService approvalService;
     @Autowired private WorkflowMonitoringService monitoringService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
+    @Autowired private TransactionTemplate tx;
 
     private UUID tenantId;
     private UUID userId;
@@ -86,36 +92,61 @@ class WorkflowIdempotencyTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-idem-" + tenantId.toString().substring(0, 8), now, now);
-        // Under FORCE ROW LEVEL SECURITY on public.users (V20261011_3),
-        // INSERT INTO users requires the connection's app.tenant_id GUC to
-        // match the row's tenant_id. Without set_config, the WITH CHECK
-        // clause of users_tenant_isolation rejects the INSERT with
-        // "new row violates row-level security policy for table users".
-        //
-        // This test class is NOT @Transactional at the class level, so
-        // set_config(..., true) (transaction-local) has no effect in
-        // autoCommit=true mode — the GUC is set then immediately reset
-        // when the implicit transaction commits. Using is_local=false
-        // (session-level) persists the GUC for the JDBC connection's
-        // lifetime, allowing the INSERT and all subsequent service-layer
-        // calls to see the tenant context. setUp runs before each test
-        // method and overwrites the GUC with a new tenantId, so there is
+        // G1 signed-context contract (V20261124_1/_2): public.users and the
+        // workflow tables are FORCE-RLS with policies reading the HMAC-verified
+        // public.app_tenant_ctx_text(). The class is NOT @Transactional, so the
+        // seed block runs inside ONE explicit TransactionTemplate transaction
+        // with the SIGNED bind (mirrors WorkflowSecurityNegativeTest). A raw
+        // app.tenant_id session GUC no longer authorizes anything. No RLS
+        // bypass; setUp runs before each test with a fresh tenant, so there is
         // no cross-test leakage.
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-        for (var uid : List.of(userId, approverId)) {
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
-                    + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
-                    uid, tenantId, "wf-idem-" + uid.toString().substring(0, 8) + "@test", now, now);
-        }
-        var roleId = UUID.randomUUID();
-        jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
-                + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
-                roleId, tenantId, now, now);
-        var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%'");
-        for (var cap : caps) {
-            jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
-                    + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
-        }
+        tx.executeWithoutResult(status -> {
+            signedTenantContext.applyForCurrentTransaction(tenantId);
+            for (var uid : List.of(userId, approverId)) {
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                                + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
+                        uid, tenantId, "wf-idem-" + uid.toString().substring(0, 8) + "@test", now, now);
+            }
+            var roleId = UUID.randomUUID();
+            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
+                            + "VALUES (?, ?, 'ADMIN', 'Admin', 'Test', 'ACTIVE', ?, ?)",
+                    roleId, tenantId, now, now);
+            var caps = jdbc.queryForList("SELECT id FROM access_capabilities WHERE code LIKE 'WORKFLOW.%'");
+            for (var cap : caps) {
+                jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
+                                + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
+            }
+        });
+        // Service-level calls use TenantRlsConnectionHandler, which derives its
+        // transaction-local RLS scope from SecurityContextHolder (same pattern
+        // as WorkflowSecurityNegativeTest). Seed the default actor explicitly;
+        // the seed block above already committed via its own signed transaction.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearRlsSecurityContext() {
+        // Clear the SecurityContext-derived signed scope so no test leaks its
+        // tenant into another test's pooled connections.
+        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+    }
+
+    /** Run the action inside ONE signed-bound transaction as the test tenant. */
+    private <T> T inSignedScope(java.util.function.Supplier<T> action) {
+        return tx.execute(status -> {
+            signedTenantContext.applyForCurrentTransaction(tenantId);
+            return action.get();
+        });
+    }
+
+    /** Tenant-scoped COUNT read (the direct autocommit surface is RLS-blind). */
+    private Integer scopedCount(String sql, Object... args) {
+        return inSignedScope(() -> jdbc.queryForObject(sql, Integer.class, args));
+    }
+
+    /** Tenant-scoped single-column read (see {@link #scopedCount}). */
+    private <T> T scopedValue(String sql, Class<T> type, Object... args) {
+        return inSignedScope(() -> jdbc.queryForObject(sql, type, args));
     }
 
     private Authentication auth() {
@@ -161,9 +192,7 @@ class WorkflowIdempotencyTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Verify only 1 row exists
-        var count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_definitions WHERE code = 'DUP-DEF-1'",
-                Integer.class);
+        var count = scopedCount("SELECT COUNT(*) FROM workflow_definitions WHERE code = 'DUP-DEF-1'");
         assertThat(count).isEqualTo(1);
     }
 
@@ -198,9 +227,7 @@ class WorkflowIdempotencyTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Verify only 1 instance exists with this ID
-        var count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?",
-                Integer.class, saved.id());
+        var count = scopedCount("SELECT COUNT(*) FROM workflow_instances WHERE id = ?", saved.id());
         assertThat(count).isEqualTo(1);
     }
 
@@ -237,9 +264,7 @@ class WorkflowIdempotencyTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Verify only 1 approval row exists
-        var count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_approval_requests WHERE id = ?",
-                Integer.class, savedApproval.id());
+        var count = scopedCount("SELECT COUNT(*) FROM workflow_approval_requests WHERE id = ?", savedApproval.id());
         assertThat(count).isEqualTo(1);
     }
 
@@ -273,9 +298,7 @@ class WorkflowIdempotencyTest {
                 .hasMessageContaining("Cannot resolve from APPROVED");
 
         // Verify only 1 audit APPROVE record exists for this approval
-        var auditCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditCount = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?", savedInstance.id());
         assertThat(auditCount).isEqualTo(1);
     }
 
@@ -309,9 +332,7 @@ class WorkflowIdempotencyTest {
                 .hasMessageContaining("Cannot resolve from REJECTED");
 
         // Verify only 1 REJECT audit record exists
-        var auditCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'REJECT' AND workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditCount = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'REJECT' AND workflow_instance_id = ?", savedInstance.id());
         assertThat(auditCount).isEqualTo(1);
     }
 
@@ -344,15 +365,11 @@ class WorkflowIdempotencyTest {
         assertThat(advanced2.currentStepKey()).isEqualTo(secondStep.stepKey());
 
         // Two ADVANCE audit records should exist
-        var auditCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'ADVANCE' AND workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditCount = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'ADVANCE' AND workflow_instance_id = ?", savedInstance.id());
         assertThat(auditCount).isEqualTo(2);
 
         // But the instance row count remains 1
-        var instanceCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?",
-                Integer.class, savedInstance.id());
+        var instanceCount = scopedCount("SELECT COUNT(*) FROM workflow_instances WHERE id = ?", savedInstance.id());
         assertThat(instanceCount).isEqualTo(1);
     }
 
@@ -381,14 +398,11 @@ class WorkflowIdempotencyTest {
                 .isInstanceOf(IllegalStateException.class);
 
         // Verify NO approval audit record was written (transaction was rolled back)
-        var auditAfterFailure = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditAfterFailure = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?", savedInstance.id());
         assertThat(auditAfterFailure).isZero();
 
         // Verify the approval status is still PENDING (rollback worked)
-        var approvalStatus = jdbc.queryForObject(
-                "SELECT status FROM workflow_approval_requests WHERE id = ?",
+        var approvalStatus = scopedValue("SELECT status FROM workflow_approval_requests WHERE id = ?",
                 String.class, savedApproval.id());
         assertThat(approvalStatus).isEqualTo("PENDING");
 
@@ -397,9 +411,8 @@ class WorkflowIdempotencyTest {
         assertThat(retried.status()).isEqualTo(WorkflowApprovalRequest.Status.APPROVED);
 
         // Exactly 1 APPROVE audit record exists
-        var auditAfterSuccess = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditAfterSuccess = scopedCount(
+                "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'APPROVE' AND workflow_instance_id = ?", savedInstance.id());
         assertThat(auditAfterSuccess).isEqualTo(1);
     }
 
@@ -436,9 +449,7 @@ class WorkflowIdempotencyTest {
         assertThat(thirdCall).isEqualTo(1);
 
         // Verify no side effects (no extra audit rows, no extra alerts)
-        var auditCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditCount = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?", savedInstance.id());
         // Only the START audit (no EXPIRE or FAIL because monitoring is read-only)
         // Plus the ASSIGN audit from createApproval.
         assertThat(auditCount).isLessThanOrEqualTo(2);
@@ -470,15 +481,12 @@ class WorkflowIdempotencyTest {
         }
 
         // Verify no duplicate alerts/audits were created
-        var auditCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?",
-                Integer.class, savedInstance.id());
+        var auditCount = scopedCount("SELECT COUNT(*) FROM workflow_transition_audit WHERE workflow_instance_id = ?", savedInstance.id());
         // Should remain stable: 1 START + 1 ASSIGN = 2 (no EXPIRE/FAIL added by monitoring)
         assertThat(auditCount).isLessThanOrEqualTo(2);
 
         // Verify the approval status is still PENDING (monitoring does not mutate state)
-        var approvalStatus = jdbc.queryForObject(
-                "SELECT status FROM workflow_approval_requests WHERE id = ?",
+        var approvalStatus = scopedValue("SELECT status FROM workflow_approval_requests WHERE id = ?",
                 String.class, approval.id());
         assertThat(approvalStatus).isEqualTo("PENDING");
     }
@@ -511,8 +519,17 @@ class WorkflowIdempotencyTest {
             pool.submit(() -> {
                 try {
                     start.await();
-                    execService.startWorkflow(instance, userId);
-                    success.incrementAndGet();
+                    // TenantRlsConnectionHandler derives the transaction-local
+                    // signed scope from the THREAD-LOCAL SecurityContextHolder:
+                    // each worker thread installs its own context (and clears
+                    // it) — never inheriting the main test thread's context.
+                    com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
+                    try {
+                        execService.startWorkflow(instance, userId);
+                        success.incrementAndGet();
+                    } finally {
+                        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+                    }
                 } catch (Exception e) {
                     failure.incrementAndGet();
                 }
@@ -529,10 +546,9 @@ class WorkflowIdempotencyTest {
         assertThat(failure.get()).isEqualTo(threads - 1);
 
         // Verify only 1 instance row exists with the fixed ID
-        var count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?",
-                Integer.class, fixedInstanceId);
-        assertThat(count).isEqualTo(1);
+        var count = inSignedScope(() -> jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow_instances WHERE id = ?", Long.class, fixedInstanceId));
+        assertThat(count).isEqualTo(1L);
     }
 
     // ===== BONUS: APPROVE-THEN-REJECT IS A NO-OP =====
@@ -564,9 +580,9 @@ class WorkflowIdempotencyTest {
                 .hasMessageContaining("Cannot resolve from APPROVED");
 
         // Verify final status is APPROVED (not REJECTED)
-        var finalStatus = jdbc.queryForObject(
+        var finalStatus = inSignedScope(() -> jdbc.queryForObject(
                 "SELECT status FROM workflow_approval_requests WHERE id = ?",
-                String.class, savedApproval.id());
+                String.class, savedApproval.id()));
         assertThat(finalStatus).isEqualTo("APPROVED");
     }
 }

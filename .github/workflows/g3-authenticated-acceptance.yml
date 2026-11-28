@@ -337,11 +337,38 @@ jobs:
           EMPLOYEE_ASSIGNMENT_ID='44444444-4444-4444-8444-444444444491'
           MANAGER_ASSIGNMENT_ID='44444444-4444-4444-8444-444444444492'
 
+          # G1 signed-context contract (V20261124_1/_2): every verification
+          # query runs inside a fresh, HMAC-signed transaction bound with the
+          # disposable fixture key provisioned by V20261124_2 on this fixture
+          # topology. The raw app.tenant_id session GUC is deliberately not
+          # trusted — the enforced policies read public.app_tenant_ctx_text()
+          # and would fail closed on a raw GUC, turning every count into 0.
           g3_psql() {
             PGPASSWORD="$DATABASE_PASSWORD" \
-            PGOPTIONS="-c app.tenant_id=$TENANT_ID" \
               psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
-              -v ON_ERROR_STOP=1 -Atc "$1"
+              -v ON_ERROR_STOP=1 \
+              -v "fixture_tenant=$TENANT_ID" -v "fixture_query=$1" <<'SQL'
+          BEGIN;
+          SELECT public.app_bind_tenant_ctx(
+            :'fixture_tenant'::uuid,
+            encode(hmac(
+              convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex')
+          ) AS signed_ok
+          \gset
+          \if :signed_ok
+          SELECT public.app_tenant_ctx_text() = :'fixture_tenant' AS ctx_verified
+          \gset
+          \if :ctx_verified
+          :fixture_query;
+          \else
+          SELECT 1 / 0;
+          \endif
+          \else
+          SELECT 1 / 0;
+          \endif
+          ROLLBACK;
+          SQL
           }
 
           test "$(g3_psql "SELECT COUNT(*) FROM tenants WHERE id = '$TENANT_ID'")" = "1"

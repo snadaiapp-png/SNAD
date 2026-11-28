@@ -257,12 +257,18 @@ abstract class R0C13G09PostgresSupport {
         return new ProviderBinding(attemptId, intent.providerPaymentRef());
     }
 
+    @Autowired
+    protected com.sanad.platform.security.rls.TenantRlsTransactionContext signedTenantContext;
+
     protected <T> T inTenant(UUID tenant, Supplier<T> action) {
+        // G1 signed-context contract (V20261124_1/_2): the billing tables are
+        // fail-closed FORCE-RLS reading the HMAC-verified signed context, so
+        // the scope block binds through the SAME protocol the production
+        // services execute. A raw app.tenant_id GUC no longer authorizes
+        // anything. No RLS bypass.
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         return template.execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenant.toString());
+            signedTenantContext.applyForCurrentTransaction(tenant);
             return action.get();
         });
     }

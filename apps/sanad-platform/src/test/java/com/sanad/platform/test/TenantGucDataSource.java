@@ -162,13 +162,30 @@ public final class TenantGucDataSource implements DataSource {
     }
 
     /**
+     * Public test-infrastructure entry point for ONE-OFF signed binding on an
+     * explicit connection: fixtures that manage their own transactions (JUnit
+     * per-test transactions, Spring TransactionTemplate blocks, direct JDBC
+     * blocks) execute this inside their OPEN transaction so the transaction-
+     * local signed context covers the statements that follow. The caller owns
+     * the transaction lifecycle; the bind itself is {@code SET LOCAL}-scoped
+     * by {@code app_bind_tenant_ctx} and dies with the transaction.
+     *
+     * <p>The connection MUST have autocommit disabled and an open transaction
+     * (the mac is minted over {@code txid_current()}); the fixture re-binds
+     * after every commit/rollback exactly like the managed proxy does.</p>
+     */
+    public static void bindSignedContext(Connection connection, UUID tenant) throws SQLException {
+        bindSigned(connection, tenant);
+    }
+
+    /**
      * HMAC key material for the signed binding protocol. Resolved from the
      * environment (the operator key) with a fallback to the documented
      * fixture key — this class is TEST-ONLY and the fixture key is valid
      * exclusively on disposable topologies (F-INT-05); the V20261124_2 chain
      * provisions that same key DB-side on those topologies.
      */
-    private static String signingKeyHex() {
+    public static String signingKeyHex() {
         String env = System.getenv("SANAD_TENANT_CTX_HMAC_KEY");
         if (env == null || env.isBlank()) {
             env = System.getenv("SNAD_RLS_CONTEXT_HMAC_KEY");

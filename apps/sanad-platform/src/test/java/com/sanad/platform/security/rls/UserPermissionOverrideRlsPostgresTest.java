@@ -2,6 +2,7 @@ package com.sanad.platform.security.rls;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -78,80 +79,77 @@ class UserPermissionOverrideRlsPostgresTest {
             insertTenant(connection, tenantB, "uac-b-" + tenantB.toString().substring(0, 8));
             UUID capabilityId = firstActiveCapability(connection);
 
-            setTenant(connection, tenantA);
-
-            SQLException scopedDeny = assertThrows(SQLException.class, () -> insertOverride(
+            // G1 signed-context contract (V20261124_1/_2): the enforced policies
+            // validate public.app_tenant_ctx_text() — a raw app.tenant_id GUC no
+            // longer authorizes anything. Every tenant-scoped operation below
+            // runs inside ONE signed-bound explicit transaction (bind → probe →
+            // commit; expected denials abort → rollback), the exact per-
+            // transaction protocol the production application executes. No RLS
+            // bypass, no policy weakening; the 23514 CHECK-contract denial and
+            // the 42501 policy denial both stay mandatory.
+            SQLException scopedDeny = assertThrows(SQLException.class, () -> inTenantScope(
                     connection,
                     tenantA,
-                    userA,
-                    capabilityId,
-                    "DENY",
-                    "TEAM",
-                    team,
-                    "test: scoped deny",
-                    actor));
+                    () -> {
+                        insertOverride(connection, tenantA, userA, capabilityId, "DENY", "TEAM", team,
+                                "test: scoped deny", actor);
+                        return null;
+                    }));
             assertThat(scopedDeny.getSQLState()).isEqualTo("23514");
 
-            insertOverride(
+            inTenantScope(connection, tenantA, () -> {
+                insertOverride(connection, tenantA, userA, capabilityId, "ALLOW", "TEAM", team,
+                        "test: scoped allow", actor);
+                assertThat(countOverrides(connection, tenantA)).isEqualTo(1L);
+                return null;
+            });
+
+            inTenantScope(connection, tenantB, () -> {
+                insertOverride(connection, tenantB, userB, capabilityId, "ALLOW", "TEAM", team,
+                        "test: tenant b allow", actor);
+                return null;
+            });
+
+            assertThat(inTenantScope(connection, tenantA,
+                    () -> countOverrides(connection, tenantB))).isZero();
+
+            SQLException crossTenantInsert = assertThrows(SQLException.class, () -> inTenantScope(
                     connection,
                     tenantA,
-                    userA,
-                    capabilityId,
-                    "ALLOW",
-                    "TEAM",
-                    team,
-                    "test: scoped allow",
-                    actor);
-            assertThat(countOverrides(connection, tenantA)).isEqualTo(1L);
-
-            setTenant(connection, tenantB);
-            insertOverride(
-                    connection,
-                    tenantB,
-                    userB,
-                    capabilityId,
-                    "ALLOW",
-                    "TEAM",
-                    team,
-                    "test: tenant b allow",
-                    actor);
-
-            setTenant(connection, tenantA);
-            assertThat(countOverrides(connection, tenantB)).isZero();
-
-            SQLException crossTenantInsert = assertThrows(SQLException.class, () -> insertOverride(
-                    connection,
-                    tenantB,
-                    UUID.randomUUID(),
-                    capabilityId,
-                    "ALLOW",
-                    "TEAM",
-                    team,
-                    "test: cross-tenant insert",
-                    actor));
+                    () -> {
+                        insertOverride(connection, tenantB, UUID.randomUUID(), capabilityId, "ALLOW", "TEAM", team,
+                                "test: cross-tenant insert", actor);
+                        return null;
+                    }));
             assertThat(crossTenantInsert.getSQLState()).isEqualTo("42501");
 
-            insertAuthorizationEvent(connection, tenantA, "OVERRIDE_CREATED", actor);
-            assertThat(countAuthorizationEvents(connection, "tenant_id = ?", tenantA)).isEqualTo(1L);
-            assertThat(countAuthorizationEvents(connection, "tenant_id IS NULL")).isZero();
+            inTenantScope(connection, tenantA, () -> {
+                insertAuthorizationEvent(connection, tenantA, "OVERRIDE_CREATED", actor);
+                assertThat(countAuthorizationEvents(connection, "tenant_id = ?", tenantA)).isEqualTo(1L);
+                assertThat(countAuthorizationEvents(connection, "tenant_id IS NULL")).isZero();
+                return null;
+            });
         }
 
         try (Connection controlPlane = connect()) {
-            setTenant(controlPlane, CONTROL_PLANE_TENANT_ID);
-            insertAuthorizationEvent(controlPlane, null, "PLATFORM_AUTHORIZATION_CHANGED", actor);
-            assertThat(countAuthorizationEvents(controlPlane, "tenant_id IS NULL")).isEqualTo(1L);
+            inTenantScope(controlPlane, CONTROL_PLANE_TENANT_ID, () -> {
+                insertAuthorizationEvent(controlPlane, null, "PLATFORM_AUTHORIZATION_CHANGED", actor);
+                assertThat(countAuthorizationEvents(controlPlane, "tenant_id IS NULL")).isEqualTo(1L);
+                return null;
+            });
         }
 
-        // A fresh connection has neither app.tenant_id nor app.partner_id set.
+        // A fresh connection has no signed tenant context bound at all.
         // FORCE RLS must therefore hide every authorization-change event.
         try (Connection noContext = connect()) {
             assertThat(countAuthorizationEvents(noContext, "TRUE")).isZero();
         }
 
         try (Connection tenantContext = connect()) {
-            setTenant(tenantContext, tenantA);
-            assertThat(countAuthorizationEvents(tenantContext, "tenant_id = ?", tenantA)).isEqualTo(1L);
-            assertThat(countAuthorizationEvents(tenantContext, "tenant_id IS NULL")).isZero();
+            assertThat(inTenantScope(tenantContext, tenantA,
+                    () -> countAuthorizationEvents(tenantContext, "tenant_id = ?", tenantA))).isEqualTo(1L);
+            assertThat(inTenantScope(tenantContext, tenantA,
+                    () -> countAuthorizationEvents(tenantContext, "tenant_id IS NULL"))).isZero();
         }
 
         try (Connection inspection = connect()) {
@@ -209,11 +207,38 @@ class UserPermissionOverrideRlsPostgresTest {
         }
     }
 
-    private static void setTenant(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, false)")) {
-            ps.setString(1, tenantId.toString());
-            ps.executeQuery();
+    /** One tenant-scoped probe step. */
+    private interface ScopeAction<T> {
+        T run() throws SQLException;
+    }
+
+    /**
+     * Execute the action inside ONE signed-bound explicit transaction
+     * (V20261124_1/_2 contract): autocommit off → HMAC signed bind for the
+     * given tenant → action → commit. Any failure (including the expected
+     * 23514/42501 denials) rolls the aborted transaction back so the next
+     * segment starts clean. The transaction-local signed context covers
+     * exactly this segment — connections are never left in a bound state,
+     * and no raw tenant GUC is written.
+     */
+    private static <T> T inTenantScope(Connection connection, UUID tenantId, ScopeAction<T> action)
+            throws SQLException {
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try {
+            TenantGucDataSource.bindSignedContext(connection, tenantId);
+            T result = action.run();
+            connection.commit();
+            return result;
+        } catch (Throwable failure) {
+            try {
+                connection.rollback();
+            } catch (SQLException suppressed) {
+                failure.addSuppressed(suppressed);
+            }
+            throw failure;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
         }
     }
 

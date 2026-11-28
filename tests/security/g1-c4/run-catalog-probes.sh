@@ -107,21 +107,21 @@ SQL
 # runtime role before binding and invoking the HR SECURITY DEFINER.
 # No secret is printed, interpolated into query text, or persisted.
 psql_cert -f - >"$ART/hr-temp-shadow-negative.txt" <<'SQL'
-\\set ctx_tenant 'aaaaaaaa-0000-0000-0000-000000000004'
+\set ctx_tenant 'aaaaaaaa-0000-0000-0000-000000000004'
 BEGIN;
 SELECT encode(hmac(
     convert_to(:'ctx_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
     (SELECT secret FROM public.platform_tenant_ctx_keys WHERE status='ACTIVE'),
     'sha256'), 'hex') AS ctx_mac
-\\gset
+\gset
 SET LOCAL ROLE sanad;
 SELECT public.app_bind_tenant_ctx($1::uuid, $2) AS ctx_bound
-\\bind :ctx_tenant :ctx_mac
-\\gset
-\\if :ctx_bound
-\\else
+\bind :ctx_tenant :ctx_mac
+\gset
+\if :ctx_bound
+\else
 SELECT 1 / 0;
-\\endif
+\endif
 CREATE TEMP TABLE hr_employees (tenant_id uuid, hire_date date);
 INSERT INTO hr_employees VALUES ('aaaaaaaa-0000-0000-0000-000000000004','2099-12-31'::date);
 DO $c4_shadow$

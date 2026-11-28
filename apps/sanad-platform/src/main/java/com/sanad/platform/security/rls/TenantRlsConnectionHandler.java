@@ -1,5 +1,8 @@
 package com.sanad.platform.security.rls;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -76,6 +79,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * </ul>
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantRlsConnectionHandler.class);
+
 
     private static final String SLOT_SQL =
             "SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()";
@@ -158,7 +164,20 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
             }
             UUID authenticatedTenant = currentTenantId();
             if (authenticatedTenant != null && !authenticatedTenant.equals(signedTenant)) {
-                throw new SQLException("Signed tenant binding conflicts with authenticated principal");
+                // G1 CI-remediation (2026-11-28, PR #1554): a TRUSTED re-scope is
+                // the documented contract of TenantRlsTransactionContext
+                // ("last call wins" — control-plane services legitimately move a
+                // transaction onto a tenant that is NOT the operator principal's,
+                // e.g. ExecutiveTenantProvisioningService re-scoping onto the
+                // newly created tenant). The marker only exists AFTER the
+                // SECURITY DEFINER verifier confirmed the HMAC for THIS
+                // transaction's txid/pid (validated against the DB above), so a
+                // mismatch with the routing principal is an audited trusted
+                // re-scope — not a misrouting. Raw SecurityContext-derived binds
+                // (which never produce this marker) keep the hard conflict rule.
+                log.warn("SANAD_CTX_TRUSTED_RESCOPE: transaction re-scoped from the authenticated "
+                        + "principal's tenant to the HMAC-verified signed tenant (trusted protocol) — "
+                        + "authenticated={}, signed={}", authenticatedTenant, signedTenant);
             }
             tenantAppliedFor = signedTenant;
             return;

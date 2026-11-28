@@ -924,27 +924,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # FORCE RLS (V20261029_1): tenant_subscriptions and
-          # subscription_change_events are fail-closed tenant-owned tables.
-          # A bare psql session (table owner, no app.tenant_id) reads zero
-          # rows. Bind the tenant GUC at connection start via PGOPTIONS so
-          # every durable-readback query below evaluates under the same
+          # G1 signed-context contract (V20261124_1/_2): tenant_subscriptions,
+          # subscription_commands and subscription_change_events are fail-closed
+          # FORCE-RLS tables whose policies read the HMAC-verified
+          # public.app_tenant_ctx_text(). The raw app.tenant_id session GUC is
+          # not trusted any more, so every durable-readback query below runs
+          # inside a fresh transaction signed with the disposable fixture key
+          # provisioned by V20261124_2 on this fixture topology — the same
           # tenant scope the application used.
-          export PGOPTIONS="-c app.tenant_id=${SANAD_CONTROL_PLANE_TENANT_ID}"
-          state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
-            "SELECT status || '|' || cancel_at_period_end::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"
+          signed_read() {
+            PGPASSWORD="$DATABASE_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 \
+              -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+              -v "fixture_tenant=${SANAD_CONTROL_PLANE_TENANT_ID}" -v "fixture_query=$1" <<'SQL'
+          BEGIN;
+          SELECT public.app_bind_tenant_ctx(
+            :'fixture_tenant'::uuid,
+            encode(hmac(
+              convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex')
+          ) AS signed_ok
+          \gset
+          \if :signed_ok
+          SELECT public.app_tenant_ctx_text() = :'fixture_tenant' AS ctx_verified
+          \gset
+          \if :ctx_verified
+          :fixture_query;
+          \else
+          SELECT 1 / 0;
+          \endif
+          \else
+          SELECT 1 / 0;
+          \endif
+          ROLLBACK;
+          SQL
+          }
+          state="$(signed_read "SELECT status || '|' || cancel_at_period_end::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"
           echo "SUBSCRIPTION_FINAL_STATE=$state"
           test "$state" = "CANCELLED|false"
 
-          commands="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
-            "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND command = 'CANCEL' AND from_status = 'ACTIVE' AND to_status = 'CANCELLED' AND actor_user_id IS NOT NULL")"
+          commands="$(signed_read "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND command = 'CANCEL' AND from_status = 'ACTIVE' AND to_status = 'CANCELLED' AND actor_user_id IS NOT NULL")"
           test "$commands" = "1"
 
-          events="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
-            "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND action = 'SUBSCRIPTION.CANCELLED'")"
+          events="$(signed_read "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND action = 'SUBSCRIPTION.CANCELLED'")"
           test "$events" = "1"
 
       - name: Stop subscription acceptance services

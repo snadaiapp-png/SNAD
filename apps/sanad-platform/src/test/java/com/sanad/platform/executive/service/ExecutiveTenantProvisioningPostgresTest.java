@@ -2,8 +2,13 @@ package com.sanad.platform.executive.service;
 
 import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +32,28 @@ class ExecutiveTenantProvisioningPostgresTest {
     @Autowired private ExecutiveTenantProvisioningService provisioning;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
+
+    /** Canonical control-plane tenant the operator principal belongs to. */
+    private static final UUID CONTROL_TENANT_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    @BeforeEach
+    void actAsPlatformOperator() {
+        // G1 signed-context contract (V20261124_1/_2): the service's runtime-pool
+        // statements derive their transaction-local signed scope from
+        // SecurityContextHolder (the authenticated platform operator), and the
+        // provision() transaction re-scopes to the newly created tenant through
+        // the trusted TenantRlsTransactionContext path.
+        RlsTestSupport.setSecurityContext(CONTROL_TENANT_ID,
+                UUID.fromString("00000000-0000-0000-0000-000000000010"));
+    }
+
+    @AfterEach
+    void clearOperatorContext() {
+        RlsTestSupport.clearSecurityContext();
+    }
 
     @BeforeAll
     static void requirePostgreSqlDirect() {
@@ -174,15 +201,25 @@ class ExecutiveTenantProvisioningPostgresTest {
     }
 
     private <T> T inTenant(UUID tenantId, Supplier<T> action) {
+        // G1 signed-context contract (V20261124_1/_2): the verification reads
+        // below hit fail-closed FORCE-RLS tables (tenant_subscriptions), so the
+        // scope block binds through the SAME HMAC signed protocol the service
+        // transaction uses. A raw app.tenant_id GUC no longer authorizes
+        // anything. No RLS bypass.
         return new TransactionTemplate(transactionManager).execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return action.get();
         });
     }
 
     private long count(String sql, Object... args) {
-        Long value = jdbc.queryForObject(sql, Long.class, args);
+        // Cross-tenant verification read (catalog counts and subdomain
+        // uniqueness) — classified as an explicit pre-authentication path per
+        // the TenantRlsPreAuthScope contract; the strict handler otherwise
+        // rejects context-free statements. No tenant data crosses tenants here:
+        // the checks assert absence/presence of a single freshly created row.
+        Long value = TenantRlsPreAuthScope.call(
+                () -> jdbc.queryForObject(sql, Long.class, args));
         return value == null ? 0 : value;
     }
 }

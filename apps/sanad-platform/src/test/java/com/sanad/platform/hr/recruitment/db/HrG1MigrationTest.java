@@ -2,6 +2,7 @@ package com.sanad.platform.hr.recruitment.db;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,7 +51,8 @@ class HrG1MigrationTest {
     // SNAD-SEC-RLS-FULL-CLOSURE-2026-10-28 (PR #1460) heads it at 20261029.1 (fail-closed RLS for the
     // 92 tenant-owned business tables + FORCE-bind of the 60 ENABLE-only owner-bypass tables).
     // ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261118.2"; // V20261117_1 (WS7 website module tenant-scoped integrity: composite FKs + partial unique indexes + WS7_INTEGRITY_DRIFT guard) and V20261117_2 (D6/D5 follow-up: restricted runtime ACL for platform_subscription_owners) head the ledger — restored in Session 12 (2026-11-20) verbatim from the certified 10c evidence; watermark 20261117.2 recorded per the 10c manifest migration_watermark field, no silent value bump; prior head V20261116.2 (V20261115_1 C4 audit-ledger append-only runtime ACL + V20261116_1 WS6 global hostname uniqueness + V20261116_2 platform subscription-owner resolver S1/S3/S6) preceded it; V20261111_1 (SANAD G1 / P0 executive order 2026-11-11, PR #1509: fail-closed tenant RLS + FORCE RLS on service_callback_replay + dedicated least-privilege cleanup role) and V20261103_2 (P0 final remediation, Issue #1462, Article 3: topology-gated migrator ownership + evidence-derived runtime ACL matrix) precede
+    // G1 CI-remediation (2026-11-28, PR #1554): the signed tenant-context binding/enforcement pair V20261124_1/_2 (F-DB-07 / RT-01 fail-closed HMAC context) plus V20261124_3 (WS7 referential integrity completion) advance the recorded head to 20261124.3. Recorded per watermark policy; no silent value bump.
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261124.3";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
@@ -222,9 +224,14 @@ class HrG1MigrationTest {
         // connection per call, so SET + SELECT must share ONE connection.
         String testMigrationUrl = url.replaceFirst("/sanad", "/test_migration");
         try (java.sql.Connection ctx = DriverManager.getConnection(testMigrationUrl, username, password)) {
-            try (java.sql.Statement st = ctx.createStatement()) {
-                st.execute("SET app.tenant_id = '" + tenantId + "'");
-            }
+            // G1 signed-context contract (V20261124_1/_2): FORCE RLS validates
+            // public.app_tenant_ctx_text() — a raw app.tenant_id GUC is not
+            // authorized. The signed binding is TRANSACTION-LOCAL (mac over
+            // txid_current), so the probe opens ONE explicit transaction, binds
+            // through the same HMAC protocol the production application uses,
+            // and holds it across every verification SELECT below.
+            ctx.setAutoCommit(false);
+            TenantGucDataSource.bindSignedContext(ctx, tenantId);
             Integer templates;
             try (java.sql.PreparedStatement ps = ctx.prepareStatement(
                     "SELECT COUNT(*) FROM hr_onboarding_checklist_templates WHERE tenant_id = ?::uuid")) {
@@ -255,6 +262,8 @@ class HrG1MigrationTest {
             }
             assertThat(template.get("version")).isEqualTo(1);
             assertThat(template.get("is_active")).isEqualTo(true);
+            // Close the probe transaction (rollback: verification-only block).
+            ctx.rollback();
         }
     }
 
@@ -492,18 +501,13 @@ class HrG1MigrationTest {
         org.springframework.jdbc.datasource.DriverManagerDataSource ds =
                 new org.springframework.jdbc.datasource.DriverManagerDataSource(
                         url.replaceFirst("/sanad", "/test_migration"), username, password);
-        javax.sql.DataSource tenantDs = (javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
-                javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class},
-                (proxy, method, args) -> {
-                    if (method.getName().equals("getConnection")) {
-                        java.sql.Connection c = (java.sql.Connection) method.invoke(ds, args);
-                        try (var st = c.createStatement()) {
-                            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-                        }
-                        return c;
-                    }
-                    return method.invoke(ds, args);
-                });
+        // G1 signed-context contract (V20261124_1/_2): the enforced tenant
+        // policies validate the HMAC-verified signed context, not the raw
+        // app.tenant_id GUC. TenantGucDataSource executes the SAME signed
+        // binding protocol per acquired connection (one explicit transaction,
+        // committed on close) — no RLS bypass, no policy weakening, and the
+        // append-only trigger still fires inside the tenant-scoped transaction.
+        javax.sql.DataSource tenantDs = new TenantGucDataSource(ds, tenantId);
         org.springframework.jdbc.core.JdbcTemplate t = new org.springframework.jdbc.core.JdbcTemplate(tenantDs);
         UUID organizationId = UUID.randomUUID();
         t.update("INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) "

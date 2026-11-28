@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.billing;
 
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.test.TenantGucDataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -148,7 +149,8 @@ class R0C13G02SchemaPostgresTest {
             // S1 per-tenant FORCE-RLS backfill with fail-loud counter, S3
             // delete-cycle trigger, S6 default-deny ACL + pinned search_path).
             // ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
-            assertThat(rs.getString(1)).isEqualTo("20261118.2");
+            // G1 CI-remediation (2026-11-28, PR #1554): the signed tenant-context binding/enforcement pair V20261124_1/_2 (F-DB-07 / RT-01 fail-closed HMAC context) plus V20261124_3 (WS7 referential integrity completion) advance the recorded head to 20261124.3. Recorded per watermark policy; no silent value bump.
+            assertThat(rs.getString(1)).isEqualTo("20261124.3");
         }
     }
 
@@ -331,16 +333,23 @@ class R0C13G02SchemaPostgresTest {
     }
 
     private void setTenant(UUID tenant) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenant.toString());
-            try (ResultSet ignored = ps.executeQuery()) { }
-        }
+        // G1 signed-context contract (V20261124_1/_2): the enforced policies
+        // read public.app_tenant_ctx_text(), which re-verifies the HMAC over
+        // tenant:txid:pid. A raw app.tenant_id GUC no longer authorizes any
+        // tenant-scoped row. Bind through the SAME signed protocol the
+        // production application executes — inside this test's OPEN explicit
+        // transaction (autocommit is disabled in @BeforeEach), so the
+        // transaction-local context covers every statement until the fixture
+        // commits/rolls back. No RLS bypass, no policy weakening.
+        TenantGucDataSource.bindSignedContext(connection, tenant);
     }
 
     private void clearTenant() throws SQLException {
+        // Reset BOTH transaction-local GUCs: the validator returns NULL on the
+        // empty tenant (fail closed), and clearing the mac as well keeps the
+        // no-context surface byte-identical to a never-bound transaction.
         try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', '', true)");
+                "SELECT set_config('app.tenant_id', '', true), set_config('app.ctx_mac', '', true)");
              ResultSet ignored = ps.executeQuery()) { }
     }
 

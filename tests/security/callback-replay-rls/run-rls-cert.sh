@@ -106,15 +106,42 @@ trap on_exit EXIT
 admin()   { $CRL_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$2" -Atc "$3"; }
 admin_secret() { printf '%s\n' "$1" | $CRL_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d postgres -At >/dev/null; }
 runtime_out=""; runtime_rc=0; runtime_err=""; runtime_sqlstate=""
-runtime_capture() { # runtime_capture <db> <sql> [tenant_guc|__EMPTY_GUC__]
-  local guc_args=()
-  if [ $# -ge 3 ] && [ "$3" = "__EMPTY_GUC__" ]; then
-    guc_args=(PGOPTIONS="-c app.tenant_id=")
-  elif [ $# -ge 3 ] && [ -n "$3" ]; then
-    guc_args=(PGOPTIONS="-c app.tenant_id=$3")
+runtime_capture() { # runtime_capture <db> <sql> [tenant_uuid|__EMPTY_GUC__]
+  # G1 signed-context contract (V20261124_1/_2): the enforced tenant policies
+  # read public.app_tenant_ctx_text() — a raw app.tenant_id GUC no longer
+  # authorizes anything. With a tenant argument, the harness acts as the
+  # TRUSTED APPLICATION SIGNER: it mints the HMAC over tenant:txid:pid and
+  # binds through public.app_bind_tenant_ctx inside the SAME transaction as
+  # the probe (the mac is transaction-local, so bind + probe must share one
+  # transaction). The signing key is read from the environment via psql
+  # \getenv and supplied as a PROTOCOL PARAMETER (\bind) — it never appears
+  # in query text, process argv, role state, or the evidence log.
+  if [ $# -ge 3 ] && [ -n "$3" ] && [ "$3" != "__EMPTY_GUC__" ]; then
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE \
+      SANAD_TENANT_CTX_HMAC_KEY="$CRL_CTX_KEY" PGPASSWORD="$CRL_RUN_PW" \
+      psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -At 2>"$ART/last-err.txt" <<SQL | sed '/^BEGIN$/d; /^COMMIT$/d'
+\getenv ctx_key SANAD_TENANT_CTX_HMAC_KEY
+BEGIN;
+SELECT public.app_bind_tenant_ctx('$3'::uuid, encode(hmac(
+  convert_to('$3' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+  decode(\$1, 'hex'), 'sha256'), 'hex')) AS bound
+\bind :ctx_key
+\gset
+$2;
+COMMIT;
+SQL
+    )
+  else
+    local guc_args=()
+    if [ $# -ge 3 ] && [ "$3" = "__EMPTY_GUC__" ]; then
+      # Explicit empty raw GUC: the validator returns NULL on the empty tenant
+      # (fail closed) — the observable no-context surface is preserved.
+      guc_args=(PGOPTIONS="-c app.tenant_id=")
+    fi
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$CRL_RUN_PW" "${guc_args[@]}" psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
+         -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   fi
-  runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$CRL_RUN_PW" "${guc_args[@]}" psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad -d "$1" \
-       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
   runtime_sqlstate=$(printf '%s\n' "$runtime_err" | sed -nE 's/^.*ERROR:[[:space:]]+([0-9A-Z]{5}):.*$/\1/p' | head -1)
@@ -244,8 +271,10 @@ tenant_isolation_select:SELECT"
 $policies"
 update_policies=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policy WHERE polrelid='public.service_callback_replay'::regclass AND polcmd='U'")
 [ "$update_policies" = "0" ] || die S2 "UPDATE policy exists (must be default-denied)"
-tenant_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'tenant_isolation%' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%tenant_id%text = NULLIF(current_setting%app.tenant_id%'")
+tenant_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'tenant_isolation%' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%app_tenant_ctx_text()%'")
 [ "$tenant_pred" = "3" ] || die S2 "tenant predicate contract on $tenant_pred/3 policies"
+raw_guc_refs=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND (COALESCE(qual,'')||COALESCE(with_check,'')) LIKE '%current_setting(''app.tenant_id''%'")
+[ "$raw_guc_refs" = "0" ] || die S2 "raw tenant GUC references remain on $raw_guc_refs policy expression(s) (must read the signed validator only)"
 expiry_pred=$(admin postgres "$CRL_DB" "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='service_callback_replay' AND policyname LIKE 'expired_cleanup%' AND qual LIKE '%expires_at <= CURRENT_TIMESTAMP%'")
 [ "$expiry_pred" = "2" ] || die S2 "expiry-bound predicate contract on $expiry_pred/2 policies"
 cleanup_acl=$(admin postgres "$CRL_DB" "SELECT has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','SELECT')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','DELETE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','INSERT')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','UPDATE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','TRUNCATE')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','REFERENCES')||'|'||has_table_privilege('sanad_callback_replay_cleanup','public.service_callback_replay','TRIGGER')")
