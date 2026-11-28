@@ -443,14 +443,14 @@ jobs:
           \if :signed_ok
           \else
           \echo 'ERROR: SIGNED_TENANT_CONTEXT_BIND_FAILED'
-          \quit 3
+          SELECT 1 / 0;
           \endif
           SELECT public.app_tenant_ctx_text() = '11111111-1111-4111-8111-111111111111' AS ctx_verified
           \gset
           \if :ctx_verified
           \else
           \echo 'ERROR: SIGNED_TENANT_CONTEXT_MISMATCH'
-          \quit 3
+          SELECT 1 / 0;
           \endif
           DO $check$
           DECLARE own_count integer; foreign_count integer;
@@ -473,14 +473,14 @@ jobs:
           \if :signed_ok
           \else
           \echo 'ERROR: SIGNED_TENANT_CONTEXT_BIND_FAILED'
-          \quit 3
+          SELECT 1 / 0;
           \endif
           SELECT public.app_tenant_ctx_text() = '22222222-2222-4222-8222-222222222222' AS ctx_verified
           \gset
           \if :ctx_verified
           \else
           \echo 'ERROR: SIGNED_TENANT_CONTEXT_MISMATCH'
-          \quit 3
+          SELECT 1 / 0;
           \endif
           DO $check$
           DECLARE own_count integer; foreign_count integer;
