@@ -72,7 +72,7 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # grants) were byte-exact restored and checksum-certified against the 10c registry
 # (P1.6, 265/265). Recorded per watermark policy; no silent value bump.
 # ORDER 11 (2026-11-21, doc 21) advances the recorded head to 20261118.2: V20261118_1 (tenants control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL) deliver the dedicated sanad_control_plane LOGIN connection identity (no runtime membership in any direction). Recorded per watermark policy; no silent value bump.
-EXPECTED_HEAD="20261118.2"
+EXPECTED_HEAD="20261124.3"
 ART="${CRL_ARTIFACTS:-/tmp/callback-replay-rls-cert-artifacts}"
 umask 077
 [ ! -L "$ART" ] || { echo "::error::Evidence directory is a symlink" >&2; exit 1; }
@@ -196,7 +196,29 @@ record S0_MEMBERSHIP_SET_ONLY "t|f|t" "$memb_contract" "non-inheriting SET-only 
 # ============================================================================
 # S1 — Flyway as sanad_migrator (fresh chain, separated topology)
 # ============================================================================
-gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD)"
+gate S1 "Flyway staged migrate + operator HMAC provisioning + validate (head $EXPECTED_HEAD)"
+# V20261124_2 rejects separated-topology migration without a live HMAC
+# key and explicit operator enforcement approval. Preserve that safety gate.
+command -v openssl >/dev/null 2>&1 || die S1 "openssl missing for isolated key generation"
+env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
+  -user=sanad_migrator -locations="$LOCS" -target=20261124.1 migrate > "$ART/S1-stage-migrate.log" 2>&1 \
+  || die S1 "staged migration through key boundary failed"
+[ "$(admin postgres "$CRL_DB" "SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")" = "20261124.1" ] \
+  || die S1 "staged migration did not stop at operator boundary"
+CRL_CTX_KEY="$(openssl rand -hex 32)" || die S1 "isolated signing key generation failed"
+[ "${#CRL_CTX_KEY}" = "64" ] || die S1 "invalid isolated signing key length"
+env -u PGOPTIONS SANAD_TENANT_CTX_HMAC_KEY="$CRL_CTX_KEY" PGPASSWORD="$CRL_MIG_PW" \
+  psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad_migrator -d "$CRL_DB" \
+  -v ON_ERROR_STOP=1 -f "$CRL_REPO/scripts/ops/tenant-ctx/provision-ctx-key.sql" \
+  > "$ART/S1-key-provision.log" 2>&1 || die S1 "operator signing key provisioning failed"
+env -u PGOPTIONS PGPASSWORD="$CRL_MIG_PW" \
+  psql -X -h "$CRL_PGHOST" -p "$CRL_PGPORT" -U sanad_migrator -d "$CRL_DB" \
+  -v ON_ERROR_STOP=1 -c "INSERT INTO public.platform_ctx_enforce (flag,enabled_by) VALUES ('ON','callback-cert:operator') ON CONFLICT(flag) DO NOTHING" \
+  > "$ART/S1-enforce-approval.log" 2>&1 || die S1 "operator enforcement approval failed"
+[ "$(admin postgres "$CRL_DB" "SELECT count(*) FROM public.platform_tenant_ctx_keys WHERE status='ACTIVE'")" = "1" ] \
+  || die S1 "ACTIVE key missing after provision"
+[ "$(admin postgres "$CRL_DB" "SELECT count(*) FROM public.platform_ctx_enforce WHERE flag='ON'")" = "1" ] \
+  || die S1 "enforcement approval missing"
 env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
   -user=sanad_migrator -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
 env FLYWAY_PASSWORD="$CRL_MIG_PW" "$CRL_FLYWAY" -url="jdbc:postgresql://$CRL_PGHOST:$CRL_PGPORT/$CRL_DB" \
