@@ -238,7 +238,9 @@ admin_expect IP-10_DB_OWNER_MIGRATOR postgres "SELECT pg_get_userbyid(datdba) FR
 admin_expect IP-11_SEP_ROLES_PRESENT postgres "SELECT count(*) FROM pg_roles WHERE rolname IN ('sanad','sanad_migrator','sanad_callback_replay_cleanup','sanad_control_plane')" "4"
 
 # IP-12: Flyway head is the certified head.
-admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261118.2"
+# 20261124.3 — the G1 signed-context closure chain (V20261124.1/_2/_3) is
+# part of the certified head now; the battery follows the release catalog.
+admin_expect IP-12_FLYWAY_HEAD "$RT_DB" "SELECT CASE WHEN EXISTS (SELECT 1 FROM public.flyway_schema_history WHERE NOT success) THEN 'FAILED_MIGRATION' ELSE coalesce((SELECT version FROM public.flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1),'MISSING') END" "20261124.3"
 require_isolation
 
 # IP-05/06: database-level sentinel — written by admin, read back by the
