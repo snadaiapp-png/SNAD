@@ -646,7 +646,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
                         MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
                         MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
+                        MigrationVersion.fromVersion("20261118.2"), // access_capabilities control-plane ACL
+                        MigrationVersion.fromVersion("20261124.1"), // forward-only G1 migration
+                        MigrationVersion.fromVersion("20261124.2"), // forward-only G1 migration
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // current certified head (20261124.3)
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -915,7 +918,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion("20261117.1"), // WS7 website tenant-scoped integrity (restored, checksum-certified)
                         MigrationVersion.fromVersion("20261117.2"), // platform_subscription_owners runtime grants
                         MigrationVersion.fromVersion("20261118.1"), // tenants control-plane ACL (G1/C4 PR-2 P0-1, ORDER 11)
-                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // access_capabilities control-plane ACL (G1/C4 PR-2 P1-3, ORDER 11; head 20261118.2)
+                        MigrationVersion.fromVersion("20261118.2"), // access_capabilities control-plane ACL
+                        MigrationVersion.fromVersion("20261124.1"), // forward-only G1 migration
+                        MigrationVersion.fromVersion("20261124.2"), // forward-only G1 migration
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION)); // current certified head (20261124.3)
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
