@@ -247,8 +247,12 @@ jobs:
           # control binds through this operator key.
           C4_OPERATOR_KEY="$(openssl rand -hex 32)"
           sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
-            -v op_key="$C4_OPERATOR_KEY" \
-            -c "INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status) VALUES ('c4-matrix-operator', decode(:'op_key', 'hex'), 'ACTIVE') ON CONFLICT (key_id) DO UPDATE SET status = 'ACTIVE', retired_at = NULL, secret = EXCLUDED.secret"
+            -v op_key="$C4_OPERATOR_KEY" <<'SQL'
+          INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status)
+          VALUES ('c4-matrix-operator', decode(:'op_key', 'hex'), 'ACTIVE')
+          ON CONFLICT (key_id) DO UPDATE
+            SET status = 'ACTIVE', retired_at = NULL, secret = EXCLUDED.secret;
+          SQL
           sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose \
             -d separation_cert \
             -v operator_key="$C4_OPERATOR_KEY" \
