@@ -2,6 +2,46 @@
 -- 10 directly invokable HR SECURITY DEFINER signatures.
 -- The CI wrapper runs this in disposable separation_cert PG17, not production.
 -- Every test is inside an explicit transaction and always rolls back.
+--
+-- Structure (two independent transactions):
+--   1. POSITIVE control — runs as the provisioning operator (postgres) in its
+--      OWN transaction: reads the operator-provisioned per-run key from
+--      platform_tenant_ctx_keys (documented separated-topology operator flow;
+--      V20261124_2 auto-provisions NOTHING on the separation topology) and
+--      binds the positive tenant through the full HMAC protocol. psql variable
+--      interpolation is NOT performed inside dollar-quoted bodies, so the key
+--      is read from the table — never inlined as a :var.
+--   2. NEGATIVE matrix — SET LOCAL ROLE sanad; 20 expected-denial cases. The
+--      positive bind above cannot leak here: its transaction already rolled
+--      back (bindings are transaction-local).
+BEGIN;
+DO $c4_positive$
+DECLARE
+  tenant_a constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a4';
+  v_key bytea;
+  v_mac text;
+BEGIN
+  SELECT secret INTO v_key
+    FROM public.platform_tenant_ctx_keys
+   WHERE key_id = 'c4-matrix-operator' AND status = 'ACTIVE'
+   ORDER BY created_at DESC
+   LIMIT 1;
+  IF v_key IS NULL THEN
+    RAISE EXCEPTION 'C4_OPERATOR_KEY_MISSING: CI wrapper must provision the per-run operator key first';
+  END IF;
+  v_mac := encode(hmac(
+      convert_to(tenant_a::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+      v_key, 'sha256'), 'hex');
+  IF NOT public.app_bind_tenant_ctx(tenant_a, v_mac)
+     OR public.app_tenant_ctx_text() IS DISTINCT FROM tenant_a::text THEN
+    RAISE EXCEPTION 'C4_POSITIVE_SIGNED_BIND_REFUSED';
+  END IF;
+  PERFORM public.hr_assert_migration_tenant_scope(tenant_a);
+  RAISE NOTICE 'C4_POSITIVE_SCOPE_CONTROL=PASS';
+END
+$c4_positive$;
+ROLLBACK;
+
 BEGIN;
 SET LOCAL ROLE sanad;
 DO $c4_negative$
@@ -66,24 +106,7 @@ BEGIN
   IF count_checked <> 20 THEN
     RAISE EXCEPTION 'C4_HR_NEGATIVE_WRONG_COUNT=%',count_checked USING ERRCODE='42501';
   END IF;
-  -- The minimal positive control validates the scope checker itself; it
-  -- performs no HR mutations and uses a synthetic tenant with no data.
-  -- G1 signed-context contract (V20261124_1/_2): the scope checker reads the
-  -- HMAC-validated public.app_tenant_ctx_text() — a raw session GUC no longer
-  -- authorizes anything (it would read as caller tenant <none> and fail the
-  -- positive control). Bind the positive tenant through the OPERATOR-PROVISIONED
-  -- per-run key passed by the CI wrapper (-v operator_key=...) — the documented
-  -- separated-topology operator flow. EXECUTE on the bind protocol is granted
-  -- to the sanad runtime role.
-  v_mac := encode(hmac(
-      convert_to(tenant_a::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
-      decode(:'operator_key', 'hex'), 'sha256'), 'hex');
-  IF NOT public.app_bind_tenant_ctx(tenant_a, v_mac)
-     OR public.app_tenant_ctx_text() IS DISTINCT FROM tenant_a::text THEN
-    RAISE EXCEPTION 'C4_POSITIVE_SIGNED_BIND_REFUSED' USING ERRCODE='42501';
-  END IF;
-  PERFORM public.hr_assert_migration_tenant_scope(tenant_a);
-  RAISE NOTICE 'C4_HR_NEGATIVE_MATRIX=PASS 20/20 expected_denials; positive_scope=PASS';
+  RAISE NOTICE 'C4_HR_NEGATIVE_MATRIX=PASS 20/20 expected_denials';
 END
 $c4_negative$;
 ROLLBACK;
