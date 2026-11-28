@@ -63,7 +63,7 @@ LOCS="filesystem:$MIG_LOC,filesystem:$VEN_LOC"
 # control-plane ACL) + V20261118_2 (access_capabilities control-plane ACL)
 # advance the watermark 20261117.2 -> 20261118.2. Recorded per watermark
 # policy; no silent value bump.
-EXPECTED_HEAD="20261118.2"
+EXPECTED_HEAD="20261124.3"
 ART="${SEP_ARTIFACTS:-/tmp/separation-cert-artifacts}"
 # Evidence must be isolated to this run; never follow an existing symlink
 # or overwrite previous certification evidence on a reused host.
@@ -90,7 +90,7 @@ on_exit() {
   local status=$?
   trap - EXIT
   # S1 can exit before its normal unset; clear Flyway credentials on all exits.
-  unset FLYWAY_PASSWORD
+  unset FLYWAY_PASSWORD SEP_CTX_KEY
   if [ "$status" -ne 0 ]; then
     # A failure can occur before provisioning; do not claim resources exist.
     printf 'EXIT_STATUS=%s\nAUTO_CLEANUP_ON_FAILURE=SKIPPED\nRESOURCE_EXISTENCE=UNVERIFIED\n' "$status" >> "$SUMMARY"
@@ -277,9 +277,28 @@ gate S1 "Flyway migrate + validate as sanad_migrator (expect head $EXPECTED_HEAD
 # CLI arguments (which may be visible in process listings and scanner matches).
 : "${SEP_MIG_PW:?SEP_MIG_PW must be supplied from the isolated test secret store}"
 # Scope the secret to each Flyway child; never export it in the parent shell.
+# Separated topology demands explicit operator key provisioning before enforcement.
+command -v openssl >/dev/null 2>&1 || die S1 "openssl missing for operator key"
 env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
-  -user=sanad_migrator \
-  -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 || die S1 "migrate failed (see $ART/S1-migrate.log)"
+  -user=sanad_migrator -locations="$LOCS" -target=20261124.1 migrate > "$ART/S1-stage-migrate.log" 2>&1 \
+  || die S1 "staged migration through V20261124_1 failed"
+[ "$(admin postgres "$SEP_DB" "SELECT version FROM flyway_schema_history WHERE success=true AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1")" = "20261124.1" ] \
+  || die S1 "migration stage did not stop at the operator boundary"
+SEP_CTX_KEY="$(openssl rand -hex 32)" || die S1 "key generation failed"
+[ "${#SEP_CTX_KEY}" = 64 ] || die S1 "invalid key length"
+env -u PGOPTIONS SANAD_TENANT_CTX_HMAC_KEY="$SEP_CTX_KEY" PGPASSWORD="$SEP_MIG_PW" \
+  psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad_migrator -d "$SEP_DB" \
+  -v ON_ERROR_STOP=1 -f "$SEP_REPO/scripts/ops/tenant-ctx/provision-ctx-key.sql" \
+  > "$ART/S1-key-provision.log" 2>&1 || die S1 "operator HMAC key provisioning failed"
+env -u PGOPTIONS PGPASSWORD="$SEP_MIG_PW" \
+  psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad_migrator -d "$SEP_DB" \
+  -v ON_ERROR_STOP=1 -c "INSERT INTO public.platform_ctx_enforce (flag, enabled_by) VALUES ('ON', 'separation-cert:operator') ON CONFLICT (flag) DO NOTHING" \
+  > "$ART/S1-enforce-approval.log" 2>&1 || die S1 "operator enforcement approval failed"
+[ "$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.platform_tenant_ctx_keys WHERE status='ACTIVE'")" = 1 ] || die S1 "ACTIVE key precondition failed"
+[ "$(admin postgres "$SEP_DB" "SELECT count(*) FROM public.platform_ctx_enforce WHERE flag='ON'")" = 1 ] || die S1 "enforcement flag precondition failed"
+env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
+  -user=sanad_migrator -locations="$LOCS" migrate > "$ART/S1-migrate.log" 2>&1 \
+  || die S1 "post-operator migration failed (see S1-migrate.log)"
 env FLYWAY_PASSWORD="$SEP_MIG_PW" "$SEP_FLYWAY" -url="jdbc:postgresql://$SEP_PGHOST:$SEP_PGPORT/$SEP_DB" \
   -user=sanad_migrator \
   -locations="$LOCS" validate > "$ART/S1-validate.log" 2>&1 || die S1 "validate failed"
