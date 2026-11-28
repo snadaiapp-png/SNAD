@@ -836,13 +836,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # tenant_subscriptions is fail-closed FORCE RLS (V20261029_1): the
-          # verification read runs under the owning tenant's transaction-local
-          # scope (SET LOCAL dies with the statement's transaction).
+          # tenant_subscriptions is fail-closed FORCE RLS (V20261029_1 +
+          # V20261124_2): the verification read runs inside a transaction
+          # bound through the documented fixture-key HMAC protocol — the raw
+          # app.tenant_id session GUC is no longer trusted by the enforced
+          # policies (they read public.app_tenant_ctx_text()).
           state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
-            "BEGIN; SELECT set_config('app.tenant_id', '${SANAD_CONTROL_PLANE_TENANT_ID}', true); SELECT status || '|' || plan_id::text || '|' || plan_version_id::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'; COMMIT;" \
-            | tail -n1)"
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -X -qAt \
+            -v ON_ERROR_STOP=1 \
+            -v "fixture_tenant=${SANAD_CONTROL_PLANE_TENANT_ID}" <<SQL
+          BEGIN;
+          SELECT public.app_bind_tenant_ctx(
+            :'fixture_tenant'::uuid,
+            encode(hmac(
+              convert_to(:'fixture_tenant' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+              decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex'))
+          \gset
+          \if :app_bind_tenant_ctx
+          SELECT status || '|' || plan_id::text || '|' || plan_version_id::text
+            FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID';
+          \else
+          SELECT 1 / 0;
+          \endif
+          ROLLBACK;
+          SQL
+          )"
           test "$state" = "ACTIVE|33333333-3333-4333-8333-333333333333|33333333-3333-4333-8333-333333333334"
 
       - name: Start Spring Boot backend

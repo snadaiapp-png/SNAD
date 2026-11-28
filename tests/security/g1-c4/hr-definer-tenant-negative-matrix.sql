@@ -71,12 +71,13 @@ BEGIN
   -- G1 signed-context contract (V20261124_1/_2): the scope checker reads the
   -- HMAC-validated public.app_tenant_ctx_text() — a raw session GUC no longer
   -- authorizes anything (it would read as caller tenant <none> and fail the
-  -- positive control). Bind the positive tenant through the documented
-  -- fixture-key protocol (repository-published for disposable topologies
-  -- only; EXECUTE on the bind protocol is granted to the sanad runtime role).
+  -- positive control). Bind the positive tenant through the OPERATOR-PROVISIONED
+  -- per-run key passed by the CI wrapper (-v operator_key=...) — the documented
+  -- separated-topology operator flow. EXECUTE on the bind protocol is granted
+  -- to the sanad runtime role.
   v_mac := encode(hmac(
       convert_to(tenant_a::text || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
-      decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex');
+      decode(:'operator_key', 'hex'), 'sha256'), 'hex');
   IF NOT public.app_bind_tenant_ctx(tenant_a, v_mac)
      OR public.app_tenant_ctx_text() IS DISTINCT FROM tenant_a::text THEN
     RAISE EXCEPTION 'C4_POSITIVE_SIGNED_BIND_REFUSED' USING ERRCODE='42501';

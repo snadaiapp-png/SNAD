@@ -240,8 +240,18 @@ jobs:
           # separation_cert DB. Never point this negative matrix at production.
           test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d separation_cert -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = 'sanad_migrator'
           test "$(sudo -u postgres psql -X -At -v ON_ERROR_STOP=1 -d postgres -c "SELECT count(*) FROM pg_database WHERE datistemplate=false AND datname NOT IN ('postgres','separation_cert')")" = '0'
+          # Operator-provisioned ACTIVE signing key for this disposable cert
+          # DB — the documented separated-topology operator flow (per-run
+          # random key, never the published fixture key). V20261124_2 on the
+          # separation topology auto-provisions NOTHING: the matrix positive
+          # control binds through this operator key.
+          C4_OPERATOR_KEY="$(openssl rand -hex 32)"
+          sudo -u postgres psql -X -v ON_ERROR_STOP=1 -d separation_cert \
+            -v op_key="$C4_OPERATOR_KEY" \
+            -c "INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status) VALUES ('c4-matrix-operator', decode(:'op_key', 'hex'), 'ACTIVE') ON CONFLICT (key_id) DO UPDATE SET status = 'ACTIVE', retired_at = NULL, secret = EXCLUDED.secret"
           sudo -u postgres psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose \
             -d separation_cert \
+            -v operator_key="$C4_OPERATOR_KEY" \
             -f tests/security/g1-c4/hr-definer-tenant-negative-matrix.sql \
             > /tmp/c4-catalog-artifacts/hr-tenant-negative-matrix.log 2>&1 || {
               cat /tmp/c4-catalog-artifacts/hr-tenant-negative-matrix.log
