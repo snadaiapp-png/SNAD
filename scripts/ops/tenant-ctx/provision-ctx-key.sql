@@ -55,7 +55,7 @@ SELECT length($1) >= 64
    AND $1 ~ '^[0-9a-fA-F]{64,}$'
    AND lower($1) <> '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
    AS key_ok
-\bind :'ctx_key'
+\bind :ctx_key
 \gset
 
 \if :key_ok
@@ -74,7 +74,7 @@ INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status)
 SELECT 'ctx-hmac-' || to_char(now(), 'YYYYMMDDHH24MI'), decode($1, 'hex'), 'ACTIVE'
  WHERE NOT EXISTS (SELECT 1 FROM public.platform_tenant_ctx_keys
                     WHERE secret = decode($1, 'hex') AND status = 'ACTIVE')
-\bind :'ctx_key'
+\bind :ctx_key
 \g
 
 -- Rotation summary — key material is never printed.
