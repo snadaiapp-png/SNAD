@@ -89,15 +89,11 @@ class CustomerMasterSecurityIntegrationTest {
         // tenant's row, so each existence probe re-applies its own tenant
         // context first (last-set GUC wins on the single @Transactional
         // connection) — otherwise the cross-tenant row reads as absent.
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantA.tenantId().toString());
+        bindSignedTenant(tenantA.tenantId());
         String sourceStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantB.tenantId().toString());
+        bindSignedTenant(tenantB.tenantId());
         String targetStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantB.tenantId()).addValue("id", foreignTarget), String.class);
@@ -110,15 +106,17 @@ class CustomerMasterSecurityIntegrationTest {
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
         Instant now = Instant.now();
+        // The test transaction can acquire its JDBC connection here. Establish
+        // an authenticated tenant principal before the first database operation.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
+        bindSignedTenant(tenantId);
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         // This @Transactional fixture must set the trusted tenant context on the
         // same transaction-bound JDBC connection before writing FORCE-RLS users.
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        bindSignedTenant(tenantId);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM Security User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
@@ -155,9 +153,7 @@ class CustomerMasterSecurityIntegrationTest {
         // GUC pointing at the most recent tenant, so the context MUST be
         // re-applied for THIS account's tenant immediately before the insert,
         // otherwise the fail-closed WITH CHECK rejects the row.
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, fixture.tenantId().toString());
+        bindSignedTenant(fixture.tenantId());
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
@@ -165,6 +161,20 @@ class CustomerMasterSecurityIntegrationTest {
                 p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
                         .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
+    }
+
+    private void bindSignedTenant(UUID tenantId) {
+        // CI's disposable PostgreSQL migration fixture provides the documented
+        // test HMAC key. This is never a production signing shortcut.
+        Boolean accepted = jdbc.getJdbcTemplate().queryForObject("""
+                SELECT public.app_bind_tenant_ctx(?::uuid, encode(hmac(
+                    convert_to(? || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+                    decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex'))
+                """, Boolean.class, tenantId.toString(), tenantId.toString());
+        org.assertj.core.api.Assertions.assertThat(accepted).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                jdbc.getJdbcTemplate().queryForObject("SELECT public.app_tenant_ctx_text()", String.class))
+                .isEqualTo(tenantId.toString());
     }
 
     private Authentication auth(Fixture fixture) {
