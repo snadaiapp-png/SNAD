@@ -101,6 +101,29 @@ flyway_migrate() { # flyway_migrate <db> <logfile>
     -locations="$LOCS" migrate > "$2" 2>&1
 }
 
+
+# Operator change-window (documented separated-topology flow): the migration
+# chain pauses after V20261124.1 (tables + protocol functions exist, enforcement
+# not yet armed). The operator provisions a per-run ACTIVE signing key and the
+# enforcement flag, then the chain resumes. Flyway credentials stay in env;
+# the key value never appears in CLI arguments or logs (stdin psql vars only).
+provision_separated_change_window() { # provision_separated_change_window <db> <logfile>
+  env FLYWAY_PASSWORD="$MIG_PW" "$S10_FLYWAY" -url="jdbc:postgresql://$S10_PGHOST:$S10_PGPORT/$1" \
+    -user=sanad_migrator -connectRetries=10 \
+    -locations="$LOCS" -target=20261124.1 migrate >> "$2" 2>&1 || return 1
+  local op_key
+  op_key="$(openssl rand -hex 32)"
+  $S10_ADMIN_PSQL -X -v ON_ERROR_STOP=1 -d "$1" -v op_key="$op_key" <<'S10SQL'
+  INSERT INTO public.platform_tenant_ctx_keys (key_id, secret, status)
+  VALUES ('s10-operator', decode(:'op_key', 'hex'), 'ACTIVE')
+  ON CONFLICT (key_id) DO UPDATE
+    SET status = 'ACTIVE', retired_at = NULL, secret = EXCLUDED.secret;
+  INSERT INTO public.platform_ctx_enforce (flag, enabled_at, enabled_by)
+  VALUES ('ON', now(), 's10-operator-change-window')
+  ON CONFLICT (flag) DO NOTHING;
+S10SQL
+}
+
 grant_auditor() { # per-DB read-only audit grants (isolated rehearsal only)
   admin postgres "$1" "GRANT USAGE ON SCHEMA public TO sanad_release_auditor;
 GRANT SELECT ON TABLE public.flyway_schema_history TO sanad_release_auditor;" >/dev/null || {
@@ -132,7 +155,8 @@ echo "GATE [S10] 7-case protected-deployment gate self-test (isolated cluster on
 # --- Case 1: separated (positive control) ------------------------------------
 C1=s10_case_separated
 fresh_db "$C1" separated
-if flyway_migrate "$C1" "$S10_ARTIFACTS/case1-flyway.log"; then
+if provision_separated_change_window "$C1" "$S10_ARTIFACTS/case1-flyway.log" \
+   && flyway_migrate "$C1" "$S10_ARTIFACTS/case1-flyway.log"; then
   grant_auditor "$C1"
   if run_gate "$C1" "$S10_ARTIFACTS/case1-gate.log"; then
     case_result CASE_1_SEPARATED "GATE_PASS" "GATE_PASS" "full chain + gate PASS on separated topology"
@@ -220,7 +244,8 @@ fi
 # --- Case 7: inherited privilege bypass (hostile grant to a member role) ------
 C7=s10_case_inherited_bypass
 fresh_db "$C7" separated
-if flyway_migrate "$C7" "$S10_ARTIFACTS/case7-flyway.log"; then
+if provision_separated_change_window "$C7" "$S10_ARTIFACTS/case7-flyway.log" \
+   && flyway_migrate "$C7" "$S10_ARTIFACTS/case7-flyway.log"; then
   grant_auditor "$C7"
   if run_gate "$C7" "$S10_ARTIFACTS/case7-gate-baseline.log"; then
     baseline=PASS
