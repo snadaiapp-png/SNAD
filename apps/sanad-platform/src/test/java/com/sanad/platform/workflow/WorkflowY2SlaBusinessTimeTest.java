@@ -50,6 +50,9 @@ class WorkflowY2SlaBusinessTimeTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private com.sanad.platform.security.rls.TenantRlsTransactionContext signedTenantContext;
+
     private UUID tenantId;
     private UUID userId;
     private UUID definitionId;
@@ -65,10 +68,11 @@ class WorkflowY2SlaBusinessTimeTest {
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
 
-        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
-                        + "VALUES (?, 'Y2 SLA Modes', ?, 'ACTIVE', ?, ?)",
-                tenantId, "y2-sla-" + tenantId.toString().substring(0, 8), now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+        com.sanad.platform.security.rls.TenantRlsPreAuthScope.run(() ->
+                jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
+                                + "VALUES (?, 'Y2 SLA Modes', ?, 'ACTIVE', ?, ?)",
+                        tenantId, "y2-sla-" + tenantId.toString().substring(0, 8), now, now));
+        signedTenantContext.applyForCurrentTransaction(tenantId);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Y2 SLA User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "y2-sla-" + userId.toString().substring(0, 8) + "@test", now, now);
