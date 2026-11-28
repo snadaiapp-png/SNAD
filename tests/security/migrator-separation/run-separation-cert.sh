@@ -114,8 +114,30 @@ runtime_capture() { # runtime_capture <db> <sql> [tenant_guc]
   fi
   # Never inherit an ambient PGOPTIONS tenant context into an unset-GUC probe.
   # Explicit tenant probes supply their own controlled PGOPTIONS value.
-  runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
-       -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
+  if [ $# -ge 3 ] && [ -n "$3" ] && [ "$3" != "__EMPTY_GUC__" ]; then
+    # The certification harness represents the trusted application signer.
+    # Bind the per-transaction HMAC through psql protocol parameters; never
+    # put the secret in the query, process argv, runtime role, or evidence log.
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE \
+      SANAD_TENANT_CTX_HMAC_KEY="$SEP_CTX_KEY" PGPASSWORD="$SEP_RUN_PW" \
+      psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -At 2>"$ART/last-err.txt" <<SQL | sed '/^BEGIN$/d; /^COMMIT$/d'
+\getenv ctx_key SANAD_TENANT_CTX_HMAC_KEY
+BEGIN;
+SELECT public.app_bind_tenant_ctx('$3'::uuid, encode(hmac(
+  convert_to('$3' || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+  decode(\$1, 'hex'), 'sha256'), 'hex')) AS bound
+\bind :'ctx_key'
+\gset
+$2;
+COMMIT;
+SQL
+    )
+  else
+    runtime_out=$(env -u PGOPTIONS -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE PGPASSWORD="$SEP_RUN_PW" "${guc_args[@]}" \
+      psql -X -h "$SEP_PGHOST" -p "$SEP_PGPORT" -U sanad -d "$1" \
+        -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAtc "$2" 2>"$ART/last-err.txt")
+  fi
   runtime_rc=$?
   runtime_err=$(cat "$ART/last-err.txt")
   # VERBOSITY=verbose emits "ERROR:  42501: ..."; whitespace varies.
@@ -402,8 +424,8 @@ TB=33333333-3333-3333-3333-333333333333
 UA=44444444-4444-4444-4444-444444444444
 UB=55555555-5555-5555-5555-555555555555
 admin postgres "$SEP_DB" "INSERT INTO public.tenants (id,name,subdomain,status,created_at,updated_at) VALUES ('$TA','Tenant A','sepa','ACTIVE',now(),now()), ('$TB','Tenant B','sepb','ACTIVE',now(),now())" >/dev/null || die S4 "tenant seeding"
-admin postgres "$SEP_DB" "SET app.tenant_id='$TA'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
-admin postgres "$SEP_DB" "SET app.tenant_id='$TB'; INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
+admin postgres "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UA','$TA','a@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user A seeding"
+admin postgres "$SEP_DB" "INSERT INTO public.users (id,tenant_id,email,status,created_at,updated_at) VALUES ('$UB','$TB','b@sepcert.test','ACTIVE',now(),now())" >/dev/null || die S4 "user B seeding"
 expect_value S4_A_SEES_A "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UA'" "1" "$TA"
 expect_value S4_A_CANNOT_SEE_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "0" "$TA"
 expect_value S4_B_SEES_B "$SEP_DB" "SELECT count(*) FROM public.users WHERE id='$UB'" "1" "$TB"
