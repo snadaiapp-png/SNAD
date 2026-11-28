@@ -1,5 +1,7 @@
 package com.sanad.platform.workflow.experience;
 
+import com.sanad.platform.security.rls.TenantRlsPreAuthScope;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.workflow.application.WorkflowJourneyService;
 import com.sanad.platform.workflow.application.WorkflowNotificationService;
 import org.slf4j.Logger;
@@ -37,6 +39,7 @@ public class WorkflowTimerNotificationWorker {
     private final JdbcTemplate jdbc;
     private final WorkflowNotificationService notifications;
     private final WorkflowJourneyService journeyService;
+    private final TenantRlsTransactionContext tenantScope;
     private final boolean enabled;
     private final long reminderWindowHours;
     private final long warningWindowHours;
@@ -45,6 +48,7 @@ public class WorkflowTimerNotificationWorker {
             JdbcTemplate jdbc,
             WorkflowNotificationService notifications,
             WorkflowJourneyService journeyService,
+            TenantRlsTransactionContext tenantScope,
             @Value("${sanad.workflow.timer-notification.enabled:true}") boolean enabled,
             @Value("${sanad.workflow.timer-notification.reminder-window-hours:72}")
             long reminderWindowHours,
@@ -53,6 +57,7 @@ public class WorkflowTimerNotificationWorker {
         this.jdbc = jdbc;
         this.notifications = notifications;
         this.journeyService = journeyService;
+        this.tenantScope = tenantScope;
         this.enabled = enabled;
         this.reminderWindowHours = Math.max(1, reminderWindowHours);
         this.warningWindowHours = Math.max(1, warningWindowHours);
@@ -78,18 +83,25 @@ public class WorkflowTimerNotificationWorker {
     @Transactional
     public int runScan() {
         int enqueued = 0;
-        // scanTenant re-scopes app.tenant_id per tenant (is_local last-wins).
+        // G1 F-INT-03 (REV3): the scheduled tick runs WITHOUT an authenticated
+        // principal, so the tenant-registry probe and the ACTIVE-tenant scan
+        // are infrastructure reads — explicitly classified via PreAuthScope
+        // (the strict handler rejects unclassified context-less statements).
+        // Tenant-data reads inside scanTenant bind the HMAC-SIGNED context per
+        // tenant through TenantRlsTransactionContext (the production protocol,
+        // last call wins). No raw GUC write remains on this path.
         // When invoked inside a CALLER-managed transaction (tests, control
         // flows) that ambient scope must survive the loop — save it first and
         // restore it after, so the caller's RLS context is never left pointing
         // at an unrelated tenant.
-        String callerScope = jdbc.queryForObject(
-                "SELECT current_setting('app.tenant_id', true)", String.class);
-        List<UUID> tenants = jdbc.queryForList(
+        String callerScope = TenantRlsPreAuthScope.call(() -> jdbc.queryForObject(
+                "SELECT current_setting('app.tenant_id', true)", String.class));
+        List<UUID> tenants = TenantRlsPreAuthScope.call(() -> jdbc.queryForList(
                 "SELECT id FROM tenants WHERE status = 'ACTIVE' ORDER BY id LIMIT ?",
-                UUID.class, MAX_TENANTS_PER_TICK);
+                UUID.class, MAX_TENANTS_PER_TICK));
         for (UUID tenantId : tenants) {
             try {
+                tenantScope.applyForCurrentTransaction(tenantId);
                 enqueued += scanTenant(tenantId);
                 enqueued += scanExpiringExternalActions(tenantId);
             } catch (Exception e) {
@@ -97,9 +109,8 @@ public class WorkflowTimerNotificationWorker {
                         tenantId, e.getMessage());
             }
         }
-        if (callerScope != null) {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, callerScope);
+        if (callerScope != null && !callerScope.isBlank()) {
+            tenantScope.applyForCurrentTransaction(UUID.fromString(callerScope));
         }
         return enqueued;
     }
@@ -108,13 +119,12 @@ public class WorkflowTimerNotificationWorker {
     private int scanTenant(UUID tenantId) {
         int enqueued = 0;
         // Recipient resolution reads hr_employees, which is FORCE RLS
-        // (fail-closed): establish the transaction-local tenant GUC exactly
-        // like the platform seeding path. workflow_* tables are non-FORCE
-        // RLS and unaffected for the schema owner; the GUC is re-established
-        // per tenant so a multi-tenant scan can never leak hr rows across
-        // tenants.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
+        // (fail-closed): the SIGNED context was bound for this tenant by the
+        // runScan loop via TenantRlsTransactionContext (G1 F-INT-03 — the raw
+        // GUC is untrusted after V20261124_2). workflow_* tables are
+        // non-FORCE RLS and unaffected for the schema owner; the binding is
+        // re-established per tenant so a multi-tenant scan can never leak hr
+        // rows across tenants.
         List<Map<String, Object>> timers = jdbc.queryForList("""
                 SELECT id, state, policy, due_at, breached_at, workflow_instance_id,
                        work_item_id, external_action_id, correlation_id

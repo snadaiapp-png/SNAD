@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -10,14 +11,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.UUID;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class CrmG1TenantIsolationPostgresTest {
 
@@ -74,7 +72,7 @@ class CrmG1TenantIsolationPostgresTest {
         // a no-op on autoCommit, leaving the GUC unset and triggering FORCE RLS
         // rejection on crm_contacts (V20260823_1).
         transactions.executeWithoutResult(s -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            bindSignedTenant(jdbc, tenantA);
             jdbc.update("""
                     INSERT INTO crm_accounts (
                         id, tenant_id, version, display_name, normalized_name, account_type,
@@ -94,7 +92,7 @@ class CrmG1TenantIsolationPostgresTest {
         assertThatThrownBy(() -> transactions.executeWithoutResult(s2 -> {
             // Cross-tenant INSERT attempt: tenantB lookup pointing at tenantA's
             // contact — must be rejected by the composite-key FK constraint.
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
+            bindSignedTenant(jdbc, tenantB);
             jdbc.update("""
                     INSERT INTO crm_contact_lookup_index (
                         id, tenant_id, contact_id, version, normalized_phone,
@@ -116,7 +114,7 @@ class CrmG1TenantIsolationPostgresTest {
         // and the subsequent verification SELECT.
         UUID sameTenantLookupId = UUID.randomUUID();
         transactions.executeWithoutResult(s -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            bindSignedTenant(jdbc, tenantA);
             jdbc.update("""
                     INSERT INTO crm_contact_lookup_index (
                         id, tenant_id, contact_id, version, normalized_phone,
@@ -133,17 +131,33 @@ class CrmG1TenantIsolationPostgresTest {
         // run inside tenant-scoped transactions — tenantA must see its own
         // row and tenantB must still see nothing.
         transactions.executeWithoutResult(s -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            bindSignedTenant(jdbc, tenantA);
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE id=? AND tenant_id=? AND contact_id=?",
                     Long.class, sameTenantLookupId, tenantA, contactA)).isOne();
         });
         transactions.executeWithoutResult(s -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
+            bindSignedTenant(jdbc, tenantB);
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE tenant_id=? AND contact_id=?",
                     Long.class, tenantB, contactA)).isZero();
         });
+    }
+
+    /**
+     * Use the documented disposable migration fixture signer, never the raw
+     * app.tenant_id GUC. The caller owns the Spring-managed SQL transaction.
+     * The database verifies both the MAC and the active transaction slot.
+     */
+    private static void bindSignedTenant(JdbcTemplate jdbc, UUID tenantId) {
+        Boolean accepted = jdbc.queryForObject("""
+                SELECT public.app_bind_tenant_ctx(?::uuid, encode(hmac(
+                    convert_to(? || ':' || txid_current()::text || ':' || pg_backend_pid()::text, 'UTF8'),
+                    decode(repeat('0123456789abcdef', 4), 'hex'), 'sha256'), 'hex'))
+                """, Boolean.class, tenantId.toString(), tenantId.toString());
+        assertThat(accepted).isTrue();
+        assertThat(jdbc.queryForObject("SELECT public.app_tenant_ctx_text()", String.class))
+                .isEqualTo(tenantId.toString());
     }
 
     private void insertTenant(JdbcTemplate jdbc, UUID id, String name, String subdomain) {

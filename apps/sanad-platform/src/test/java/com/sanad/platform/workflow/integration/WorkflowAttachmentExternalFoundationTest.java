@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow.application;
 
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.storage.PlatformFileReferenceService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.within;
 class WorkflowAttachmentExternalFoundationTest {
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
     @Autowired private PlatformFileReferenceService fileReferences;
     @Autowired private WorkflowAttachmentService attachments;
     @Autowired private WorkflowExternalActionService externalActions;
@@ -54,9 +56,7 @@ class WorkflowAttachmentExternalFoundationTest {
      * platform_files are FORCE RLS — V20261029_1). */
     private void seedInTenant(UUID tenantId, Runnable write) {
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             write.run();
         });
     }
@@ -93,9 +93,7 @@ class WorkflowAttachmentExternalFoundationTest {
 
     private <T> T seedInTenantResult(UUID tenantId, java.util.function.Supplier<T> action) {
         return tx.execute(status -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return action.get();
         });
     }
@@ -127,9 +125,7 @@ class WorkflowAttachmentExternalFoundationTest {
         // Wrap in tx so set_config + DELETE share the tx-bound connection.
         for (UUID tenantId : tenantsToDelete) {
             tx.executeWithoutResult(txStatus -> {
-                jdbc.queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                signedTenantContext.applyForCurrentTransaction(tenantId);
                 jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
         }
@@ -158,9 +154,7 @@ class WorkflowAttachmentExternalFoundationTest {
         // scopes the GUC to this transaction only — no session-level leak.
         // set_config uses JDBC prepared parameter ? for the tenant value.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) "
                     + "VALUES (?, ?, ?, 'AEF User', 'ACTIVE', 'x', NOW(), NOW())", userId, tenantId,
                     "r1aef-" + userId + "@test");

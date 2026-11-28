@@ -58,11 +58,19 @@ sanad:
   # Row-Level Security — enabled in local profile now that PostgreSQL Direct
   # is the backend runtime. FORCE RLS + fail-closed policies are exercised
   # under their real semantics. Tests that need to write to FORCE-RLS tables
-  # must establish a transaction-local tenant GUC via TenantRlsTransactionContext
-  # or set SecurityContextHolder so TenantRlsConnectionHandler applies
-  # SET LOCAL app.tenant_id automatically.
+  # must establish a SIGNED transaction-local tenant context via
+  # TenantRlsTransactionContext or set SecurityContextHolder so
+  # TenantRlsConnectionHandler executes the signed binding protocol
+  # (app_tenant_ctx_slot -> HMAC mint -> app_bind_tenant_ctx) automatically.
+  # G1 F-INT-05: the local profile declares the DISPOSABLE fixture topology
+  # explicitly; the documented fixture key is only used when no explicit
+  # SANAD_TENANT_CTX_HMAC_KEY is configured. Production (prod profile) never
+  # falls back to these settings — see TenantRlsSecurityConfig.
   rls:
     enabled: true
+    deployment-topology: ${SANAD_DEPLOYMENT_TOPOLOGY:migration-fixture}
+    context-hmac-key: ${SANAD_TENANT_CTX_HMAC_KEY:}
+    strict-missing-context: ${SNAD_RLS_STRICT_MISSING_CONTEXT:true}
 
 logging:
   level:

@@ -4,6 +4,7 @@ import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.party.application.AccountUseCases;
 import com.sanad.platform.crm.party.domain.AccountRepository.*;
 import org.junit.jupiter.api.AfterEach;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,9 @@ class AccountUseCasesIntegrationTest {
     @Autowired
     PlatformTransactionManager txManager;
 
+    @Autowired
+    TenantRlsTransactionContext signedTenantContext;
+
     private final List<UUID> committedTenants = new ArrayList<>();
 
     @AfterEach
@@ -52,9 +56,7 @@ class AccountUseCasesIntegrationTest {
             new TransactionTemplate(txManager) {{
                 setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
             }}.executeWithoutResult(status -> {
-                jdbc.getJdbcTemplate().queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                signedTenantContext.applyForCurrentTransaction(tenantId);
                 var p = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId);
                 jdbc.update("DELETE FROM crm_timeline_events WHERE tenant_id = :t", p);
                 jdbc.update("DELETE FROM crm_accounts WHERE tenant_id = :t", p);

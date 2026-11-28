@@ -64,6 +64,27 @@ sanad:
     # CRM-032 HIGH-01: Production encryption key is REQUIRED.
     # ProductionSecurityGuard validates this is not the test default.
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
+  # Row-Level Security signed tenant-context binding (V20261124_1/V20261124_2
+  # contract — G1 F-INT-01/03/04/05). The prod profile declares NO defaults:
+  #
+  #   * snad.rls.deployment-topology MUST be set explicitly by the deployment
+  #     (SANAD_DEPLOYMENT_TOPOLOGY=separated for the production path). An
+  #     UNSET topology under the prod profile is an explicit STARTUP FAILURE —
+  #     a production deployment must never fall back to test/fixture settings
+  #     or to the repository-published fixture key (TenantRlsSecurityConfig).
+  #   * snad.rls.context-hmac-key MUST be provisioned from the environment
+  #     (SANAD_TENANT_CTX_HMAC_KEY, hex, >= 32 bytes) matching the ACTIVE key
+  #     row the operator installed into platform_tenant_ctx_keys via
+  #     scripts/ops/tenant-ctx/provision-ctx-key.sql. Missing or
+  #     fixture-equal keys refuse startup.
+  #   * snad.rls.strict-missing-context stays STRICT (true). Disabling it on
+  #     the production path requires the full governance triple
+  #     (governance-approved=true + approved-by + change-record) — startup
+  #     is refused otherwise (F-INT-06).
+  rls:
+    enabled: true
+    deployment-topology: ${SANAD_DEPLOYMENT_TOPOLOGY:}
+    context-hmac-key: ${SANAD_TENANT_CTX_HMAC_KEY:}
 
 spring:
   main:

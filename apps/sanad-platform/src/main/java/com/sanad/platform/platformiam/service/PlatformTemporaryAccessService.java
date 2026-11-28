@@ -33,22 +33,25 @@ public class PlatformTemporaryAccessService {
     private final PlatformUserService users;
     private final PlatformAuditService audit;
     private final Clock clock;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope;
 
     @Autowired
     public PlatformTemporaryAccessService(JdbcTemplate jdbc, ControlPlaneAccessGuard controlPlane,
-            PlatformAuthorizationService authorization, PlatformUserService users, PlatformAuditService audit) {
-        this(jdbc, controlPlane, authorization, users, audit, Clock.systemUTC());
+            PlatformAuthorizationService authorization, PlatformUserService users, PlatformAuditService audit,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
+        this(jdbc, controlPlane, authorization, users, audit, Clock.systemUTC(), tenantScope);
     }
 
     public PlatformTemporaryAccessService(JdbcTemplate jdbc, ControlPlaneAccessGuard controlPlane,
             PlatformAuthorizationService authorization, PlatformUserService users, PlatformAuditService audit,
-            Clock clock) {
+            Clock clock, com.sanad.platform.security.rls.TenantRlsTransactionContext tenantScope) {
         this.jdbc = jdbc;
         this.controlPlane = controlPlane;
         this.authorization = authorization;
         this.users = users;
         this.audit = audit;
         this.clock = clock;
+        this.tenantScope = java.util.Objects.requireNonNull(tenantScope, "tenantScope");
     }
 
     @Transactional(readOnly = true)
@@ -122,7 +125,8 @@ public class PlatformTemporaryAccessService {
         UUID tenantId = identity(actor, "tenant_id");
         identity(actor, "user_id");
         // Transaction-local context derives exclusively from the validated control-plane identity.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        // G1 REV3 — signed binding protocol; the raw GUC is untrusted after V20261124_2.
+        tenantScope.applyForCurrentTransaction(tenantId);
         var decision = authorization.evaluate(actor, capability);
         if (decision == null || !decision.allowed()) throw new AccessDeniedException("Platform capability required");
         return tenantId;

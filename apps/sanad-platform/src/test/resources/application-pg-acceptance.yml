@@ -44,13 +44,25 @@ spring:
     clean-disabled: true
     validate-on-migrate: true
     out-of-order: false
+    # Dedicated UNWRAPPED migration channel (G1 F-INT fix): Flyway never runs
+    # through the TenantRlsDataSource-wrapped pool. Points at the SAME
+    # dedicated acceptance database — never the production database
+    # (PgAcceptanceDatabaseGuard still aborts on production targets).
+    url: ${SANAD_FLYWAY_URL:${PG_ACCEPTANCE_JDBC_URL:}}
+    user: ${SANAD_FLYWAY_USERNAME:${PG_ACCEPTANCE_USERNAME:}}
+    password: ${SANAD_FLYWAY_PASSWORD:${PG_ACCEPTANCE_PASSWORD:}}
 
 
 # RLS is ENABLED for the pg-acceptance profile so that
 # TenantRlsDataSourcePostProcessor wraps the DataSource and
-# TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+# TenantRlsConnectionHandler binds the HMAC-SIGNED tenant context
 # inside @Transactional service boundaries (the canonical RLS
-# pattern used by all production code paths).
+# pattern used by all production code paths — app_tenant_ctx_slot
+# -> HMAC mint -> app_bind_tenant_ctx per the V20261124_1 contract).
+# G1 F-INT-05: this DISPOSABLE test topology is declared explicitly;
+# it uses the documented fixture key (provisioned automatically by
+# V20261124_2 on migration-fixture topologies) and is NEVER
+# production evidence.
 #
 # The test class installs a tenant-aware SecurityContext
 # (via RlsTestSupport.setSecurityContext) before each
@@ -73,6 +85,9 @@ sanad:
       secret: ${JWT_SECRET:}
   rls:
     enabled: true
+    deployment-topology: ${SANAD_DEPLOYMENT_TOPOLOGY:migration-fixture}
+    context-hmac-key: ${SANAD_TENANT_CTX_HMAC_KEY:}
+    strict-missing-context: ${SNAD_RLS_STRICT_MISSING_CONTEXT:true}
   commerce:
     payment:
       # Activate SimulatedPaymentAdapter for the pg-acceptance profile

@@ -14,6 +14,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.HashMap;
@@ -30,16 +31,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>Proves the effective isolation behavior with REAL tenant rows seeded into
  * every one of the nine protected tables — not only policy metadata:
  * <ul>
- *   <li>policy metadata: forced RLS + fail-closed USING/WITH CHECK on all nine tables;</li>
- *   <li>missing and empty {@code app.tenant_id} see ZERO rows although real rows exist;</li>
- *   <li>valid context exposes exactly that tenant's rows in both directions (A vs B);</li>
+ *   <li>policy metadata: forced RLS + fail-closed USING/WITH CHECK (reading the
+ *       HMAC-validated {@code app_tenant_ctx_text()} context) on all nine tables;</li>
+ *   <li>missing and empty tenant context see ZERO rows although real rows exist;</li>
+ *   <li>a valid SIGNED context exposes exactly that tenant's rows in both
+ *       directions (A vs B);</li>
  *   <li>cross-tenant UPDATE and DELETE are silently row-filtered to zero rows;</li>
  *   <li>cross-tenant INSERT is rejected by WITH CHECK (SQLSTATE 42501);</li>
- *   <li>switching {@code app.tenant_id} inside one transaction flips visibility
+ *   <li>re-binding the signed context inside one transaction flips visibility
  *       transaction-locally and never leaks the previous tenant's rows.</li>
  * </ul>
  *
- * <p>Background jobs must set an explicit trusted tenant context; this test
+ * <p>G1 F-INT signed-context contract: after V20261124_2 the enforced policies
+ * read {@code public.app_tenant_ctx_text()} — a raw {@code app.tenant_id} write
+ * without a valid HMAC mac does NOT establish a context (that is the RT-01
+ * fail-closed guarantee). Context establishment in this test therefore runs the
+ * SAME binding protocol the application uses (slot → HMAC mint →
+ * {@code app_bind_tenant_ctx}) with the DOCUMENTED FIXTURE KEY, which matches
+ * the ACTIVE key the chain provisions on the disposable migration-fixture
+ * topology. All isolation assertions are unchanged by this harness upgrade.
+ * Background jobs must set an explicit trusted tenant context; this test
  * deliberately defines no bypass.
  */
 class CrmPostBaselineFailClosedRlsPostgresTest {
@@ -50,6 +61,13 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
     private static final String PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
     private static final String JDBC_URL = MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_URL);
+    /**
+     * Documented fixture key provisioned by V20261124_2 on the disposable
+     * migration-fixture topology (repository-published BY DESIGN; NOT
+     * production evidence).
+     */
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private static final List<String> TABLES = List.of(
             "crm_capacity_plans", "crm_cases", "crm_email_logs",
             "crm_service_assignments", "crm_shift_assignments",
@@ -93,12 +111,14 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
     /**
      * Seeds REAL rows for two distinct tenants into every one of the nine
      * protected tables through the same fail-closed policies the application
-     * uses (session-scoped {@code app.tenant_id} set per tenant, inserts flow
-     * through the WITH CHECK predicate).
+     * uses — each tenant's rows are inserted inside a SIGNED-BIND transaction
+     * (the WITH CHECK predicate validates against the HMAC-verified context).
      */
     private void seedRealTenantRows() {
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
+        // Tenant registry rows are infrastructure — the tenants table is not
+        // FORCE RLS; seeding it needs no tenant scope.
         jdbc.update("INSERT INTO public.tenants (id, name, subdomain, status, created_at, updated_at) "
                         + "VALUES (?, ?, ?, 'ACTIVE', now(), now())",
                 tenantA, "RLS-Tenant-A", "rls-tenant-a-" + tenantA);
@@ -106,8 +126,14 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
                         + "VALUES (?, ?, ?, 'ACTIVE', now(), now())",
                 tenantB, "RLS-Tenant-B", "rls-tenant-b-" + tenantB);
 
-        for (String tenant : new String[] {tenantA.toString(), tenantB.toString()}) {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenant);
+        seedTenantRows(tenantA);
+        seedTenantRows(tenantB);
+    }
+
+    private void seedTenantRows(UUID tenant) {
+        try (Connection conn = txConnection()) {
+            conn.setAutoCommit(false);
+            bindSignedTenant(conn, tenant);
             UUID staff = UUID.randomUUID();
             UUID team = UUID.randomUUID();
             UUID service = UUID.randomUUID();
@@ -115,91 +141,162 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
             UUID rowId = UUID.randomUUID();
             UUID actor = UUID.randomUUID();
 
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_shift_templates
                       (id, tenant_id, name, start_time, end_time, days_of_week,
                        created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, 'MONDAY', ?, ?, now(), now())
-                    """, templateId, UUID.fromString(tenant), "Template-" + tenant,
-                    LocalTime.of(8, 0), LocalTime.of(16, 0), actor, actor);
-            putRow("crm_shift_templates", tenant, templateId);
+                    """)) {
+                ps.setObject(1, templateId);
+                ps.setObject(2, tenant);
+                ps.setString(3, "Template-" + tenant);
+                ps.setObject(4, LocalTime.of(8, 0));
+                ps.setObject(5, LocalTime.of(16, 0));
+                ps.setObject(6, actor);
+                ps.setObject(7, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_shift_templates", templateId);
 
-            jdbc.update("""
+            rowId = UUID.randomUUID();
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_shift_assignments
                       (id, tenant_id, team_id, staff_id, shift_template_id,
                        start_date, end_date, created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), team, staff, templateId,
-                    LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actor, actor);
-            putRow("crm_shift_assignments", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, team);
+                ps.setObject(4, staff);
+                ps.setObject(5, templateId);
+                ps.setObject(6, LocalDate.of(2026, 8, 10));
+                ps.setObject(7, LocalDate.of(2026, 8, 14));
+                ps.setObject(8, actor);
+                ps.setObject(9, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_shift_assignments", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_service_assignments
                       (id, tenant_id, team_id, service_id, created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), team, service, actor, actor);
-            putRow("crm_service_assignments", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, team);
+                ps.setObject(4, service);
+                ps.setObject(5, actor);
+                ps.setObject(6, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_service_assignments", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_staff_skills
                       (id, tenant_id, staff_id, skill_name, level, proficiency,
                        created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, 'Java', 'BEGINNER', 30, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), staff, actor, actor);
-            putRow("crm_staff_skills", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, staff);
+                ps.setObject(4, actor);
+                ps.setObject(5, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_staff_skills", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_staff_availability
                       (id, tenant_id, staff_id, type, start_date, end_date,
                        created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, 'AVAILABLE', ?, ?, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), staff,
-                    LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 11), actor, actor);
-            putRow("crm_staff_availability", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, staff);
+                ps.setObject(4, LocalDate.of(2026, 8, 10));
+                ps.setObject(5, LocalDate.of(2026, 8, 11));
+                ps.setObject(6, actor);
+                ps.setObject(7, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_staff_availability", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_workload_assignments
                       (id, tenant_id, staff_id, estimated_hours, start_date,
                        created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, 40, ?, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), staff,
-                    LocalDate.of(2026, 8, 10), actor, actor);
-            putRow("crm_workload_assignments", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, staff);
+                ps.setObject(4, LocalDate.of(2026, 8, 10));
+                ps.setObject(5, actor);
+                ps.setObject(6, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_workload_assignments", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_capacity_plans
                       (id, tenant_id, team_id, period_start, period_end, max_capacity,
                        created_by, updated_by, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, 100, ?, ?, now(), now())
-                    """, rowId, UUID.fromString(tenant), team,
-                    LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31), actor, actor);
-            putRow("crm_capacity_plans", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setObject(3, team);
+                ps.setObject(4, LocalDate.of(2026, 8, 1));
+                ps.setObject(5, LocalDate.of(2026, 8, 31));
+                ps.setObject(6, actor);
+                ps.setObject(7, actor);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_capacity_plans", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_cases (id, tenant_id, subject)
                     VALUES (?, ?, ?)
-                    """, rowId, UUID.fromString(tenant), "Case-" + tenant);
-            putRow("crm_cases", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setString(3, "Case-" + tenant);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_cases", rowId);
 
             rowId = UUID.randomUUID();
-            jdbc.update("""
+            try (PreparedStatement ps = conn.prepareStatement("""
                     INSERT INTO public.crm_email_logs
                       (id, tenant_id, from_address, to_address, subject)
                     VALUES (?, ?, 'noreply@sanad.test', 'ops@sanad.test', ?)
-                    """, rowId, UUID.fromString(tenant), "Email-" + tenant);
-            putRow("crm_email_logs", tenant, rowId);
+                    """)) {
+                ps.setObject(1, rowId);
+                ps.setObject(2, tenant);
+                ps.setString(3, "Email-" + tenant);
+                ps.executeUpdate();
+            }
+            putRow(tenant, "crm_email_logs", rowId);
+
+            conn.commit();
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Seeding tenant rows under the signed context failed: " + e.getMessage(), e);
         }
-        jdbc.execute("RESET app.tenant_id");
     }
 
-    private void putRow(String table, String tenantId, UUID rowId) {
-        rowIds.computeIfAbsent(tenantId, k -> new HashMap<>()).put(table, rowId);
+    private void putRow(UUID tenantId, String table, UUID rowId) {
+        rowIds.computeIfAbsent(tenantId.toString(), k -> new HashMap<>()).put(table, rowId);
     }
 
     /** First seeded tenant id (tenant A), insertion-ordered. */
@@ -212,9 +309,104 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
         return rowIds.keySet().stream().skip(1).findFirst().orElseThrow();
     }
 
+    // ── Signed-binding harness ───────────────────────────────────────────
+
+    private Connection txConnection() throws SQLException {
+        return new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false).getConnection();
+    }
+
+    /**
+     * Executes the application-side signed binding protocol on the given
+     * connection: slot (txid/pid) → HMAC-SHA256 mint → app_bind_tenant_ctx.
+     */
+    private static void bindSignedTenant(Connection conn, UUID tenantId) throws SQLException {
+        String txid;
+        int pid;
+        try (var st = conn.createStatement();
+                var rs = st.executeQuery("SELECT ctx_txid, ctx_pid FROM public.app_tenant_ctx_slot()")) {
+            rs.next();
+            txid = rs.getString(1);
+            pid = rs.getInt(2);
+        }
+        String mac = fixtureMac(tenantId, txid, pid);
+        try (var ps = conn.prepareStatement("SELECT public.app_bind_tenant_ctx(?::uuid, ?)")) {
+            ps.setString(1, tenantId.toString());
+            ps.setString(2, mac);
+            try (var rs = ps.executeQuery()) {
+                rs.next();
+                if (!rs.getBoolean(1)) {
+                    throw new SQLException("signed bind rejected — no ACTIVE key validates the mac");
+                }
+            }
+        }
+    }
+
+    private static String fixtureMac(UUID tenantId, String txid, int pid) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(
+                    java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), "HmacSHA256"));
+            return java.util.HexFormat.of().formatHex(
+                    mac.doFinal((tenantId + ":" + txid + ":" + pid)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("fixture mac minting failed", e);
+        }
+    }
+
+    private int countInTx(Connection conn, String table) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT COUNT(*) FROM public." + table);
+                ResultSet rs = ps.executeQuery()) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
+    private int countByIdInTx(Connection conn, String table, UUID rowId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT COUNT(*) FROM public." + table + " WHERE id = ?")) {
+            ps.setObject(1, rowId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int countOwnedInTx(Connection conn, String table, String tenantId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT COUNT(*) FROM public." + table + " WHERE tenant_id::text = ?")) {
+            ps.setString(1, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    /** Seed-precondition verification read inside the owning tenant's signed context. */
+    private int countOwnedBy(String table, String tenantId) {
+        try (Connection conn = txConnection()) {
+            conn.setAutoCommit(false);
+            bindSignedTenant(conn, UUID.fromString(tenantId));
+            int owned = countOwnedInTx(conn, table, tenantId);
+            conn.rollback();
+            return owned;
+        } catch (SQLException e) {
+            throw new IllegalStateException("verification read failed: " + e.getMessage(), e);
+        }
+    }
+
+    // ── Contract tests ───────────────────────────────────────────────────
+
     @Test
     void everyTargetTableHasForcedFailClosedTenantPolicy() {
         for (String table : TABLES) {
+            // V20261124_2 expression contract: the fail-closed policy reads the
+            // HMAC-validated context (app_tenant_ctx_text) — a raw GUC without
+            // a valid mac never satisfies it. The anti-permissive guard
+            // (no IS NULL OR short-circuit) is unchanged.
             Integer policyCount = jdbc.queryForObject("""
                     SELECT COUNT(*)
                     FROM pg_policies
@@ -222,11 +414,9 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
                       AND tablename = ?
                       AND policyname = 'tenant_isolation'
                       AND cmd = 'ALL'
-                      AND qual ILIKE '%NULLIF%'
-                      AND qual ILIKE '%app.tenant_id%'
+                      AND qual ILIKE '%app_tenant_ctx_text()%'
                       AND qual NOT ILIKE '%IS NULL OR%'
-                      AND with_check ILIKE '%NULLIF%'
-                      AND with_check ILIKE '%app.tenant_id%'
+                      AND with_check ILIKE '%app_tenant_ctx_text()%'
                       AND with_check NOT ILIKE '%IS NULL OR%'
                     """, Integer.class, table);
             assertThat(policyCount).as("fail-closed USING/WITH CHECK policy for %s", table)
@@ -255,48 +445,81 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
                     .as("seed precondition: real rows exist in %s for tenant B", table)
                     .isPositive();
 
-            jdbc.execute("RESET app.tenant_id");
-            assertThat(count(table))
-                    .as("%s must deny reads when app.tenant_id is missing even though rows exist", table)
-                    .isZero();
+            // (1) no context at all — fail closed
+            try (Connection conn = txConnection()) {
+                conn.setAutoCommit(false);
+                assertThat(countInTx(conn, table))
+                        .as("%s must deny reads when no tenant context is bound even though rows exist", table)
+                        .isZero();
+                conn.rollback();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
 
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', '', false)", String.class);
-            assertThat(count(table))
-                    .as("%s must deny reads when app.tenant_id is empty even though rows exist", table)
-                    .isZero();
+            // (2) raw empty GUC without a mac — the RT-01 fail-closed guarantee
+            try (Connection conn = txConnection()) {
+                conn.setAutoCommit(false);
+                try (var st = conn.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '', true)");
+                }
+                assertThat(countInTx(conn, table))
+                        .as("%s must deny reads when app.tenant_id is empty even though rows exist", table)
+                        .isZero();
+                conn.rollback();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
+
+            // (3) raw FORGED tenant GUC without a mac — validator returns NULL
+            try (Connection conn = txConnection()) {
+                conn.setAutoCommit(false);
+                try (var st = conn.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '" + tenantA() + "', true)");
+                }
+                assertThat(countInTx(conn, table))
+                        .as("%s must deny reads under a forged raw tenant GUC without a signed mac", table)
+                        .isZero();
+                conn.rollback();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
     @Test
     void validAndSwitchedTenantContextsNeverExposeAnotherTenant() {
         for (String table : TABLES) {
-            jdbc.execute("RESET app.tenant_id");
-
-            // Under A's context: visible total equals owned-by-A count, is positive,
-            // and the seeded A row is visible while the seeded B row is invisible.
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)",
-                    String.class, tenantA());
             UUID rowA = rowIds.get(tenantA()).get(table);
             UUID rowB = rowIds.get(tenantB()).get(table);
-            assertThat(count(table))
-                    .as("%s exposes exactly tenant A's seeded rows under A's context", table)
-                    .isEqualTo(countOwnedUnderCurrentContext(table, tenantA()))
-                    .as("%s must actually contain tenant A rows (real data, not metadata-only)", table)
-                    .isPositive();
-            assertThat(countById(table, rowA)).as("%s row of A is visible to A", table).isEqualTo(1);
-            assertThat(countById(table, rowB)).as("%s row of B is invisible to A", table).isZero();
+            try (Connection conn = txConnection()) {
+                conn.setAutoCommit(false);
 
-            // Switch to B inside the same session: A's rows disappear immediately.
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)",
-                    String.class, tenantB());
-            assertThat(count(table))
-                    .as("%s must not retain tenant A rows after switching to B", table)
-                    .isEqualTo(countOwnedUnderCurrentContext(table, tenantB()))
-                    .isPositive();
-            assertThat(countById(table, rowB)).as("%s row of B is visible to B", table).isEqualTo(1);
-            assertThat(countById(table, rowA)).as("%s row of A must be invisible to B", table).isZero();
+                // Under A's signed context: visible total equals owned-by-A count, is
+                // positive, and the seeded A row is visible while the seeded B row is
+                // invisible.
+                bindSignedTenant(conn, UUID.fromString(tenantA()));
+                assertThat(countInTx(conn, table))
+                        .as("%s exposes exactly tenant A's seeded rows under A's context", table)
+                        .isEqualTo(countOwnedInTx(conn, table, tenantA()))
+                        .as("%s must actually contain tenant A rows (real data, not metadata-only)", table)
+                        .isPositive();
+                assertThat(countByIdInTx(conn, table, rowA)).as("%s row of A is visible to A", table).isEqualTo(1);
+                assertThat(countByIdInTx(conn, table, rowB)).as("%s row of B is invisible to A", table).isZero();
 
-            jdbc.execute("RESET app.tenant_id");
+                // Re-bind to B inside the same transaction: A's rows disappear
+                // immediately (transaction-local re-scope, same protocol).
+                bindSignedTenant(conn, UUID.fromString(tenantB()));
+                assertThat(countInTx(conn, table))
+                        .as("%s must not retain tenant A rows after switching to B", table)
+                        .isEqualTo(countOwnedInTx(conn, table, tenantB()))
+                        .isPositive();
+                assertThat(countByIdInTx(conn, table, rowB)).as("%s row of B is visible to B", table).isEqualTo(1);
+                assertThat(countByIdInTx(conn, table, rowA)).as("%s row of A must be invisible to B", table).isZero();
+
+                conn.rollback();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
@@ -306,71 +529,97 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
         UUID rowA = rowIds.get(tenantA()).get(table);
         UUID rowB = rowIds.get(tenantB()).get(table);
 
-        jdbc.execute("RESET app.tenant_id");
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantA());
+        try (Connection conn = txConnection()) {
+            conn.setAutoCommit(false);
+            bindSignedTenant(conn, UUID.fromString(tenantA()));
 
-        // Cross-tenant UPDATE is row-filtered to zero rows.
-        int updated = jdbc.update(
-                "UPDATE public.crm_cases SET subject = 'hijacked' WHERE id = ?", rowB);
-        assertThat(updated).as("cross-tenant UPDATE affects zero rows").isZero();
+            // Cross-tenant UPDATE is row-filtered to zero rows.
+            int updated;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE public.crm_cases SET subject = 'hijacked' WHERE id = ?")) {
+                ps.setObject(1, rowB);
+                updated = ps.executeUpdate();
+            }
+            assertThat(updated).as("cross-tenant UPDATE affects zero rows").isZero();
 
-        // Cross-tenant DELETE is row-filtered to zero rows.
-        int deleted = jdbc.update("DELETE FROM public.crm_cases WHERE id = ?", rowB);
-        assertThat(deleted).as("cross-tenant DELETE affects zero rows").isZero();
+            // Cross-tenant DELETE is row-filtered to zero rows.
+            int deleted;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM public.crm_cases WHERE id = ?")) {
+                ps.setObject(1, rowB);
+                deleted = ps.executeUpdate();
+            }
+            assertThat(deleted).as("cross-tenant DELETE affects zero rows").isZero();
 
-        // Cross-tenant INSERT violates WITH CHECK (fail-closed, SQLSTATE 42501);
-        // Spring translates the PSQLException, so assert on the root cause.
-        UUID smuggled = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO public.crm_cases (id, tenant_id, subject) VALUES (?, ?, 'smuggled')",
-                smuggled, UUID.fromString(tenantB())))
-                .as("cross-tenant INSERT must be rejected by WITH CHECK")
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseInstanceOf(PSQLException.class)
-                .hasStackTraceContaining("row-level security policy");
+            // A's own row is untouched by A's cross-tenant attempts (asserted
+            // BEFORE the intentional 42501 below, which aborts the transaction).
+            assertThat(countByIdInTx(conn, table, rowA)).isEqualTo(1);
 
-        // Row of B still intact and owned by B; tenant A context still sees only A.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantB());
-        String subjectB = jdbc.queryForObject(
-                "SELECT subject FROM public.crm_cases WHERE id = ?", String.class, rowB);
-        assertThat(subjectB).as("tenant B row unmodified after A's cross-tenant attempts")
-                .isEqualTo("Case-" + tenantB());
+            // Cross-tenant INSERT violates WITH CHECK (fail-closed, SQLSTATE 42501)
+            // — must be the LAST statement of the transaction: the rejection
+            // aborts it (PostgreSQL semantics), which is itself the fail-closed
+            // behavior under test.
+            UUID smuggled = UUID.randomUUID();
+            assertThatThrownBy(() -> {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO public.crm_cases (id, tenant_id, subject) VALUES (?, ?, 'smuggled')")) {
+                    ps.setObject(1, smuggled);
+                    ps.setObject(2, UUID.fromString(tenantB()));
+                    ps.executeUpdate();
+                }
+            }).as("cross-tenant INSERT must be rejected by WITH CHECK")
+                    .isInstanceOf(SQLException.class)
+                    .hasStackTraceContaining("row-level security policy");
+
+            conn.rollback();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
+        }
+
+        // Row of B still intact and owned by B; B's signed context sees it unmodified.
+        try (Connection conn = txConnection()) {
+            conn.setAutoCommit(false);
+            bindSignedTenant(conn, UUID.fromString(tenantB()));
+            String subjectB;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT subject FROM public.crm_cases WHERE id = ?")) {
+                ps.setObject(1, rowB);
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    subjectB = rs.getString(1);
+                }
+            }
+            assertThat(subjectB).as("tenant B row unmodified after A's cross-tenant attempts")
+                    .isEqualTo("Case-" + tenantB());
+            conn.rollback();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test
     void contextSwitchInsideTransactionFlipsVisibilityWithoutLeak() throws Exception {
-        try (Connection connection = new SingleConnectionDataSource(JDBC_URL, USER, PASSWORD, false)
-                .getConnection()) {
+        try (Connection connection = txConnection()) {
             connection.setAutoCommit(false);
             String table = "crm_workload_assignments";
             UUID rowA = rowIds.get(tenantA()).get(table);
             UUID rowB = rowIds.get(tenantB()).get(table);
 
-            setTenant(connection, tenantA());
+            bindSignedTenant(connection, UUID.fromString(tenantA()));
             assertThat(visibleInTx(connection, table, rowA)).isEqualTo(1);
             assertThat(visibleInTx(connection, table, rowB)).isZero();
 
             // Transaction-local switch to B: A's row disappears immediately.
-            setTenant(connection, tenantB());
+            bindSignedTenant(connection, UUID.fromString(tenantB()));
             assertThat(visibleInTx(connection, table, rowA)).isZero();
             assertThat(visibleInTx(connection, table, rowB)).isEqualTo(1);
 
             // Back to A inside the SAME transaction: B's row disappears immediately.
-            setTenant(connection, tenantA());
+            bindSignedTenant(connection, UUID.fromString(tenantA()));
             assertThat(visibleInTx(connection, table, rowB)).isZero();
             assertThat(visibleInTx(connection, table, rowA)).isEqualTo(1);
 
             connection.rollback();
-        }
-    }
-
-    private void setTenant(Connection connection, String tenantId) throws Exception {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId);
-            try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
-            }
         }
     }
 
@@ -383,32 +632,5 @@ class CrmPostBaselineFailClosedRlsPostgresTest {
                 return rs.getInt(1);
             }
         }
-    }
-
-    private int count(String table) {
-        return jdbc.queryForObject("SELECT COUNT(*) FROM public." + table, Integer.class);
-    }
-
-    /** Count rows owned by the tenant, under the CURRENTLY SET context (no side effects). */
-    private int countOwnedUnderCurrentContext(String table, String tenantId) {
-        return jdbc.queryForObject(
-                "SELECT COUNT(*) FROM public." + table + " WHERE tenant_id::text = ?",
-                Integer.class, tenantId);
-    }
-
-    private int countById(String table, UUID rowId) {
-        return jdbc.queryForObject(
-                "SELECT COUNT(*) FROM public." + table + " WHERE id = ?", Integer.class, rowId);
-    }
-
-    private int countOwnedBy(String table, String tenantId) {
-        // The fail-closed policy filters even diagnostic COUNT queries, so the
-        // count must run inside the owning tenant's own context.
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantId);
-        Integer owned = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM public." + table + " WHERE tenant_id::text = ?",
-                Integer.class, tenantId);
-        jdbc.execute("RESET app.tenant_id");
-        return owned;
     }
 }

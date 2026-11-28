@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.concurrency.ETagService;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,7 @@ class CustomerMasterHttpIntegrationTest {
 
     private final java.util.List<UUID> tenantIds = new java.util.ArrayList<>();
     private TransactionTemplate transactions;
+    @Autowired TenantRlsTransactionContext signedTenantContext;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
@@ -72,9 +74,7 @@ class CustomerMasterHttpIntegrationTest {
             // a transaction with app.tenant_id set (same pattern as
             // RlsTestSupport.deleteTenantRows but for non-CRM tables).
             transactions.executeWithoutResult(txStatus -> {
-                jdbc.getJdbcTemplate().queryForObject(
-                        "SELECT set_config('app.tenant_id', ?, true)",
-                        String.class, tenantId.toString());
+                signedTenantContext.applyForCurrentTransaction(tenantId);
                 MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
                 jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
                 jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
@@ -140,8 +140,7 @@ class CustomerMasterHttpIntegrationTest {
                 p().addValue("tenantId", fixture.tenantId()).addValue("resourceId", accountId.toString()), Integer.class);
         // crm_timeline_events is FORCE-RLS — query inside transaction-local GUC scope.
         Integer timelineCount = transactions.execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                    p().addValue("t", fixture.tenantId().toString()), String.class);
+            signedTenantContext.applyForCurrentTransaction(fixture.tenantId());
             return jdbc.queryForObject(
                     "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_id=:accountId " +
                             "AND event_type='crm.account.master.updated'",
@@ -381,9 +380,7 @@ class CustomerMasterHttpIntegrationTest {
         // require app.tenant_id on the same transaction-bound connection. Wrap
         // ALL of them in ONE TransactionTemplate block.
         transactions.executeWithoutResult(status -> {
-            jdbc.getJdbcTemplate().queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                             "VALUES (:id,:tenantId,:email,'CRM Master User','ACTIVE','dummy',:now,:now)",
                     p().addValue("id", userId).addValue("tenantId", tenantId)
@@ -416,9 +413,7 @@ class CustomerMasterHttpIntegrationTest {
         // crm_accounts is FORCE RLS (V20261029_1): the seed insert runs inside
         // a transaction-local app.tenant_id context — fail-closed otherwise.
         transactions.executeWithoutResult(status -> {
-            jdbc.getJdbcTemplate().queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, fixture.tenantId().toString());
+            signedTenantContext.applyForCurrentTransaction(fixture.tenantId());
             jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                             "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                             "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
@@ -432,9 +427,7 @@ class CustomerMasterHttpIntegrationTest {
     /** Raw FORCE-RLS write inside a transaction-local app.tenant_id context. */
     private void runInTenant(UUID tenantId, Runnable action) {
         transactions.executeWithoutResult(status -> {
-            jdbc.getJdbcTemplate().queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             action.run();
         });
     }
@@ -442,9 +435,7 @@ class CustomerMasterHttpIntegrationTest {
     /** Raw FORCE-RLS read inside a transaction-local app.tenant_id context. */
     private <T> T readInTenant(UUID tenantId, java.util.function.Supplier<T> action) {
         return transactions.execute(status -> {
-            jdbc.getJdbcTemplate().queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
+            signedTenantContext.applyForCurrentTransaction(tenantId);
             return action.get();
         });
     }

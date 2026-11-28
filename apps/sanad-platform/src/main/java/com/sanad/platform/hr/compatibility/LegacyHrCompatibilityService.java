@@ -166,7 +166,7 @@ public class LegacyHrCompatibilityService {
     }
 
     private void bindTenant(UUID tenantId) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+        new com.sanad.platform.security.rls.TenantRlsTransactionContext(jdbc).applyForCurrentTransaction(tenantId);
     }
 
     private IllegalStateException migrationRequired(String message) {

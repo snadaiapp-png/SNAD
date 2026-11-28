@@ -1,5 +1,7 @@
 package com.sanad.platform.access.evaluation;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.access.capability.AccessCapability;
 import com.sanad.platform.access.capability.AccessCapabilityService;
 import com.sanad.platform.access.capability.CapabilityStatus;
@@ -203,7 +205,7 @@ class EffectiveAccessExplanationPhase7PostgresTest {
     // ------------------------------------------------------------------
 
     private static EffectivePermissionProjectionService service(JdbcTemplate jdbc) {
-        return new EffectivePermissionProjectionService(jdbc, new AuthorizationVersionService(jdbc));
+        return new EffectivePermissionProjectionService(jdbc, new AuthorizationVersionService(jdbc), new TenantRlsTransactionContext(jdbc));
     }
 
     /** Canonical evaluator wired to the real override/relationship repositories over the migrated schema. */

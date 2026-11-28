@@ -3,6 +3,7 @@ package com.sanad.platform.subscription.rbac;
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -108,6 +109,7 @@ class RbacAccessCheckPostgresAcceptanceTest {
     @Autowired private ControlPlaneAccessService accessService;
     @Autowired private CapabilityEvaluationService evaluationService;
     @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
 
     private final List<UUID> createdTenants = new ArrayList<>();
     private final List<UUID> createdUsers = new ArrayList<>();
@@ -137,8 +139,7 @@ class RbacAccessCheckPostgresAcceptanceTest {
         Instant now = Instant.now();
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("""
                     INSERT INTO users (id, tenant_id, email, display_name, status,
                                        password_hash, must_change_password, platform_admin,
@@ -164,16 +165,13 @@ class RbacAccessCheckPostgresAcceptanceTest {
     }
 
     /**
-     * Runs the given write inside a transaction whose connection carries the
-     * transaction-local {@code app.tenant_id} GUC. roles / role_capabilities /
-     * user_role_assignments are FORCE RLS (V20261029_1): without this context
-     * the fail-closed WITH CHECK rejects every tenant-scoped seed write.
+     * Runs the given write under the verified HMAC-signed tenant scope.
+     * FORCE RLS remains enabled and enforced for every fixture operation.
      */
     private void inTenantContext(UUID tenantId, Runnable write) {
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     write.run();
                 });
     }
@@ -182,8 +180,7 @@ class RbacAccessCheckPostgresAcceptanceTest {
     private <T> T inTenantContextResult(UUID tenantId, java.util.function.Supplier<T> write) {
         return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     return write.get();
                 });
     }
@@ -243,44 +240,14 @@ class RbacAccessCheckPostgresAcceptanceTest {
 
     @AfterEach
     void cleanup() {
-        // Reverse dependency order, scoped to THIS run's records only.
-        // Under FORCE RLS (V20261011_3), DELETE FROM users requires
-        // app.tenant_id to be set on the same connection. We use a
-        // ConnectionCallback to ensure set_config and DELETE execute
-        // on the same JDBC connection within a single transaction.
+        // Signed tenant scope is transaction-local; never leave session GUCs
+        // on a pooled connection after fixture cleanup.
         for (UUID tenantId : createdTenants) {
-            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
-                try (var stmt = con.createStatement()) {
-                    // Set tenant context for cleanup (session-level —
-                    // the test is not @Transactional)
-                    stmt.execute(
-                        "SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-                    // Delete dependent records first (reverse FK order)
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM user_role_assignments WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM role_capabilities WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM roles WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    // Delete users — RLS now allows because app.tenant_id is set
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM users WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    // Clear tenant context
-                    stmt.execute("SELECT set_config('app.tenant_id', '', false)");
-                }
-                return null;
+            inTenantContext(tenantId, () -> {
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
         }
         // Delete tenants (no RLS on tenants table — FK constraint now satisfied)

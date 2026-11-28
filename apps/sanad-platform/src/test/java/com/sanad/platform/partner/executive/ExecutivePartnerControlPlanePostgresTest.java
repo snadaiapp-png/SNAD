@@ -1,5 +1,7 @@
 package com.sanad.platform.partner.executive;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -22,6 +24,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ExecutivePartnerControlPlanePostgresTest {
+
+    /** Canonical platform control-plane tenant (mirrors ExecutivePartnerService). */
+    private static final UUID CONTROL_TENANT =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final String FIXTURE_KEY_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private static final String SOURCE_URL = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
@@ -63,7 +71,15 @@ class ExecutivePartnerControlPlanePostgresTest {
         dataSource = new DriverManagerDataSource(isolatedUrl, USER, PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
         tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
-        service = new ExecutivePartnerService(jdbc);
+        service = new ExecutivePartnerService(jdbc, new TenantRlsTransactionContext(jdbc));
+        // G1 REV3: install the fixture signer for the signed binding protocol
+        // (disposable fixture topology only) — the migrated platformScope()
+        // binds through TenantRlsTransactionContext.
+        com.sanad.platform.security.rls.TenantRlsRuntimePolicy.install(
+                new com.sanad.platform.security.rls.TenantRlsRuntimePolicy.Policy(
+                        new com.sanad.platform.security.rls.TenantContextSigner(
+                                java.util.HexFormat.of().parseHex(FIXTURE_KEY_HEX), true),
+                        true));
     }
 
     @Test
@@ -227,6 +243,11 @@ class ExecutivePartnerControlPlanePostgresTest {
     }
 
     private static <T> T inTx(java.util.function.Supplier<T> supplier) {
-        return tx.execute(status -> supplier.get());
+        return tx.execute(status -> {
+            // G1 REV3 — signed control-plane binding for the FORCE-RLS
+            // partner governance plane (raw GUC untrusted post-V20261124_2).
+            new TenantRlsTransactionContext(jdbc).applyForCurrentTransaction(CONTROL_TENANT);
+            return supplier.get();
+        });
     }
 }

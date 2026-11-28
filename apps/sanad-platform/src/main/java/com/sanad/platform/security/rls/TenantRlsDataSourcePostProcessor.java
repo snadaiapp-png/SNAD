@@ -16,10 +16,11 @@ import org.springframework.stereotype.Component;
  * {@link TenantRlsDataSource}.
  *
  * <p>This activates PostgreSQL Row-Level Security as a defense-in-depth layer:
- * every connection handed out by the pool is proxied so that
- * {@code SET LOCAL app.tenant_id} is applied before the first statement
- * inside a transaction, ensuring RLS policies enforce tenant isolation at
- * the database level.</p>
+ * every connection handed out by the pool is proxied so that the HMAC-SIGNED
+ * tenant context is bound before the first statement inside a transaction
+ * ({@code app_tenant_ctx_slot} → HMAC mint → {@code app_bind_tenant_ctx} —
+ * V20261124_1 contract), ensuring RLS policies enforce tenant isolation at
+ * the database level against the HMAC-validated value.</p>
  *
  * <h3>Activation</h3>
  * <ul>
@@ -28,10 +29,16 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <h3>Safety</h3>
- * <p>The proxy is transparent when no tenant context is present (background
- * jobs, migrations via the owner role, unauthenticated paths) — RLS policies
- * are permissive-when-unset, so there is zero risk of breaking existing
- * functionality.</p>
+ * <p>Since V20261124_2 the RLS policies fail closed on sessions without a
+ * signed tenant context, so this proxy no longer relies on
+ * permissive-when-unset policies. Inside an active transaction, statements
+ * without an authenticated tenant are rejected loudly by the handler unless
+ * the path is explicitly classified via {@link TenantRlsPreAuthScope}
+ * (login, token issuance, session bootstrap); non-transactional and
+ * background paths remain transparent pass-throughs. The strict behavior is
+ * governed by {@link TenantRlsSecurityConfig} (F-INT-06): on the production
+ * path it can only be disabled with the full governance triple; the raw
+ * system-property override was removed.</p>
  */
 @Component
 @ConditionalOnProperty(name = "snad.rls.enabled", havingValue = "true", matchIfMissing = true)

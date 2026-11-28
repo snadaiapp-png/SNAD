@@ -1,6 +1,7 @@
 package com.sanad.platform.module.api;
 
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.module.lifecycle.ModuleResetResult;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -136,14 +137,14 @@ class ModuleRegistryUatPostgresAcceptanceTest {
 
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired private TenantRlsTransactionContext signedTenantContext;
 
     private UUID seedUser(UUID tenantId, String email) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
             jdbc.update("""
                     INSERT INTO users (id, tenant_id, email, display_name, status,
                                        password_hash, must_change_password, platform_admin,
@@ -191,8 +192,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
     private void inTenantContext(UUID tenantId, Runnable write) {
         new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .executeWithoutResult(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     write.run();
                 });
     }
@@ -201,8 +201,7 @@ class ModuleRegistryUatPostgresAcceptanceTest {
     private <T> T inTenantContextResult(UUID tenantId, java.util.function.Supplier<T> write) {
         return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                 .execute(status -> {
-                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                            String.class, tenantId.toString());
+                    signedTenantContext.applyForCurrentTransaction(tenantId);
                     return write.get();
                 });
     }
@@ -330,38 +329,14 @@ class ModuleRegistryUatPostgresAcceptanceTest {
             inTenantContext(row.tenantId(), () ->
                     jdbc.update("DELETE FROM roles WHERE id = ?", row.id()));
         }
-        // Under FORCE RLS (V20261011_3), DELETE FROM users requires
-        // app.tenant_id to be set on the same connection. Use a
-        // ConnectionCallback to ensure set_config and DELETE execute
-        // on the same JDBC connection.
+        // Clean up under verified per-tenant transaction scopes; never set
+        // session-level app.tenant_id on a pooled connection.
         for (UUID tenantId : createdTenants) {
-            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
-                try (var stmt = con.createStatement()) {
-                    stmt.execute(
-                        "SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM user_role_assignments WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM role_capabilities WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM roles WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    try (var ps = con.prepareStatement(
-                        "DELETE FROM users WHERE tenant_id = ?")) {
-                        ps.setObject(1, tenantId);
-                        ps.executeUpdate();
-                    }
-                    stmt.execute("SELECT set_config('app.tenant_id', '', false)");
-                }
-                return null;
+            inTenantContext(tenantId, () -> {
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
             });
         }
         // Delete tenants (no RLS on tenants table — FK constraint now satisfied)

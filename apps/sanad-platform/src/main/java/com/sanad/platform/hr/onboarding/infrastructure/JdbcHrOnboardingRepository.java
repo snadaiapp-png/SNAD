@@ -25,7 +25,7 @@ import java.util.UUID;
  * JDBC persistence boundary for HRM-G1 T9 onboarding.
  *
  * <p>Every mutation is one tenant-scoped transaction using
- * {@code set_config('app.tenant_id', ..., true)} so FORCE RLS remains the
+ * a HMAC-verified tenant binding so FORCE RLS remains the
  * final isolation boundary. Audit and outbox evidence are written in the same
  * transaction as the state transition.</p>
  */
@@ -692,11 +692,7 @@ public class JdbcHrOnboardingRepository {
     }
 
     private static void setTenantLocal(Connection connection, UUID tenantId) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true)")) {
-            ps.setString(1, tenantId.toString());
-            ps.execute();
-        }
+        com.sanad.platform.security.rls.TenantSignedConnectionBinder.bind(connection, tenantId);
     }
 
     @FunctionalInterface
