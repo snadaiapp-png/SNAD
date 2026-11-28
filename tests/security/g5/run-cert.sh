@@ -398,17 +398,7 @@ noguc=$(psql -At -U sanad -d restored -c "SELECT count(*) FROM public.refresh_to
 if signed_probe "$TA" "UPDATE public.refresh_tokens SET token_hash='changed' WHERE id='a1000000-0000-0000-0000-000000000001'" > /dev/null 2>&1; then
   die D "token_hash immutability violated (update accepted)"
 fi
-signed_probe "$TA" "SELECT count(*) FROM public.refresh_tokens" | grep -q '^1 || die D "tenant A lost its row (over-blocking!)"
-gate D "D4 PASS: Tenant A/B isolation (read/update/delete zero-effect), missing-GUC denial, pre-auth index w/o GUC=2, token_hash immutability 23514 AUTH_TOKEN_IDENTITY_IMMUTABLE (verified locally on PG 17.6.0 before CI)"
-
-owner=$(psql -At -U sanad -d restored -c "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.refresh_tokens'::regclass;")
-gate D "D5: refresh_tokens owner=$owner (FORCE binds owner); sanad super/bypassrls=$(psql -At -U sanad -d restored -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad' AND (rolsuper OR rolbypassrls));")"
-[ "$(psql -At -U sanad -d restored -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad' AND (rolsuper OR rolbypassrls));")" = "f" ] || die D "sanad became super/bypassrls!"
-gate D "D5 PASS: runtime role remains NOSUPERUSER/NOBYPASSRLS after full chain + restore"
-
-gate ALL "G5 scenarios A/B/C + G6 backup/restore: ALL GATES PASSED"
-cat "$SUMMARY"
- || die D "tenant A lost its row (over-blocking!)"
+signed_probe "$TA" "SELECT count(*) FROM public.refresh_tokens" | grep -q '^1$' || die D "tenant A lost its row (over-blocking!)"
 gate D "D4 PASS: Tenant A/B isolation (read/update/delete zero-effect), missing-GUC denial, pre-auth index w/o GUC=2, token_hash immutability 23514 AUTH_TOKEN_IDENTITY_IMMUTABLE (verified locally on PG 17.6.0 before CI)"
 
 owner=$(psql -At -U sanad -d restored -c "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.refresh_tokens'::regclass;")
