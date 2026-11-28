@@ -42,15 +42,11 @@
 \endif
 
 -- Presence precheck: the binding objects must exist (V20261124_1 applied).
-SELECT CASE
-         WHEN to_regclass('public.platform_tenant_ctx_keys') IS NULL THEN
-           'TENANT_CTX_KEYS_TABLE_MISSING: apply V20261124_1 first.'
-         ELSE 'KEYS_TABLE_PRESENT'
-       END AS precheck
+SELECT to_regclass('public.platform_tenant_ctx_keys') IS NOT NULL AS precheck
 \gset
-\if :precheck = 'KEYS_TABLE_PRESENT'
+\if :precheck
 \else
-\echo :precheck
+\echo 'TENANT_CTX_KEYS_TABLE_MISSING: apply V20261124_1 first.'
 \quit
 \endif
 
